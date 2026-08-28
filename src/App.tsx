@@ -1,15 +1,21 @@
-/**
- * App shell. The integrated game view is mounted here once the renderer lands
- * (milestone slice 5). For now this is a placeholder so the toolchain builds.
- */
+import { useEffect } from "react";
+import { GameView } from "./ui/GameView.tsx";
+import { useSimStore } from "./ui/store.ts";
+
 export function App() {
-  return (
-    <div className="app-shell">
-      <h1>ECHELON</h1>
-      <p>統合プロトタイプ — スキャフォールド段階。</p>
-      <p>
-        設計方針は <code>docs/design/00-integration-architecture.md</code> を参照。
-      </p>
-    </div>
-  );
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code === "Space" && e.target === document.body) {
+        e.preventDefault();
+        useSimStore.getState().togglePause();
+      }
+      if (e.code === "Period" && useSimStore.getState().paused) {
+        useSimStore.getState().requestStep();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  return <GameView />;
 }
