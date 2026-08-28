@@ -223,6 +223,44 @@ export function demoCrossingScenario(seed = 1): Scenario {
   };
 }
 
+/** 分隊の初期展開間隔(m)。互いの視界(20m)が重ならない程度に離す */
+const SQUAD_SPACING = 30;
+
+/**
+ * 小隊1個分の兵士と計画を組み立てる共通処理。
+ * `platoonClashScenario` と `companyClashScenario` の両方から使う。
+ */
+function buildPlatoon(
+  side: Side,
+  platoonId: number,
+  squadIds: number[],
+  center: Vec2,
+  dir: Vec2,
+  objective: Vec2,
+): {
+  soldiers: Soldier[];
+  plans: ReturnType<typeof plansFor>;
+} {
+  const right = { x: -dir.z, z: dir.x };
+  const soldiers: Soldier[] = [];
+  squadIds.forEach((squadId, i) => {
+    const lateral = (i - (squadIds.length - 1) / 2) * SQUAD_SPACING;
+    soldiers.push(
+      ...makeSquad(
+        side,
+        platoonId,
+        squadId,
+        { x: center.x + right.x * lateral, z: center.z + right.z * lateral },
+        dir,
+      ),
+    );
+  });
+  return {
+    soldiers,
+    plans: plansFor(side, platoonId, squadIds, objective, dir, center),
+  };
+}
+
 /**
  * 1個小隊 vs 1個小隊(各3個分隊 = 27名)。
  *
@@ -238,37 +276,78 @@ export function platoonClashScenario(seed = 1): Scenario {
   const bounds: Bounds = { minX: -56, maxX: 56, minZ: -40, maxZ: 40 };
   const objective = { x: 0, z: 0 };
 
-  /** 分隊の初期展開間隔(m)。互いの視界(20m)が重ならない程度に離す */
-  const SQUAD_SPACING = 30;
-  const blueZ = -32;
-  const redZ = 32;
-
-  const soldiers: Soldier[] = [];
-  const blueSquadIds = [0, 1, 2];
-  const redSquadIds = [10, 11, 12];
-
-  blueSquadIds.forEach((squadId, i) => {
-    const x = (i - 1) * SQUAD_SPACING;
-    soldiers.push(...makeSquad("blue", 0, squadId, { x, z: blueZ }, { x: 0, z: 1 }));
-  });
-  redSquadIds.forEach((squadId, i) => {
-    // 点対称になるよう、順序も座標も反転させる
-    const x = -(i - 1) * SQUAD_SPACING;
-    soldiers.push(...makeSquad("red", 1, squadId, { x, z: redZ }, { x: 0, z: -1 }));
-  });
-
-  const blue = plansFor("blue", 0, blueSquadIds, objective, { x: 0, z: 1 }, { x: 0, z: blueZ });
-  const red = plansFor("red", 1, redSquadIds, objective, { x: 0, z: -1 }, { x: 0, z: redZ });
+  const blue = buildPlatoon("blue", 0, [0, 1, 2], { x: 0, z: -32 }, { x: 0, z: 1 }, objective);
+  const red = buildPlatoon("red", 1, [10, 11, 12], { x: 0, z: 32 }, { x: 0, z: -1 }, objective);
 
   return {
     name: "platoon-clash",
     seed,
     bounds,
     walls: symmetricWalls(),
+    soldiers: [...blue.soldiers, ...red.soldiers],
+    fireteamPlans: [...blue.plans.fireteamPlans, ...red.plans.fireteamPlans],
+    squadPlans: [...blue.plans.squadPlans, ...red.plans.squadPlans],
+    platoonPlans: [...blue.plans.platoonPlans, ...red.plans.platoonPlans],
+    controlMeasures: [{ kind: "OBJ", label: "OBJ FALCON", points: [{ ...objective }] }],
+  };
+}
+
+/**
+ * 1個中隊 vs 1個中隊(各3個小隊 × 3個分隊 = 81名、両軍162名)。
+ *
+ * 仕様 §2 が想定する規模(中隊 = 3〜4個小隊)の下限。火器分隊・小隊本部・中隊本部が
+ * 未実装のため、仕様上の約130名/中隊には届いていない。
+ *
+ * 中隊長のC2はまだ存在しないため、3個小隊はそれぞれ独立に動く。この状態でも
+ * 規模のパフォーマンス特性(design OQ-5)は測れる。
+ */
+export function companyClashScenario(seed = 1): Scenario {
+  resetIds();
+  const bounds: Bounds = { minX: -110, maxX: 110, minZ: -70, maxZ: 70 };
+  const objective = { x: 0, z: 0 };
+
+  /** 小隊の初期展開間隔(m)。分隊3個分の正面幅より広く取る */
+  const PLATOON_SPACING = 110;
+
+  const soldiers: Soldier[] = [];
+  const fireteamPlans: FireteamPlan[] = [];
+  const squadPlans: SquadPlan[] = [];
+  const platoonPlans: PlatoonPlan[] = [];
+
+  for (let p = 0; p < 3; p++) {
+    const lateral = (p - 1) * PLATOON_SPACING * 0.5;
+    const blue = buildPlatoon(
+      "blue",
+      p,
+      [p * 10, p * 10 + 1, p * 10 + 2],
+      { x: lateral, z: -58 },
+      { x: 0, z: 1 },
+      objective,
+    );
+    // 点対称になるよう座標も向きも反転させる
+    const red = buildPlatoon(
+      "red",
+      100 + p,
+      [1000 + p * 10, 1000 + p * 10 + 1, 1000 + p * 10 + 2],
+      { x: -lateral, z: 58 },
+      { x: 0, z: -1 },
+      objective,
+    );
+    soldiers.push(...blue.soldiers, ...red.soldiers);
+    fireteamPlans.push(...blue.plans.fireteamPlans, ...red.plans.fireteamPlans);
+    squadPlans.push(...blue.plans.squadPlans, ...red.plans.squadPlans);
+    platoonPlans.push(...blue.plans.platoonPlans, ...red.plans.platoonPlans);
+  }
+
+  return {
+    name: "company-clash",
+    seed,
+    bounds,
+    walls: symmetricWalls(),
     soldiers,
-    fireteamPlans: [...blue.fireteamPlans, ...red.fireteamPlans],
-    squadPlans: [...blue.squadPlans, ...red.squadPlans],
-    platoonPlans: [...blue.platoonPlans, ...red.platoonPlans],
+    fireteamPlans,
+    squadPlans,
+    platoonPlans,
     controlMeasures: [{ kind: "OBJ", label: "OBJ FALCON", points: [{ ...objective }] }],
   };
 }

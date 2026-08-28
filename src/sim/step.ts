@@ -7,6 +7,7 @@
 
 import { pathingSystem } from "./systems/pathing.ts";
 import { movementSystem } from "./systems/movement.ts";
+import { separationSystem } from "./systems/separation.ts";
 import { perceptionSystem } from "./systems/perception.ts";
 import { combatSystem } from "./systems/combat.ts";
 import { casualtiesSystem } from "./systems/casualties.ts";
@@ -31,9 +32,11 @@ export function stepWorld(world: World): void {
   pathingSystem(world);
   // 5. 移動 — 経路と命令の向きを消費する
   movementSystem(world);
-  // 6. 戦闘 — 交戦・命中判定・制圧の適用
+  // 6. 分離 — 兵士同士の重なりをほぐす(移動の直後、戦闘の判定前)
+  separationSystem(world);
+  // 7. 戦闘 — 交戦・命中判定・制圧の適用
   combatSystem(world);
-  // 7. 死傷 — 出血タイマーの進行
+  // 8. 死傷 — 出血タイマーの進行
   casualtiesSystem(world);
 
   world.tick += 1;

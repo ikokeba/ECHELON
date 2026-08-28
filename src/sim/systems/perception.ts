@@ -6,15 +6,22 @@
  *
  * FT/分隊単位の視界の合算(仕様 §5)は、この兵士単位の集合から C2 層が必要に応じて
  * 導出する。ここには保持しない。
+ *
+ * 候補の絞り込みには空間ハッシュを使う。総当たりだと中隊規模(両軍約260名)で
+ * 毎秒200万回の判定になり破綻するため。
  */
 
 import { hasLineOfSight } from "../geometry.ts";
 import { DETECT_RANGE, FOV_HALF_RAD } from "../constants.ts";
+import { clearHash, createSpatialHash, forEachNear, insert } from "../spatial.ts";
 import type { World } from "../world.ts";
 import type { Soldier } from "../types.ts";
 
 const COS_FOV = Math.cos(FOV_HALF_RAD);
 const DETECT_RANGE_SQ = DETECT_RANGE * DETECT_RANGE;
+
+/** セルサイズは索敵距離の半分。1回の問い合わせで走査するセル数を小さく保つ。 */
+const hash = createSpatialHash<Soldier>(DETECT_RANGE / 2);
 
 export function canSee(walls: World["walls"], viewer: Soldier, target: Soldier): boolean {
   const dx = target.pos.x - viewer.pos.x;
@@ -28,16 +35,25 @@ export function canSee(walls: World["walls"], viewer: Soldier, target: Soldier):
 }
 
 export function perceptionSystem(world: World): void {
+  clearHash(hash);
+  for (const s of world.soldiers) {
+    if (s.status === "kia") continue; // 遺体は視認対象にならない(仕様 §9)
+    insert(hash, s.pos, s);
+  }
+
   for (const s of world.soldiers) {
     if (s.status === "kia") {
       if (s.sees.length) s.sees = [];
       continue;
     }
     const seen: number[] = [];
-    for (const other of world.soldiers) {
-      if (other.side === s.side || other.status === "kia") continue;
+    forEachNear(hash, s.pos, DETECT_RANGE, (other) => {
+      if (other.side === s.side) return;
       if (canSee(world.walls, s, other)) seen.push(other.id);
-    }
+    });
+    // 走査順が空間ハッシュのセル順に依存するので、IDで整列して決定性を保つ。
+    // ここを揺らすと同一シードのリプレイが再現しなくなる。
+    seen.sort((a, b) => a - b);
     s.sees = seen;
   }
 }

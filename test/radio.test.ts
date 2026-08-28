@@ -140,3 +140,22 @@ describe("小隊規模の戦闘", () => {
     expect(Math.abs(blueWins - redWins)).toBeLessThanOrEqual(decided * 0.5);
   }, 120000);
 });
+
+describe("中隊規模(仕様 §2 の想定規模)", () => {
+  it("3個小隊 × 3個分隊が組み上がり、決定論的に動く", async () => {
+    const { companyClashScenario } = await import("../src/sim/scenario.ts");
+    const w = createWorld(companyClashScenario(1));
+    expect(w.platoons.length).toBe(6); // 各陣営3個小隊
+    expect(w.squads.length).toBe(18);
+    expect(w.soldiers.length).toBe(162);
+
+    const snap = (seed: number) => {
+      const a = createWorld(companyClashScenario(seed));
+      runTicks(a, 1200);
+      return JSON.stringify(
+        a.soldiers.map((s) => [s.id, s.status, Math.round(s.pos.x * 1e4), Math.round(s.pos.z * 1e4)]),
+      );
+    };
+    expect(snap(5)).toEqual(snap(5));
+  }, 60000);
+});
