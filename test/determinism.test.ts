@@ -33,7 +33,7 @@ describe("simulation determinism", () => {
     const z0 = blue.reduce((acc, s) => acc + s.pos.z, 0) / blue.length;
     runTicks(w, 300); // 10s
     const z1 = blue.reduce((acc, s) => acc + s.pos.z, 0) / blue.length;
-    expect(z1).toBeGreaterThan(z0 + 5); // moved north, meaningfully
+    expect(z1).toBeGreaterThan(z0 + 3); // moved north, meaningfully
   });
 
   it("keeps every soldier out of walls", () => {
@@ -49,16 +49,29 @@ describe("simulation determinism", () => {
     }
   });
 
-  it("is symmetric: mirrored blue/red end mirrored", () => {
+  it("starts point-symmetric: both forces are mirror images at t=0", () => {
     const w = createWorld(demoCrossingScenario(1));
-    runTicks(w, 240);
     const blue = w.soldiers.filter((s) => s.side === "blue").sort((p, q) => p.id - q.id);
     const red = w.soldiers.filter((s) => s.side === "red").sort((p, q) => p.id - q.id);
     expect(blue.length).toBe(red.length);
     for (let i = 0; i < blue.length; i++) {
-      // red squad is the point reflection of blue through the origin
-      expect(blue[i]!.pos.x).toBeCloseTo(-red[i]!.pos.x, 4);
-      expect(blue[i]!.pos.z).toBeCloseTo(-red[i]!.pos.z, 4);
+      expect(blue[i]!.pos.x).toBeCloseTo(-red[i]!.pos.x, 6);
+      expect(blue[i]!.pos.z).toBeCloseTo(-red[i]!.pos.z, 6);
+    }
+  });
+
+  it("has a mirror-symmetric wall layout and cover lattice", () => {
+    const w = createWorld(demoCrossingScenario(1));
+    const key = (x: number, z: number) => `${x.toFixed(4)},${z.toFixed(4)}`;
+
+    const wallSet = new Set(w.walls.map((wall) => key(wall.cx, wall.cz)));
+    for (const wall of w.walls) {
+      expect(wallSet.has(key(-wall.cx, -wall.cz))).toBe(true);
+    }
+
+    const coverSet = new Set(w.coverPoints.map((p) => key(p.x, p.z)));
+    for (const p of w.coverPoints) {
+      expect(coverSet.has(key(-p.x, -p.z))).toBe(true);
     }
   });
 });

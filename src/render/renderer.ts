@@ -123,6 +123,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
 
   const dummy = new THREE.Object3D();
   const col = new THREE.Color();
+  const col2 = new THREE.Color();
 
   let prev: TickSnapshot = snapshot(world);
   let cur: TickSnapshot = prev;
@@ -166,18 +167,32 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       const fz = p.fz + (c.fz - p.fz) * a;
       const heading = Math.atan2(fx, fz);
 
-      dummy.position.set(x, 0.05, z);
+      const dead = s.status === "kia";
+      dummy.position.set(x, dead ? 0.02 : 0.05, z);
       dummy.rotation.set(0, 0, 0);
+      dummy.scale.setScalar(dead ? 0.7 : 1);
       dummy.updateMatrix();
+      dummy.scale.setScalar(1);
       discMesh.setMatrixAt(i, dummy.matrix);
 
-      const color =
+      let color =
         s.status === "kia" ? KIA_COLOR : s.status === "wia" ? WIA_COLOR : SIDE_COLOR[s.side];
+      if (s.status === "ok" && s.suppressedUntilTick > world.tick) {
+        color = col.setHex(color).lerp(col2.setHex(0xe8edf5), 0.55).getHex();
+      }
       discMesh.setColorAt(i, col.setHex(color));
 
-      dummy.position.set(x + Math.sin(heading) * SOLDIER_RADIUS * 1.1, 0.06, z + Math.cos(heading) * SOLDIER_RADIUS * 1.1);
+      // facing wedge only for soldiers still in the fight
+      const wedgeScale = s.status === "ok" ? 1 : 0.001;
+      dummy.position.set(
+        x + Math.sin(heading) * SOLDIER_RADIUS * 1.1,
+        0.06,
+        z + Math.cos(heading) * SOLDIER_RADIUS * 1.1,
+      );
       dummy.rotation.set(0, heading, 0);
+      dummy.scale.setScalar(wedgeScale);
       dummy.updateMatrix();
+      dummy.scale.setScalar(1);
       wedgeMesh.setMatrixAt(i, dummy.matrix);
 
       i++;

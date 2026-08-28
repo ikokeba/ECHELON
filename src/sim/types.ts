@@ -49,7 +49,11 @@ export type FireteamMode = "ADVANCE" | "CONTACT" | "SEARCH" | "FALLBACK";
 /** Outdoor movement techniques a squad/platoon leader selects (spec §6). */
 export type MovementTechnique = "traveling" | "traveling_overwatch" | "bounding_overwatch";
 
-export type SoldierStatus = "ok" | "suppressed" | "wia" | "kia";
+/**
+ * Life state only. Suppression is NOT a status — it's a flat, no-residue accuracy
+ * effect (spec §8.6) tracked by `suppressedUntilTick`.
+ */
+export type SoldierStatus = "ok" | "wia" | "kia";
 
 export interface SoldierOrder {
   kind: SoldierOrderKind;
@@ -92,6 +96,14 @@ export interface Soldier {
   /** current path as a list of waypoints; consumed front-to-back */
   path: Vec2[];
   pathIdx: number;
+
+  /**
+   * Enemy soldier ids this soldier can personally see this tick (range + view
+   * cone + LOS, spec §5). Transient — rebuilt every tick by perceptionSystem.
+   */
+  sees: number[];
+  /** true while acting as a suppressor (spec §8.6 "制圧役"); set by order or AI */
+  suppressor: boolean;
 
   /** individual-variance parameters (spec §14); 0..1 each */
   traits: SoldierTraits;
@@ -146,6 +158,57 @@ export interface Report {
   };
 }
 
+/**
+ * A fireteam's controller state — the "command system" node (spec §1 [v5]).
+ * Ported from the squad-12v12 mock's per-squad state object. Its `memory` is the
+ * FT leader's world picture: the union of its members' vision (spec §5), decayed
+ * over time.
+ */
+export interface FireteamState {
+  id: number;
+  side: Side;
+  squadId: number;
+  /** index within the squad (0 or 1) */
+  ftIndex: number;
+
+  mode: FireteamMode;
+  /** tick the current mode was entered (hysteresis / dwell) */
+  modeSince: number;
+
+  /** which buddy pair is bounding this leg */
+  boundingLeg: "alpha" | "bravo";
+  /** the current bound destination; held until reached (mock: don't re-pick every cycle) */
+  boundTarget: Vec2 | null;
+  /** which pair is the base-of-fire element in CONTACT */
+  baseElement: "alpha" | "bravo";
+
+  /** per-soldier destination cache + the tick it was chosen (anti-dither, mock behaviour) */
+  unitDest: Map<number, Vec2>;
+  unitDestSince: Map<number, number>;
+
+  /** the FT leader's contact picture */
+  memory: Map<string, Contact>;
+  /** where to sweep after losing contact */
+  searchPoint: Vec2 | null;
+
+  /** where this fireteam is ultimately headed (its objective) */
+  objective: Vec2;
+  /** direction of the general advance, for fallback/spread reference */
+  advanceDir: Vec2;
+  /** rally point to fall back to */
+  rallyPoint: Vec2;
+}
+
+/** Scenario-level intent for one fireteam, used to seed its controller. */
+export interface FireteamPlan {
+  side: Side;
+  squadId: number;
+  ftIndex: number;
+  objective: Vec2;
+  advanceDir: Vec2;
+  rallyPoint: Vec2;
+}
+
 export interface Scenario {
   name: string;
   seed: number;
@@ -153,6 +216,8 @@ export interface Scenario {
   walls: AABB[];
   /** starting soldiers, fully specified */
   soldiers: Soldier[];
+  /** per-fireteam objectives; missing entries fall back to the map centre */
+  fireteamPlans?: FireteamPlan[];
   /** control measures for reference/rendering (spec §6): checkpoints, phase lines, objectives */
   controlMeasures?: ControlMeasure[];
 }

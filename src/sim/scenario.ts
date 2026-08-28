@@ -5,7 +5,7 @@
  * (design §2, AD-10); this stays as the programmatic fixture.
  */
 
-import type { AABB, Bounds, Scenario, Side, Soldier, Vec2 } from "./types.ts";
+import type { AABB, Bounds, FireteamPlan, Scenario, Side, Soldier, Vec2 } from "./types.ts";
 
 let nextId = 1;
 export function resetIds(): void {
@@ -43,6 +43,8 @@ export function makeSoldier(seed: SoldierSeed): Soldier {
       : { kind: "hold", facing: { ...facing }, issuedTick: 0 },
     path: [],
     pathIdx: 0,
+    sees: [],
+    suppressor: false,
     traits: {
       aggressiveness: seed.traits?.aggressiveness ?? 0.5,
       boldness: seed.traits?.boldness ?? 0.5,
@@ -132,9 +134,34 @@ export function demoCrossingScenario(seed = 1): Scenario {
     { cx: -3, cz: 1.4, hw: 0.4, hd: 1.6 },
   );
 
+  const blueStart = { x: 0, z: -17 };
+  const redStart = { x: 0, z: 17 };
+  const objective = { x: 0, z: 0 };
+
   const soldiers = [
-    ...makeSquad("blue", 0, { x: 0, z: -17 }, { x: 0, z: 1 }, { x: 0, z: 17 }),
-    ...makeSquad("red", 1, { x: 0, z: 17 }, { x: 0, z: -1 }, { x: 0, z: -17 }),
+    ...makeSquad("blue", 0, blueStart, { x: 0, z: 1 }, objective),
+    ...makeSquad("red", 1, redStart, { x: 0, z: -1 }, objective),
+  ];
+
+  // Both squads are ordered onto the same central objective, so they meet and
+  // fight. Fireteam controllers take over from the initial move orders.
+  const fireteamPlans: FireteamPlan[] = [
+    ...[0, 1].map((ft) => ({
+      side: "blue" as const,
+      squadId: 0,
+      ftIndex: ft,
+      objective: { ...objective },
+      advanceDir: { x: 0, z: 1 },
+      rallyPoint: { ...blueStart },
+    })),
+    ...[0, 1].map((ft) => ({
+      side: "red" as const,
+      squadId: 1,
+      ftIndex: ft,
+      objective: { ...objective },
+      advanceDir: { x: 0, z: -1 },
+      rallyPoint: { ...redStart },
+    })),
   ];
 
   return {
@@ -143,6 +170,7 @@ export function demoCrossingScenario(seed = 1): Scenario {
     bounds,
     walls,
     soldiers,
-    controlMeasures: [{ kind: "OBJ", label: "OBJ FALCON", points: [{ x: 0, z: 0 }] }],
+    fireteamPlans,
+    controlMeasures: [{ kind: "OBJ", label: "OBJ FALCON", points: [{ ...objective }] }],
   };
 }

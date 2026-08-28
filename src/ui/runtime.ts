@@ -20,7 +20,7 @@ function hudOf(world: World): HudSnapshot {
   let redEffective = 0;
   for (const s of world.soldiers) {
     const alive = s.status !== "kia";
-    const effective = s.status === "ok" || s.status === "suppressed";
+    const effective = s.status === "ok";
     if (s.side === "blue") {
       if (alive) blueAlive++;
       if (effective) blueEffective++;
