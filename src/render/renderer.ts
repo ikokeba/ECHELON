@@ -138,6 +138,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     camera.top = halfH;
     camera.bottom = -halfH;
     camera.position.set(target.x, 100, target.z);
+    camera.lookAt(target.x, 0, target.z);
     camera.updateProjectionMatrix();
   }
 
