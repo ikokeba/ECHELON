@@ -15,7 +15,6 @@ import { findPath } from "../navgrid.ts";
 import { SIM_HZ } from "../constants.ts";
 import type { World } from "../world.ts";
 
-const MOVING_ORDERS = new Set(["move", "maneuver", "retreat", "evade"]);
 /** 経路が得られなかった場合の再試行間隔の上限 */
 const PATH_RECHECK_TICKS = Math.round(SIM_HZ * 0.5);
 /** 目的地に十分近く、経路探索が不要とみなす距離 */
@@ -24,7 +23,8 @@ const ARRIVE_EPS = 0.4;
 export function pathingSystem(world: World): void {
   for (const s of world.soldiers) {
     if (s.status === "kia" || s.status === "wia") continue;
-    if (!MOVING_ORDERS.has(s.order.kind)) continue;
+    // 移動の要否は命令の種類ではなく目的地の有無で決まる(movement.ts と同じ規則)。
+    // `suppress` も「この射撃位置へ移動して制圧しろ」という意味を持ちうる。
     const goal = s.order.target;
     if (!goal) continue;
     if (s.pathIdx < s.path.length) continue; // すでに経路を追従中

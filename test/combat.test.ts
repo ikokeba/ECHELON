@@ -62,7 +62,7 @@ describe("rollShot", () => {
 
 describe("isSuppressed", () => {
   it("is true only until the stamped tick", () => {
-    const s = makeSoldier({ side: "blue", squadId: 0, fireteamId: 0, pos: { x: 0, z: 0 } });
+    const s = makeSoldier({ side: "blue", platoonId: 0, squadId: 0, fireteamId: 0, pos: { x: 0, z: 0 } });
     s.suppressedUntilTick = 10;
     expect(isSuppressed(s, 9)).toBe(true);
     expect(isSuppressed(s, 10)).toBe(false);
@@ -71,7 +71,7 @@ describe("isSuppressed", () => {
 
 describe("canSee", () => {
   const mk = (x: number, z: number, fx: number, fz: number, side: "blue" | "red") =>
-    makeSoldier({ side, squadId: 0, fireteamId: 0, pos: { x, z }, facing: { x: fx, z: fz } });
+    makeSoldier({ side, platoonId: 0, squadId: 0, fireteamId: 0, pos: { x, z }, facing: { x: fx, z: fz } });
 
   it("sees a target ahead within range with clear LOS", () => {
     resetIds();

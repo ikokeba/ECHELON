@@ -20,7 +20,7 @@ import {
   bestFlankPoint,
   pickSupportedBoundTarget,
 } from "../cover.ts";
-import { CONFIDENCE_CUTOFF, SIM_HZ } from "../constants.ts";
+import { CONFIDENCE_CUTOFF, POS_ERROR_GROWTH, SIM_HZ } from "../constants.ts";
 import { decayedConfidence } from "../belief.ts";
 import type { Contact, FireteamMode, FireteamState, Soldier, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
@@ -116,6 +116,8 @@ function updateMemory(world: World, ft: FireteamState, members: readonly Soldier
         side: enemy.side,
         pos: { x: enemy.pos.x, z: enemy.pos.z },
         posError: 0,
+        // 直接視認した接触なので無線ホップ由来の粗さはゼロ
+        hopError: 0,
         lastSeenTick: world.tick,
         confidence: 1,
         count: 1,
@@ -140,7 +142,7 @@ function updateMemory(world: World, ft: FireteamState, members: readonly Soldier
     }
     const age = (world.tick - c.lastSeenTick) / SIM_HZ;
     c.confidence = decayedConfidence(age);
-    c.posError = age * 0.15;
+    c.posError = c.hopError + age * POS_ERROR_GROWTH;
     if (c.confidence < CONFIDENCE_CUTOFF) ft.memory.delete(key);
   }
 }
@@ -239,6 +241,97 @@ function runBoundingOverwatch(
   });
 }
 
+/**
+ * 前進(Traveling、仕様 §6): 接敵の可能性が低く速度優先。
+ * 隊列を保ったまま全員が連続移動する。警戒要員を割かないぶん最も速い。
+ */
+function runTraveling(world: World, ft: FireteamState, members: Soldier[], forward: Vec2): void {
+  if (members.length === 0) return;
+  const mc = centroid(members);
+  // 目標そのものへ向かう(遮蔽を経由しないので躍進前進より直線的で速い)
+  const dest = ft.objective;
+  members.forEach((u, i) => {
+    const off = offsetPerp(i, members.length, 1.5, forward);
+    // 縦隊寄りに、前後へ少しずらして隊列を作る
+    const trail = -i * 1.2;
+    const look = rotate(forward, ((i % 2 === 0 ? -20 : 20) * Math.PI) / 180);
+    issue(
+      world,
+      u,
+      "move",
+      { x: dest.x + off.x + forward.x * trail, z: dest.z + off.z + forward.z * trail },
+      look,
+    );
+  });
+  void mc;
+}
+
+/**
+ * 警戒前進(Traveling Overwatch、仕様 §6): 接敵の可能性あり。
+ * 先頭組が前進し、後続組は射撃準備を保って一定距離を空けて追従する。
+ * 躍進前進と違い後続組も止まらないため、速度と警戒の中間になる。
+ */
+function runTravelingOverwatch(
+  world: World,
+  ft: FireteamState,
+  alpha: Soldier[],
+  bravo: Soldier[],
+  forward: Vec2,
+): void {
+  const members = [...alpha, ...bravo];
+  if (members.length === 0) return;
+  if (alpha.length === 0 || bravo.length === 0) {
+    runTraveling(world, ft, members, forward);
+    return;
+  }
+
+  const dest = ft.objective;
+  /** 先頭組と後続組の間隔(m)。相互支援が届く範囲に収める */
+  const TRAIL_GAP = 8;
+
+  alpha.forEach((u, i) => {
+    const off = offsetPerp(i, alpha.length, 1.6, forward);
+    const look = rotate(forward, ((i === 0 ? -25 : 25) * Math.PI) / 180);
+    issue(world, u, "move", { x: dest.x + off.x, z: dest.z + off.z }, look);
+  });
+
+  bravo.forEach((u, i) => {
+    const off = offsetPerp(i, bravo.length, 1.6, forward);
+    const look = rotate(forward, ((i === 0 ? 0 : 120) * Math.PI) / 180);
+    issue(
+      world,
+      u,
+      "move",
+      {
+        x: dest.x + off.x - forward.x * TRAIL_GAP,
+        z: dest.z + off.z - forward.z * TRAIL_GAP,
+      },
+      look,
+    );
+  });
+}
+
+/** 分隊長から指示された移動技術(仕様 §6)に従って前進する。 */
+function runAdvance(
+  world: World,
+  ft: FireteamState,
+  alpha: Soldier[],
+  bravo: Soldier[],
+  forward: Vec2,
+): void {
+  switch (ft.technique) {
+    case "traveling":
+      runTraveling(world, ft, [...alpha, ...bravo], forward);
+      return;
+    case "traveling_overwatch":
+      runTravelingOverwatch(world, ft, alpha, bravo, forward);
+      return;
+    case "bounding_overwatch":
+      runBoundingOverwatch(world, ft, alpha, bravo, forward);
+      return;
+  }
+}
+
 /** 兵士の目的地を決める。ばたつき防止の保持時間を尊重する。 */
 function cachedDest(
   world: World,
@@ -314,27 +407,43 @@ export function fireteamAI(world: World): void {
         }
       }
       if (!primary) {
-        runBoundingOverwatch(world, ft, alpha, bravo, dirTo(mc, ft.objective));
+        runAdvance(world, ft, alpha, bravo, dirTo(mc, ft.objective));
         continue;
       }
       const enemy = primary.pos;
 
-      // すでに敵を視認できている側のペアがベース・オブ・ファイアを担当する
-      const alphaLOS = alpha.some((u) => hasLineOfSight(world.walls, u.pos.x, u.pos.z, enemy.x, enemy.z));
-      const bravoLOS = bravo.some((u) => hasLineOfSight(world.walls, u.pos.x, u.pos.z, enemy.x, enemy.z));
+      // 分隊長からFT単位の役割(base / maneuver)が下りている場合、FT内の2ペアは
+      // 分割せず全員でその役割に専念する。分隊長が健在で指示を出せている状況では、
+      // 火力と機動の分割は分隊長の責務(仕様 §6)であってFTの裁量ではない。
       let base: Soldier[];
       let maneuver: Soldier[];
-      if (alphaLOS && !bravoLOS) {
-        base = alpha;
-        maneuver = bravo;
-      } else if (bravoLOS && !alphaLOS) {
-        base = bravo;
-        maneuver = alpha;
+      if (ft.assignedRole === "base") {
+        base = living;
+        maneuver = [];
+      } else if (ft.assignedRole === "maneuver") {
+        base = [];
+        maneuver = living;
       } else {
-        base = ft.baseElement === "bravo" ? bravo : alpha;
-        maneuver = base === alpha ? bravo : alpha;
+        // 指示がない(分隊長不在・未接敵扱い)場合はFT内で自律的に分割する。
+        // すでに敵を視認できている側のペアがベース・オブ・ファイアを担当する
+        const alphaLOS = alpha.some((u) =>
+          hasLineOfSight(world.walls, u.pos.x, u.pos.z, enemy.x, enemy.z),
+        );
+        const bravoLOS = bravo.some((u) =>
+          hasLineOfSight(world.walls, u.pos.x, u.pos.z, enemy.x, enemy.z),
+        );
+        if (alphaLOS && !bravoLOS) {
+          base = alpha;
+          maneuver = bravo;
+        } else if (bravoLOS && !alphaLOS) {
+          base = bravo;
+          maneuver = alpha;
+        } else {
+          base = ft.baseElement === "bravo" ? bravo : alpha;
+          maneuver = base === alpha ? bravo : alpha;
+        }
+        ft.baseElement = base === alpha ? "alpha" : "bravo";
       }
-      ft.baseElement = base === alpha ? "alpha" : "bravo";
 
       for (const u of base) {
         const d = dist(u.pos, enemy);
@@ -349,7 +458,21 @@ export function fireteamAI(world: World): void {
           const p = cachedDest(world, ft, u, () =>
             bestCoverPoint(world.walls, world.coverPoints, u.pos, enemy, ENGAGE_MIN, ENGAGE_MAX),
           );
-          issue(world, u, "suppress", p ?? u.pos, dirTo(u.pos, enemy));
+          if (p) {
+            issue(world, u, "suppress", p, dirTo(u.pos, enemy));
+          } else {
+            // 射撃位置の候補が見つからない = いまいる場所からは敵を撃てない。
+            // その場に留まると射線も通らないまま永久に硬直するため、交戦距離帯の
+            // 外縁まで詰めて射線を回復しにいく。
+            const toEnemy = dirTo(u.pos, enemy);
+            issue(
+              world,
+              u,
+              "maneuver",
+              { x: enemy.x - toEnemy.x * ENGAGE_MAX, z: enemy.z - toEnemy.z * ENGAGE_MAX },
+              toEnemy,
+            );
+          }
         }
       }
 
@@ -387,15 +510,19 @@ export function fireteamAI(world: World): void {
         const look = freshest ? dirTo(u.pos, freshest.pos) : ft.advanceDir;
         issue(world, u, "retreat", p, look);
       });
-    } else {
-      // ADVANCE / SEARCH — 任務目標または最終接敵位置へ向けてバウンディングオーバーウォッチ
-      const aim = ft.mode === "SEARCH" && ft.searchPoint ? ft.searchPoint : ft.objective;
-      if (ft.mode === "SEARCH" && ft.searchPoint && dist(mc, ft.searchPoint) < 3) {
+    } else if (ft.mode === "SEARCH") {
+      // 最終接敵位置へ向けて掃討する。見失った直後は危険度が高いので、
+      // 小隊長の指示に関係なく躍進前進で慎重に進む。
+      const aim = ft.searchPoint ?? ft.objective;
+      if (ft.searchPoint && dist(mc, ft.searchPoint) < 3) {
         // 最終目撃地点まで掃討して何も見つからなければ、前進を再開する
         ft.searchPoint = null;
         ft.memory.clear();
       }
       runBoundingOverwatch(world, ft, alpha, bravo, dirTo(mc, aim));
+    } else {
+      // ADVANCE — 分隊長(ひいては小隊長)が指示した移動技術で任務目標へ向かう(仕様 §6)
+      runAdvance(world, ft, alpha, bravo, dirTo(mc, ft.objective));
     }
   }
 }

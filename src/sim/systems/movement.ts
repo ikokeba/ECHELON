@@ -39,7 +39,17 @@ function moveWithWallSlide(walls: World["walls"], from: Vec2, to: Vec2): Vec2 {
   return { ...from };
 }
 
-const MOVING_ORDERS = new Set(["move", "maneuver", "retreat", "evade"]);
+/**
+ * 移動するかどうかは**命令の種類ではなく目的地の有無**で決まる。
+ *
+ * これはモックの挙動でもある: `suppress` 命令は「この射撃位置へ移動して制圧しろ」
+ * という意味を持ちうるので、種類で移動を弾くと、割り当てられた射撃位置へ永久に
+ * たどり着けなくなる(実際にそれで両軍が睨み合ったまま膠着する不具合を起こした)。
+ * `hold` は常に目的地を持たないため、この規則だけで正しく静止する。
+ */
+function wantsToMove(s: Soldier): boolean {
+  return s.order.target !== undefined;
+}
 
 export function movementSystem(world: World): void {
   const maxTurn = TURN_RATE * SIM_DT;
@@ -48,7 +58,7 @@ export function movementSystem(world: World): void {
   for (const s of world.soldiers) {
     if (s.status === "kia" || s.status === "wia") continue;
 
-    if (MOVING_ORDERS.has(s.order.kind) && s.pathIdx < s.path.length) {
+    if (wantsToMove(s) && s.pathIdx < s.path.length) {
       const step = advanceAlongPath(s.pos, s.path, s.pathIdx, maxStep);
       const accepted = moveWithWallSlide(world.walls, s.pos, step.pos);
       s.pos = accepted;

@@ -43,12 +43,17 @@ describe("fireteam AI", () => {
   });
 
   it("assigns base-of-fire and maneuver roles in CONTACT (spec §6)", () => {
+    // 特定の1ティックを覗くのではなく交戦の経過を通して観測する。
+    // どの瞬間に接敵するかは移動技術の選択(小隊長の判断)に左右されるため。
     const w = createWorld(demoCrossingScenario(1));
-    runTicks(w, 900);
-    const kinds = new Set(w.soldiers.filter((s) => s.status === "ok").map((s) => s.order.kind));
+    const kinds = new Set<string>();
+    for (let i = 0; i < 3600; i++) {
+      runTicks(w, 1);
+      for (const s of w.soldiers) if (s.status === "ok") kinds.add(s.order.kind);
+    }
     expect(kinds.has("suppress")).toBe(true);
     expect(kinds.has("maneuver")).toBe(true);
-  });
+  }, 30000);
 
   it("drops a contact from the picture as soon as it is confirmed KIA (spec §9)", () => {
     const w = createWorld(demoCrossingScenario(2));

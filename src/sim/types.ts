@@ -73,6 +73,8 @@ export interface SoldierOrder {
 export interface Soldier {
   id: number;
   side: Side;
+  /** 所属小隊のID */
+  platoonId: number;
   /** 所属分隊のID */
   squadId: number;
   /** 分隊内のファイアチームID(0 または 1。分隊長枠は -1) */
@@ -125,8 +127,17 @@ export interface Contact {
   side: Side;
   /** 最終目撃位置 */
   pos: Vec2;
-  /** 位置誤差の概算半径(m)。情報が古くなるほど拡大する */
+  /**
+   * 位置誤差の概算半径(m)。`hopError + 経過時間 × 拡大率` で毎ティック再計算される。
+   * 描画上は最終目撃位置を中心とする不確度円になる(仕様 §5)。
+   */
   posError: number;
+  /**
+   * 無線を1ホップ経るごとに加算される、時間経過とは無関係な粒度の粗さ(m)。
+   * 仕様 §5「中隊長は…さらに遅延・粒度が粗くなる」を表現する。
+   * 直接視認した接触では0。
+   */
+  hopError: number;
   /** この接触情報の元になった最新の観測ティック */
   lastSeenTick: number;
   /** 0..1。lastSeenTick からの経過で毎ティック減衰(仕様 §5: 30秒→.8 / 90秒→.5 / 180秒→0) */
@@ -140,17 +151,25 @@ export interface Belief {
   contacts: Map<string, Contact>;
 }
 
-/** 指揮系統を上へ伝わる無線報告(仕様 §5)。到達には遅延がある。 */
+/**
+ * 指揮系統を上へ伝わる無線報告(仕様 §5)。到達には遅延がある。
+ *
+ * 中身は送信時点の接触情報のスナップショットである。受信側のbeliefへ統合された
+ * あとも確度は減衰し続けるため、上位階層ほど古く粗い情報を持つことになる。
+ */
 export interface Report {
   fromEchelon: Echelon;
+  /** 送信元ユニットの識別子(分隊なら squadId、小隊なら platoonId) */
   fromUnitId: number;
+  /** 宛先ユニットの識別子 */
   toUnitId: number;
+  side: Side;
   /** 報告が生成されたティック */
   sentTick: number;
   /** 受信側が読めるようになるティック(sentTick + 遅延) */
   deliverTick: number;
   contacts: Contact[];
-  /** 送信元自身の戦力・状況サマリ */
+  /** 送信元自身の戦力・状況サマリ(SALUTE報告の S/L に相当) */
   ownStatus: {
     effective: number;
     total: number;
@@ -163,6 +182,80 @@ export interface FireteamPlan {
   side: Side;
   squadId: number;
   ftIndex: number;
+  objective: Vec2;
+  advanceDir: Vec2;
+  rallyPoint: Vec2;
+}
+
+/**
+ * 分隊長コントローラの状態(仕様 §3 ③)。
+ *
+ * `belief` は麾下2個FTの視界の**合算**である(仕様 §5)。分隊長は無線を介さず
+ * 直接この情報を得る — 仕様が生の視界の共有を認めているのはこの階層までで、
+ * 小隊長より上は報告のみになる。
+ */
+export interface SquadState {
+  id: number;
+  side: Side;
+  squadId: number;
+  platoonId: number;
+
+  /** 分隊長の world picture(麾下FT視界の合算) */
+  belief: Map<string, Contact>;
+
+  /** 小隊長から指示された移動技術(仕様 §6)。麾下FTへそのまま流す */
+  technique: MovementTechnique;
+  /** 小隊長から割り当てられた任務目標 */
+  objective: Vec2;
+  advanceDir: Vec2;
+  rallyPoint: Vec2;
+
+  /** 上位(小隊)へ最後に定時報告を送ったティック */
+  lastReportTick: number;
+}
+
+/**
+ * 小隊長コントローラの状態(仕様 §3 ②)。
+ *
+ * `belief` は**無線報告のみ**から構築される(仕様 §5)。麾下分隊の生の視界は
+ * 一切参照しない。したがって小隊長の world picture は本質的に分隊長のそれより
+ * 古く粗い — この非対称性こそが階層構造の遊びを生む。
+ */
+export interface PlatoonState {
+  id: number;
+  side: Side;
+  platoonId: number;
+
+  /** 小隊長の world picture(無線報告のみ、遅延と確度減衰を伴う) */
+  belief: Map<string, Contact>;
+
+  /** 麾下分隊へ割り当てた任務目標 */
+  squadObjectives: Map<number, Vec2>;
+  /** 麾下分隊へ指示した移動技術 */
+  squadTechniques: Map<number, MovementTechnique>;
+
+  objective: Vec2;
+  advanceDir: Vec2;
+  rallyPoint: Vec2;
+
+  lastReportTick: number;
+  lastDecisionTick: number;
+}
+
+/** 1個分隊に対するシナリオ側の意図。 */
+export interface SquadPlan {
+  side: Side;
+  squadId: number;
+  platoonId: number;
+  objective: Vec2;
+  advanceDir: Vec2;
+  rallyPoint: Vec2;
+}
+
+/** 1個小隊に対するシナリオ側の意図。 */
+export interface PlatoonPlan {
+  side: Side;
+  platoonId: number;
   objective: Vec2;
   advanceDir: Vec2;
   rallyPoint: Vec2;
@@ -200,12 +293,21 @@ export interface FireteamState {
   /** 接敵をロストした後に掃討する地点 */
   searchPoint: Vec2 | null;
 
-  /** このFTが最終的に目指す地点(任務目標) */
+  /** このFTが最終的に目指す地点(任務目標)。分隊長から下ろされる */
   objective: Vec2;
   /** 全体の前進方向。後退方向や展開の基準に使う */
   advanceDir: Vec2;
   /** 後退時の集結地点 */
   rallyPoint: Vec2;
+
+  /** 分隊長から指示された移動技術(仕様 §6)。ADVANCE時の動き方を決める */
+  technique: MovementTechnique;
+  /**
+   * 接敵時に分隊長から割り当てられた役割(仕様 §6 Fire and Movement)。
+   * `base` = ベース・オブ・ファイア(制圧担当)、`maneuver` = 機動担当。
+   * null は未割り当て(接敵していない、または分隊長が健在でない)。
+   */
+  assignedRole: "base" | "maneuver" | null;
 }
 
 export interface Scenario {
@@ -217,6 +319,10 @@ export interface Scenario {
   soldiers: Soldier[];
   /** FTごとの任務目標。未指定のFTはマップ中心にフォールバックする */
   fireteamPlans?: FireteamPlan[];
+  /** 分隊ごとの任務目標 */
+  squadPlans?: SquadPlan[];
+  /** 小隊ごとの任務目標 */
+  platoonPlans?: PlatoonPlan[];
   /** 参照・描画用の統制手段(仕様 §6): チェックポイント・フェーズライン・目標 */
   controlMeasures?: ControlMeasure[];
 }

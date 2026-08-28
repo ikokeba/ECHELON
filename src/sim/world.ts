@@ -14,10 +14,12 @@ import type {
   Bounds,
   ControlMeasure,
   FireteamState,
+  PlatoonState,
   Report,
   Scenario,
   Side,
   Soldier,
+  SquadState,
   Vec2,
 } from "./types.ts";
 
@@ -43,6 +45,10 @@ export interface World {
   soldierById: Map<number, Soldier>;
   /** FTコントローラ — 最下位のC2ノード(仕様 §1 [v5]) */
   fireteams: FireteamState[];
+  /** 分隊長コントローラ。麾下FTの視界の合算を直接持つ(仕様 §5) */
+  squads: SquadState[];
+  /** 小隊長コントローラ。無線報告のみから world picture を構築する(仕様 §5) */
+  platoons: PlatoonState[];
   /** 伝達中の無線報告。world.tick >= report.deliverTick になった時点で到達する */
   reports: Report[];
   controlMeasures: ControlMeasure[];
@@ -96,6 +102,61 @@ function buildFireteams(scenario: Scenario, soldiers: Soldier[]): FireteamState[
       objective: { ...objective },
       advanceDir: { ...advanceDir },
       rallyPoint: { ...rallyPoint },
+      technique: "traveling",
+      assignedRole: null,
+    });
+  }
+  return [...seen.values()];
+}
+
+/** 編成に存在する (陣営, 分隊) の組ごとに分隊長コントローラを生成する。 */
+function buildSquads(scenario: Scenario, soldiers: Soldier[]): SquadState[] {
+  const seen = new Map<string, SquadState>();
+  let id = 0;
+  for (const s of soldiers) {
+    const key = `${s.side}:${s.squadId}`;
+    if (seen.has(key)) continue;
+    const spec = scenario.squadPlans?.find(
+      (p) => p.side === s.side && p.squadId === s.squadId,
+    );
+    seen.set(key, {
+      id: id++,
+      side: s.side,
+      squadId: s.squadId,
+      platoonId: spec?.platoonId ?? s.platoonId,
+      belief: new Map(),
+      technique: "traveling",
+      objective: { ...(spec?.objective ?? { x: 0, z: 0 }) },
+      advanceDir: { ...(spec?.advanceDir ?? s.facing) },
+      rallyPoint: { ...(spec?.rallyPoint ?? s.pos) },
+      lastReportTick: 0,
+    });
+  }
+  return [...seen.values()];
+}
+
+/** 編成に存在する (陣営, 小隊) の組ごとに小隊長コントローラを生成する。 */
+function buildPlatoons(scenario: Scenario, soldiers: Soldier[]): PlatoonState[] {
+  const seen = new Map<string, PlatoonState>();
+  let id = 0;
+  for (const s of soldiers) {
+    const key = `${s.side}:${s.platoonId}`;
+    if (seen.has(key)) continue;
+    const spec = scenario.platoonPlans?.find(
+      (p) => p.side === s.side && p.platoonId === s.platoonId,
+    );
+    seen.set(key, {
+      id: id++,
+      side: s.side,
+      platoonId: s.platoonId,
+      belief: new Map(),
+      squadObjectives: new Map(),
+      squadTechniques: new Map(),
+      objective: { ...(spec?.objective ?? { x: 0, z: 0 }) },
+      advanceDir: { ...(spec?.advanceDir ?? s.facing) },
+      rallyPoint: { ...(spec?.rallyPoint ?? s.pos) },
+      lastReportTick: 0,
+      lastDecisionTick: 0,
     });
   }
   return [...seen.values()];
@@ -119,6 +180,8 @@ export function createWorld(scenario: Scenario): World {
     soldiers,
     soldierById,
     fireteams: buildFireteams(scenario, soldiers),
+    squads: buildSquads(scenario, soldiers),
+    platoons: buildPlatoons(scenario, soldiers),
     reports: [],
     controlMeasures: (scenario.controlMeasures ?? []).map((cm) => ({
       ...cm,

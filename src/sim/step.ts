@@ -12,23 +12,28 @@ import { combatSystem } from "./systems/combat.ts";
 import { casualtiesSystem } from "./systems/casualties.ts";
 import { fireteamAI } from "./c2/fireteam.ts";
 import { squadAI } from "./c2/squad.ts";
+import { platoonAI } from "./c2/platoon.ts";
+import { radioSystem } from "./radio.ts";
 import type { World } from "./world.ts";
 
 export function stepWorld(world: World): void {
   // 1. 索敵 — 各兵士がいま自分の目で何を見ているか(仕様 §5)
   perceptionSystem(world);
-  // 2. C2 — FTリーダーが world picture を更新して兵士単位の命令を発行し、
-  //    続いて分隊長がその状況判断に基づいて自身の位置を決める。
-  //    (小隊・中隊のコントローラはこの上に入る。階層間の無線伝達は次のスライス)
-  fireteamAI(world);
+  // 2. 無線 — 報告の到達、各階層 belief の更新と確度減衰、定時報告の送信(仕様 §5)。
+  //    C2より先に走らせることで、各階層は「このティック時点で自分が知り得る情報」で判断する。
+  radioSystem(world);
+  // 3. C2 — 上から下へ。小隊長が任務目標と移動技術を分隊へ、分隊長がそれをFTへ翻訳し、
+  //    FTリーダーが兵士単位の命令まで落とす(仕様 §2 の5階層。中隊層は次スライス)。
+  platoonAI(world);
   squadAI(world);
-  // 3. 経路要求 — 移動系の命令をウェイポイント列へ変換する
+  fireteamAI(world);
+  // 4. 経路要求 — 移動系の命令をウェイポイント列へ変換する
   pathingSystem(world);
-  // 4. 移動 — 経路と命令の向きを消費する
+  // 5. 移動 — 経路と命令の向きを消費する
   movementSystem(world);
-  // 5. 戦闘 — 交戦・命中判定・制圧の適用
+  // 6. 戦闘 — 交戦・命中判定・制圧の適用
   combatSystem(world);
-  // 6. 死傷 — 出血タイマーの進行
+  // 7. 死傷 — 出血タイマーの進行
   casualtiesSystem(world);
 
   world.tick += 1;
