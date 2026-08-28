@@ -8,11 +8,12 @@ import { createRenderer, type Renderer } from "@render/renderer.ts";
 import { createSimClock, drainTicks, renderAlpha, requestSteps, setSpeed } from "@sim/loop.ts";
 import { stepWorld } from "@sim/step.ts";
 import { createWorld, type World } from "@sim/world.ts";
-import { demoCrossingScenario } from "@sim/scenario.ts";
+import { platoonClashScenario } from "@sim/scenario.ts";
+import { resolveView, type ViewResult } from "@sim/viewpoint.ts";
 import { SIM_DT } from "@sim/constants.ts";
 import { currentSpeed, useSimStore, type HudSnapshot } from "./store.ts";
 
-function hudOf(world: World): HudSnapshot {
+function hudOf(world: World, view: ViewResult): HudSnapshot {
   let blueAlive = 0;
   let redAlive = 0;
   let blueEffective = 0;
@@ -35,11 +36,13 @@ function hudOf(world: World): HudSnapshot {
     redAlive,
     blueEffective,
     redEffective,
+    knownContacts: view.known,
+    staleContacts: view.stale,
   };
 }
 
 export function startRuntime(canvas: HTMLCanvasElement): () => void {
-  const world = createWorld(demoCrossingScenario());
+  const world = createWorld(platoonClashScenario());
   const renderer: Renderer = createRenderer(canvas, world);
   const clock = createSimClock(currentSpeed(useSimStore.getState()));
 
@@ -64,18 +67,38 @@ export function startRuntime(canvas: HTMLCanvasElement): () => void {
     }
 
     const ticks = drainTicks(clock, elapsed);
-    for (let i = 0; i < ticks; i++) stepWorld(world);
+    for (let t = 0; t < ticks; t++) stepWorld(world);
 
-    renderer.render(world, renderAlpha(clock));
+    // 描画は「選択した階層が知っていること」だけを見る(仕様 §5)。
+    // ここで ground truth を渡してしまうとプレイヤーが全知になり、階層構造が無意味になる。
+    const view = resolveView(world, {
+      side: ui.viewSide,
+      echelon: ui.viewEchelon,
+      squadId: ui.viewSquadId,
+    });
+    renderer.render(world, view, renderAlpha(clock));
 
     if (ticks > 0 && (hudCountdown -= 1) <= 0) {
-      useSimStore.getState().pushHud(hudOf(world));
+      useSimStore.getState().pushHud(hudOf(world, view));
       hudCountdown = 6;
     }
 
     requestAnimationFrame(frame);
   }
-  useSimStore.getState().pushHud(hudOf(world));
+
+  const initialUi = useSimStore.getState();
+  useSimStore
+    .getState()
+    .pushHud(
+      hudOf(
+        world,
+        resolveView(world, {
+          side: initialUi.viewSide,
+          echelon: initialUi.viewEchelon,
+          squadId: initialUi.viewSquadId,
+        }),
+      ),
+    );
   requestAnimationFrame(frame);
 
   return () => {
@@ -83,4 +106,9 @@ export function startRuntime(canvas: HTMLCanvasElement): () => void {
     window.removeEventListener("resize", onResize);
     renderer.dispose();
   };
+}
+
+/** UIの分隊セレクタ用: シナリオに存在する分隊IDを陣営別に返す。 */
+export function squadIdsOf(world: World, side: "blue" | "red"): number[] {
+  return world.squads.filter((s) => s.side === side).map((s) => s.squadId);
 }

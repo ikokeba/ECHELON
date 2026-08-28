@@ -9,6 +9,7 @@
 import * as THREE from "three";
 import type { World } from "@sim/world.ts";
 import type { Side } from "@sim/types.ts";
+import type { ViewResult } from "@sim/viewpoint.ts";
 import { SOLDIER_RADIUS } from "@sim/constants.ts";
 
 const SIDE_COLOR: Record<Side, number> = {
@@ -19,7 +20,10 @@ const KIA_COLOR = 0x39414f;
 const WIA_COLOR = 0xf0c000;
 const GROUND_COLOR = 0x0f1420;
 const WALL_COLOR = 0x39435a;
+/** 確度が尽きた最終目撃情報(ゴースト)の色。仕様 §5 `[v6]` */
+const GHOST_COLOR = 0x6b7280;
 const MAX_SOLDIERS = 512;
+const MAX_CONTACTS = 512;
 
 interface TickSnapshot {
   tick: number;
@@ -35,7 +39,12 @@ function snapshot(world: World): TickSnapshot {
 }
 
 export interface Renderer {
-  render(world: World, alpha: number): void;
+  /**
+   * 1フレーム描画する。
+   * `view` は「いまどの立場から戦場を見ているか」の解決結果(仕様 §5)。
+   * レンダラは world.soldiers を敵の描画には使わない — 敵は必ず view 経由。
+   */
+  render(world: World, view: ViewResult, alpha: number): void;
   resize(): void;
   /** 画面ピクセル下のワールド座標(将来の選択・命令発行用) */
   screenToWorld(clientX: number, clientY: number): { x: number; z: number };
@@ -50,8 +59,13 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   scene.background = new THREE.Color(GROUND_COLOR);
 
   // カメラ: 画面に収まるワールド高さ(m)が `viewSpan`。パンは target を動かす。
-  let viewSpan = 60;
-  const target = new THREE.Vector3(0, 0, 0);
+  // 初期値はマップ全体が収まる高さにする(マップが大きくなっても勝手に見切れない)。
+  let viewSpan = (world.bounds.maxZ - world.bounds.minZ) * 1.1;
+  const target = new THREE.Vector3(
+    (world.bounds.minX + world.bounds.maxX) / 2,
+    0,
+    (world.bounds.minZ + world.bounds.maxZ) / 2,
+  );
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 500);
   camera.position.set(0, 100, 0);
   camera.up.set(0, 0, -1);
@@ -121,6 +135,36 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   );
   scene.add(wedgeMesh);
 
+  // 敵接触マーカー — 実体ではなく「報告された最終目撃位置」を描く(仕様 §5)。
+  // 味方の円盤と明確に見分けがつくよう、菱形(4分割の円)で表現する。
+  const contactGeo = new THREE.CircleGeometry(SOLDIER_RADIUS * 2.0, 4);
+  contactGeo.rotateX(-Math.PI / 2);
+  const contactMesh = new THREE.InstancedMesh(
+    contactGeo,
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.95 }),
+    MAX_CONTACTS,
+  );
+  contactMesh.instanceColor = new THREE.InstancedBufferAttribute(
+    new Float32Array(MAX_CONTACTS * 3),
+    3,
+  );
+  scene.add(contactMesh);
+
+  // 不確度円 — 時間経過とともに拡大する(仕様 §5)。リング状の線で描く。
+  const errorRingGeo = new THREE.RingGeometry(0.97, 1.0, 32);
+  errorRingGeo.rotateX(-Math.PI / 2);
+  const errorRingMesh = new THREE.InstancedMesh(
+    errorRingGeo,
+    // 多数の円が重なるので、1本1本はごく薄くする。密度そのものが不確かさの表現になる。
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.14, side: THREE.DoubleSide }),
+    MAX_CONTACTS,
+  );
+  errorRingMesh.instanceColor = new THREE.InstancedBufferAttribute(
+    new Float32Array(MAX_CONTACTS * 3),
+    3,
+  );
+  scene.add(errorRingMesh);
+
   const dummy = new THREE.Object3D();
   const col = new THREE.Color();
   const col2 = new THREE.Color();
@@ -149,7 +193,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     updateCamera();
   }
 
-  function render(world: World, alpha: number): void {
+  function render(world: World, view: ViewResult, alpha: number): void {
     if (world.tick !== lastTick) {
       prev = cur;
       cur = snapshot(world);
@@ -157,10 +201,11 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     }
     const a = prev === cur ? 1 : alpha;
 
+    // ── 味方 ── 自軍の編成は完全に把握しているので、実体をそのまま描く
     let i = 0;
-    for (const s of world.soldiers) {
+    for (const s of view.friendly) {
       const p = prev.pos.get(s.id) ?? cur.pos.get(s.id)!;
-      const c = cur.pos.get(s.id)!;
+      const c = cur.pos.get(s.id) ?? p;
       const x = p.x + (c.x - p.x) * a;
       const z = p.z + (c.z - p.z) * a;
       const fx = p.fx + (c.fx - p.fx) * a;
@@ -202,7 +247,49 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     discMesh.instanceMatrix.needsUpdate = true;
     wedgeMesh.instanceMatrix.needsUpdate = true;
     if (discMesh.instanceColor) discMesh.instanceColor.needsUpdate = true;
-    wedgeMesh.instanceMatrix.needsUpdate = true;
+
+    // ── 敵 ── 実体ではなく world picture の接触情報を描く(仕様 §5)。
+    // 位置は最終目撃位置であって現在位置ではない。確度が下がるほど薄く、
+    // 確度0まで落ちた「最終目撃情報」はグレーのゴーストになる。
+    let k = 0;
+    for (const e of view.enemies) {
+      if (k >= MAX_CONTACTS) break;
+      const ghost = e.confidence <= 0;
+
+      dummy.position.set(e.pos.x, 0.045, e.pos.z);
+      dummy.rotation.set(0, Math.PI / 4, 0);
+      dummy.scale.setScalar(ghost ? 0.75 : 1);
+      dummy.updateMatrix();
+      dummy.scale.setScalar(1);
+      contactMesh.setMatrixAt(k, dummy.matrix);
+
+      if (ghost) {
+        contactMesh.setColorAt(k, col.setHex(GHOST_COLOR));
+      } else {
+        // 確度が高いほど鮮やかに。低いほど背景側へ寄せる。
+        col.setHex(SIDE_COLOR[view.enemySide]);
+        col2.setHex(GHOST_COLOR);
+        contactMesh.setColorAt(k, col.lerp(col2, 1 - e.confidence));
+      }
+
+      // 不確度円(仕様 §5「時間経過とともに不確度範囲(円)が拡大する」)
+      const r = Math.max(0.001, e.posError);
+      dummy.position.set(e.pos.x, 0.03, e.pos.z);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(r, 1, r);
+      dummy.updateMatrix();
+      dummy.scale.setScalar(1);
+      errorRingMesh.setMatrixAt(k, dummy.matrix);
+      errorRingMesh.setColorAt(k, col.setHex(ghost ? GHOST_COLOR : SIDE_COLOR[view.enemySide]));
+
+      k++;
+    }
+    contactMesh.count = k;
+    errorRingMesh.count = k;
+    contactMesh.instanceMatrix.needsUpdate = true;
+    errorRingMesh.instanceMatrix.needsUpdate = true;
+    if (contactMesh.instanceColor) contactMesh.instanceColor.needsUpdate = true;
+    if (errorRingMesh.instanceColor) errorRingMesh.instanceColor.needsUpdate = true;
 
     renderer.render(scene, camera);
   }

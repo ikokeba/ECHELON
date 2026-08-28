@@ -1,5 +1,6 @@
 import { useSimStore } from "./store.ts";
 import { TimeControls } from "./TimeControls.tsx";
+import { ViewControls } from "./ViewControls.tsx";
 
 function fmtClock(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -35,7 +36,9 @@ export function Hud() {
         </div>
       </div>
 
-      <div className="hud-hint">drag: pan · wheel: zoom</div>
+      <ViewControls />
+
+      <div className="hud-hint">ドラッグ: 移動 · ホイール: 拡大縮小 · Space: 一時停止 · . : 1ティック</div>
     </div>
   );
 }

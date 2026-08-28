@@ -76,6 +76,15 @@ export const CONFIDENCE_POINTS: ReadonlyArray<readonly [ageSec: number, confiden
 export const CONFIDENCE_CUTOFF = 0.02;
 /** 古い接触の位置誤差円の拡大率。経過1秒あたり m。[mock] */
 export const POS_ERROR_GROWTH = 0.15;
+/**
+ * 不確度円の半径の上限 m。
+ *
+ * 仕様 §5 は「時間経過とともに不確度範囲(円)が拡大する」としか言っていないが、
+ * 無制限に拡大させると、確度が尽きる180秒時点で半径28m近くに達し、多数の接触の円が
+ * 重なって地図が判読不能になる(実際に描画して確認)。情報としても「半径28mのどこか」は
+ * 「分からない」と同義なので、上限を設けて頭打ちにする。
+ */
+export const POS_ERROR_MAX = 12;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 無線・報告(仕様 §5)

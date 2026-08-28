@@ -165,3 +165,82 @@ body {
   border-radius: 6px;
   padding: 4px 8px;
 }
+
+/* ── 視点切替(仕様 §5) ── */
+.view-controls {
+  position: absolute;
+  left: 12px;
+  top: 76px;
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  backdrop-filter: blur(6px);
+}
+
+.vc-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vc-label {
+  font-size: 12px;
+  color: var(--muted);
+  width: 30px;
+  flex: none;
+}
+
+.vc-btn {
+  flex: 1;
+  background: #1a2233;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.vc-btn:hover {
+  background: #24304a;
+}
+
+.vc-on {
+  border-color: #7aa2d8;
+  color: #cfe0ff;
+  background: #24304a;
+}
+
+.vc-on.vc-blue {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.vc-on.vc-red {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.vc-hint {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.vc-contacts {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.vc-stale {
+  color: var(--muted);
+}

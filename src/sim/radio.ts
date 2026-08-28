@@ -20,6 +20,7 @@ import { decayedConfidence } from "./belief.ts";
 import {
   CONFIDENCE_CUTOFF,
   POS_ERROR_GROWTH,
+  POS_ERROR_MAX,
   RADIO_LATENCY_SEC,
   REPORT_INTERVAL_SEC,
   SIM_HZ,
@@ -74,7 +75,7 @@ export function decayBelief(belief: Map<string, Contact>, tick: number): void {
   for (const [key, c] of belief) {
     const age = (tick - c.lastSeenTick) / SIM_HZ;
     c.confidence = decayedConfidence(age);
-    c.posError = c.hopError + age * POS_ERROR_GROWTH;
+    c.posError = Math.min(POS_ERROR_MAX, c.hopError + age * POS_ERROR_GROWTH);
     // 確度0(仕様 §5「180秒で消滅」)でも接触情報自体は消さない。`[v6]` の決定どおり、
     // 最終目撃情報のゴーストとして残置し、AIの索敵対象からのみ除外する
     // (除外の判定は利用側が confidence を見て行う)。

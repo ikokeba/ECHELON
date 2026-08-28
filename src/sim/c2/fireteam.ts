@@ -20,7 +20,7 @@ import {
   bestFlankPoint,
   pickSupportedBoundTarget,
 } from "../cover.ts";
-import { CONFIDENCE_CUTOFF, POS_ERROR_GROWTH, SIM_HZ } from "../constants.ts";
+import { CONFIDENCE_CUTOFF, POS_ERROR_GROWTH, POS_ERROR_MAX, SIM_HZ } from "../constants.ts";
 import { decayedConfidence } from "../belief.ts";
 import type { Contact, FireteamMode, FireteamState, Soldier, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
@@ -142,7 +142,7 @@ function updateMemory(world: World, ft: FireteamState, members: readonly Soldier
     }
     const age = (world.tick - c.lastSeenTick) / SIM_HZ;
     c.confidence = decayedConfidence(age);
-    c.posError = c.hopError + age * POS_ERROR_GROWTH;
+    c.posError = Math.min(POS_ERROR_MAX, c.hopError + age * POS_ERROR_GROWTH);
     if (c.confidence < CONFIDENCE_CUTOFF) ft.memory.delete(key);
   }
 }
