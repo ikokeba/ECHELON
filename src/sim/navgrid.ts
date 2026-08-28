@@ -46,6 +46,28 @@ const DIRS8: [number, number][] = [
   [-1, -1],
 ];
 
+/**
+ * 同コストの経路が複数ある場合の決着に使う、ごく小さな決定論的コスト。
+ *
+ * これがないと、等コストの経路は探索順(DIRS8 の並び順とヒープの押し込み順)で
+ * 決まる。DIRS8 は +X を −X より先に見るため、等コスト時は常に特定の方角が
+ * 選ばれ続ける。**方角の選好は、対称な地形であっても開始位置によって有利不利を
+ * 生む**(実際に、−z側から進む陣営が一貫して不利になる偏りを計測した)。
+ *
+ * ノード座標のハッシュで決着させることで、選好を「特定方角」から「任意だが決定論的」
+ * へ変える。値はグリッド間隔(1m)に対して十分小さく、最短経路そのものは変えない。
+ */
+const TIE_EPS = 1e-4;
+
+function tieJitter(gx: number, gz: number): number {
+  // 32bit整数ハッシュ(乗算+シフト)。座標が近くても出力は散らばる。
+  let h = (gx * 374761393 + gz * 668265263) | 0;
+  h = (h ^ (h >>> 13)) | 0;
+  h = Math.imul(h, 1274126177) | 0;
+  h = (h ^ (h >>> 16)) >>> 0;
+  return (h / 4294967296) * TIE_EPS;
+}
+
 export function buildNavGrid(
   walls: readonly AABB[],
   bounds: Bounds,
@@ -77,7 +99,9 @@ export function buildNavGrid(
       if (j === -1) continue;
       const m = nodes[j]!;
       if (!edgeIsClear(walls, n.x, n.z, m.x, m.z, margin * 0.6)) continue;
-      adj[i]!.push([j, Math.hypot(dx, dz) * step]);
+      // 進入先ノードのハッシュ由来の微小コストを加え、等コスト経路の決着から
+      // 方角の選好を取り除く
+      adj[i]!.push([j, Math.hypot(dx, dz) * step + tieJitter(m.gx, m.gz)]);
     }
   });
 

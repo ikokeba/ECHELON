@@ -155,6 +155,34 @@ export function edgeIsClear(
   return true;
 }
 
+/** 向きベクトルを角度(rad)へ。X/Z平面なので atan2(x, z) を使う。 */
+export function angleOf(v: Vec2): number {
+  return Math.atan2(v.x, v.z);
+}
+
+/** 角度(rad)を向きの単位ベクトルへ。 */
+export function dirFromAngle(a: number): Vec2 {
+  return { x: Math.sin(a), z: Math.cos(a) };
+}
+
+/**
+ * `current` から `target` へ、1ステップ最大 `maxDelta` だけ旋回する。
+ *
+ * **差分の正規化は半開区間 (-π, +π] で行う**。これは対称性のために必須:
+ * ちょうど180°の反転(diff が ±π)は数学的に左右どちらの回転でも等価だが、
+ * -π と +π を別々に扱うと Math.sign が逆符号を返し、両陣営が逆方向へ回る。
+ * 点対称な初期配置ではこれが系統的な優劣を生む(実際に、青軍だけが目標へ速く
+ * 正対して一貫して有利になる不具合を起こした)。-π を +π に畳んで、
+ * 反転時は必ず同じ回転方向を選ばせる。
+ */
+export function turnToward(current: number, target: number, maxDelta: number): number {
+  let diff = target - current;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff <= -Math.PI) diff += Math.PI * 2;
+  if (Math.abs(diff) <= maxDelta) return target;
+  return current + Math.sign(diff) * maxDelta;
+}
+
 /** 点から最も近い壁表面までの距離(壁の内部なら0)。 */
 export function nearestWallDist(walls: readonly AABB[], x: number, z: number): number {
   let best = Infinity;

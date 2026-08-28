@@ -55,6 +55,27 @@ export type MovementTechnique = "traveling" | "traveling_overwatch" | "bounding_
  */
 export type SoldierStatus = "ok" | "wia" | "kia";
 
+/**
+ * FT内の役割(仕様 §14 のMOS)。mos-balance-simulator が検証した4名編成に対応する。
+ * 戦闘性能に効くのは SAW(制圧効果) と 擲弾手(遮蔽無視) のみで、それ以外は同一。
+ */
+export type SoldierRole = "leader" | "saw" | "grenadier" | "rifleman";
+
+/**
+ * 資格の離散フラグ(仕様 §14「MOSごとの基礎検定を離散フラグとして持たせ、その上に
+ * 連続値の熟練度を乗せる二層構造」)。
+ *
+ * 単一のenumではなくフラグの集合にしているのは、仕様上ひとりが複数の資格を
+ * 兼任しうるため(例: ブラボー組のライフルマンは選抜射手とされる一方、
+ * 各FTのライフルマン1名は衛生要員を兼任する)。
+ */
+export interface SoldierQualifications {
+  /** `[v6]` 衛生要員兼任。バディエイド処置時間が3秒→1.5秒に短縮(仕様 §9, §14) */
+  medicalCrossTrained: boolean;
+  /** 選抜射手。制圧時の命中率低下が −40% ではなく −10% に留まる(仕様 §8.6 [v5], §14) */
+  designatedMarksman: boolean;
+}
+
 export interface SoldierOrder {
   kind: SoldierOrderKind;
   /** move/maneuver/retreat/evade の目的地 */
@@ -89,10 +110,31 @@ export interface Soldier {
   facing: Vec2;
   status: SoldierStatus;
 
+  /** FT内の役割(仕様 §14) */
+  role: SoldierRole;
+  /** 資格の離散フラグ(仕様 §14) */
+  quals: SoldierQualifications;
+
   /** 制圧状態が解けるティック(0 = 非制圧) */
   suppressedUntilTick: number;
-  /** WIAがKIAへ移行するティック(0 = 該当なし) */
+  /** WIAがKIAへ移行するティック(0 = 該当なし。止血済みなら0) */
   bleedOutTick: number;
+
+  // ── CASEVAC(仕様 §9)──
+  /**
+   * この負傷者の応急手当担当として割り当てられた兵士のID(null = 未割当)。
+   * 仕様 §9: 負傷が発生すると最寄りの健常な隊員が動的に割り当てられる。
+   */
+  assignedAider: number | null;
+  /** 自分がいま手当している負傷者のID(null = 手当していない) */
+  treating: number | null;
+  /** 手当の進捗ティック数。必要ティック数に達すると止血完了 */
+  aidProgressTicks: number;
+  /**
+   * 止血・安定化済み。出血タイマーは止まるが行動不能のままで、後送を要する
+   * (仕様 §9: 負傷=即行動不能、バディエイドが必須。軽傷/重傷の段階分けはしない)。
+   */
+  stabilized: boolean;
 
   order: SoldierOrder;
   /** 現在の経路(ウェイポイント列)。先頭から順に消費する */

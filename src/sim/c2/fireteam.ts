@@ -22,6 +22,7 @@ import {
 } from "../cover.ts";
 import { CONFIDENCE_CUTOFF, POS_ERROR_GROWTH, POS_ERROR_MAX, SIM_HZ } from "../constants.ts";
 import { aiSuppressed } from "../control.ts";
+import { isCommittedToAid } from "../systems/casualties.ts";
 import { decayedConfidence } from "../belief.ts";
 import type { Contact, FireteamMode, FireteamState, Soldier, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
@@ -86,6 +87,11 @@ function issue(
   target: Vec2 | null,
   look: Vec2,
 ): void {
+  // 応急手当に拘束されている隊員へは命令を出さない(仕様 §9: 手当は命令不要の
+  // 自律トリガーであり、命令系統の外側で発生する)。ここで上書きすると
+  // 0.3秒ごとの命令更新で手当が永久に中断され続ける。
+  if (isCommittedToAid(world, u)) return;
+
   const prev = u.order;
   const movingKind = kind === "move" || kind === "maneuver" || kind === "retreat" || kind === "evade";
   const changedTarget =

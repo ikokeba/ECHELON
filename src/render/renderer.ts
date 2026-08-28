@@ -22,6 +22,8 @@ const GROUND_COLOR = 0x0f1420;
 const WALL_COLOR = 0x39435a;
 /** 確度が尽きた最終目撃情報(ゴースト)の色。仕様 §5 `[v6]` */
 const GHOST_COLOR = 0x6b7280;
+/** 止血済みWIA。出血は止まったが行動不能で後送待ち(仕様 §9) */
+const STABILIZED_COLOR = 0x4fb477;
 const MAX_SOLDIERS = 512;
 const MAX_CONTACTS = 512;
 
@@ -221,7 +223,13 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       discMesh.setMatrixAt(i, dummy.matrix);
 
       let color =
-        s.status === "kia" ? KIA_COLOR : s.status === "wia" ? WIA_COLOR : SIDE_COLOR[s.side];
+        s.status === "kia"
+          ? KIA_COLOR
+          : s.status === "wia"
+            ? s.stabilized
+              ? STABILIZED_COLOR // 止血済み: 出血は止まり後送待ち(仕様 §9)
+              : WIA_COLOR // 出血中: 45秒以内に手当がなければKIAへ
+            : SIDE_COLOR[s.side];
       if (s.status === "ok" && s.suppressedUntilTick > world.tick) {
         color = col.setHex(color).lerp(col2.setHex(0xe8edf5), 0.55).getHex();
       }

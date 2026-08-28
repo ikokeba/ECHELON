@@ -24,6 +24,7 @@ import {
   SOLDIER_RADIUS,
   TURN_RATE,
 } from "../constants.ts";
+import { angleOf, dirFromAngle, turnToward } from "../geometry.ts";
 import type { World } from "../world.ts";
 import type { Soldier, Vec2 } from "../types.ts";
 
@@ -112,6 +113,8 @@ export function combatSystem(world: World): void {
   for (const s of world.soldiers) {
     s.suppressor = s.order.kind === "suppress";
     if (s.status !== "ok") continue;
+    // 応急手当の実行中は射撃できない(仕様 §9: 処置中は両者とも無防備)
+    if (s.treating !== null && s.aidProgressTicks > 0) continue;
 
     const target = nearestVisibleTarget(world, s);
     if (!target) continue;
@@ -122,15 +125,12 @@ export function combatSystem(world: World): void {
     const toTarget = { x: tx / tlen, z: tz / tlen };
     const moving = s.pathIdx < s.path.length;
 
-    // 反射的な照準: 静止中の兵士は発砲前に目標へ正対する
+    // 反射的な照準: 静止中の兵士は発砲前に目標へ正対する。
+    // 旋回は geometry.ts の共通実装を使う — ±π の畳み方が対称性に効くため、
+    // ここで独自実装を持つと片側だけ有利になる(実際にその不具合を起こした)。
     if (!moving && angleBetween(s.facing, toTarget) > FIRE_ALIGN_RAD) {
-      const cur = Math.atan2(s.facing.x, s.facing.z);
-      const want = Math.atan2(toTarget.x, toTarget.z);
-      let diff = want - cur;
-      while (diff > Math.PI) diff -= Math.PI * 2;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-      const na = Math.abs(diff) <= maxTurn ? want : cur + Math.sign(diff) * maxTurn;
-      s.facing = { x: Math.sin(na), z: Math.cos(na) };
+      const na = turnToward(angleOf(s.facing), angleOf(toTarget), maxTurn);
+      s.facing = dirFromAngle(na);
       continue; // このティックは照準のみで発砲しない
     }
 
@@ -141,7 +141,8 @@ export function combatSystem(world: World): void {
     // 同一の乱数を引くことになる(仕様 §2/§13 戦力対称性)
     const outcome = rollShot(world.rngBySide[s.side], {
       shooterSuppressed: isSuppressed(s, world.tick),
-      shooterIsMarksman: false, // 選抜射手スロットの実装後に設定する(仕様 §14)
+      // 選抜射手は制圧下でも命中率低下が軽い(仕様 §8.6 [v5], §14)
+      shooterIsMarksman: s.quals.designatedMarksman,
     });
     pending.push({ shooter: s, target, outcome, suppressing: s.suppressor });
   }

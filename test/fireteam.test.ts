@@ -78,24 +78,9 @@ describe("fireteam AI", () => {
 });
 
 describe("force symmetry (spec §2, §13)", () => {
-  it("shows no side bias across many seeds", () => {
-    let blueWins = 0;
-    let redWins = 0;
-    const N = 24;
-    for (let seed = 1; seed <= N; seed++) {
-      const w = createWorld(demoCrossingScenario(seed));
-      runTicks(w, 9000); // 5 minutes
-      const b = w.soldiers.filter((s) => s.side === "blue" && s.status === "ok").length;
-      const r = w.soldiers.filter((s) => s.side === "red" && s.status === "ok").length;
-      if (b > r) blueWins++;
-      else if (r > b) redWins++;
-    }
-    // A systematic advantage (a player-favouring branch, an iteration-order bias,
-    // an asymmetric candidate lattice) shows up here as a lopsided split.
-    const decided = blueWins + redWins;
-    expect(decided).toBeGreaterThan(N * 0.5);
-    expect(Math.abs(blueWins - redWins)).toBeLessThanOrEqual(decided * 0.5);
-  }, 60000);
+  // 陣営バイアスの検証は test/symmetry.test.ts の「陣営ラベル入れ替え」に移した。
+  // 勝率の統計より厳密で、地形由来の偏りとも切り分けられるため。
+
 
   it("resolves a fight — the crossing does not stalemate", () => {
     const w = createWorld(demoCrossingScenario(9));

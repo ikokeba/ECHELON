@@ -8,25 +8,13 @@
  */
 
 import { advanceAlongPath } from "../pathfollow.ts";
-import { collidesWall } from "../geometry.ts";
+import { angleOf, collidesWall, dirFromAngle, turnToward } from "../geometry.ts";
 import { MOVE_SPEED, SIM_DT, SOLDIER_RADIUS, TURN_RATE } from "../constants.ts";
 import type { World } from "../world.ts";
 import type { Soldier, Vec2 } from "../types.ts";
 
-function angleOf(v: Vec2): number {
-  return Math.atan2(v.x, v.z);
-}
-
-function turnToward(current: number, target: number, maxDelta: number): number {
-  let diff = target - current;
-  while (diff > Math.PI) diff -= Math.PI * 2;
-  while (diff < -Math.PI) diff += Math.PI * 2;
-  if (Math.abs(diff) <= maxDelta) return target;
-  return current + Math.sign(diff) * maxDelta;
-}
-
 function faceAngle(s: Soldier, angle: number): void {
-  s.facing = { x: Math.sin(angle), z: Math.cos(angle) };
+  s.facing = dirFromAngle(angle);
 }
 
 /** `to` へ移動する。壁に当たる場合は壁沿いにスライドし、採用した位置を返す。 */

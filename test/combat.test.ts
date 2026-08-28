@@ -116,6 +116,11 @@ describe("integrated combat", () => {
     const victim = w.soldiers[0]!;
     victim.status = "wia";
     victim.bleedOutTick = w.tick + Math.round(BLEED_OUT_SEC / SIM_DT);
+    // 本当に「未処置」にする。バディエイド(仕様 §9)が実装された今、同分隊員が
+    // 健在なら手当されて助かってしまうため、この検証には成立しない前提になる。
+    for (const s of w.soldiers) {
+      if (s.side === victim.side && s.id !== victim.id) s.status = "kia";
+    }
     runTicks(w, Math.round((BLEED_OUT_SEC - 1) / SIM_DT));
     expect(victim.status).toBe("wia");
     runTicks(w, Math.round(2 / SIM_DT));

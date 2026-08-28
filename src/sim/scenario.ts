@@ -33,6 +33,8 @@ export interface SoldierSeed {
   facing?: Vec2;
   moveTo?: Vec2;
   traits?: Partial<Soldier["traits"]>;
+  role?: Soldier["role"];
+  quals?: Partial<Soldier["quals"]>;
 }
 
 export function makeSoldier(seed: SoldierSeed): Soldier {
@@ -57,6 +59,15 @@ export function makeSoldier(seed: SoldierSeed): Soldier {
     pathIdx: 0,
     sees: [],
     suppressor: false,
+    role: seed.role ?? "rifleman",
+    quals: {
+      medicalCrossTrained: seed.quals?.medicalCrossTrained ?? false,
+      designatedMarksman: seed.quals?.designatedMarksman ?? false,
+    },
+    assignedAider: null,
+    treating: null,
+    aidProgressTicks: 0,
+    stabilized: false,
     traits: {
       aggressiveness: seed.traits?.aggressiveness ?? 0.5,
       boldness: seed.traits?.boldness ?? 0.5,
@@ -88,6 +99,10 @@ function makeSquad(
     }),
   );
 
+  // FT内のMOS構成(仕様 §14 / mos-balance-simulator の4名編成):
+  //   0 = FTリーダー, 1 = SAW手, 2 = 擲弾手, 3 = ライフルマン
+  const ROLES: Soldier["role"][] = ["leader", "saw", "grenadier", "rifleman"];
+
   for (let ft = 0; ft < 2; ft++) {
     for (let m = 0; m < 4; m++) {
       const lateral = (ft === 0 ? -1 : 1) * 3 + (m - 1.5) * 1.6;
@@ -104,6 +119,13 @@ function makeSquad(
             z: anchor.z + right.z * lateral + dir.z * back,
           },
           facing: dir,
+          role: ROLES[m],
+          quals: {
+            // 各FTのライフルマン1名が衛生要員を兼任(仕様 §9/§14 `[v6]`)
+            medicalCrossTrained: m === 3,
+            // 選抜射手は分隊に1名、ブラボー組(ft=1)のライフルマンが兼任(仕様 §14)
+            designatedMarksman: ft === 1 && m === 3,
+          },
         }),
       );
     }

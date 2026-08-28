@@ -123,22 +123,9 @@ describe("小隊規模の戦闘", () => {
     expect(casualties).toBeGreaterThan(5);
   }, 30000);
 
-  it("陣営バイアスがない(仕様 §2/§13)", () => {
-    let blueWins = 0;
-    let redWins = 0;
-    const N = 12;
-    for (let seed = 1; seed <= N; seed++) {
-      const w = createWorld(platoonClashScenario(seed));
-      runTicks(w, 9000);
-      const b = w.soldiers.filter((s) => s.side === "blue" && s.status === "ok").length;
-      const r = w.soldiers.filter((s) => s.side === "red" && s.status === "ok").length;
-      if (b > r) blueWins++;
-      else if (r > b) redWins++;
-    }
-    const decided = blueWins + redWins;
-    expect(decided).toBeGreaterThan(N * 0.5);
-    expect(Math.abs(blueWins - redWins)).toBeLessThanOrEqual(decided * 0.5);
-  }, 120000);
+  // 陣営バイアスの検証は test/symmetry.test.ts の「陣営ラベル入れ替え」に移した。
+  // 勝率の統計より厳密で、地形由来の偏りとも切り分けられるため。
+
 });
 
 describe("中隊規模(仕様 §2 の想定規模)", () => {

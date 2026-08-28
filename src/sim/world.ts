@@ -73,6 +73,7 @@ function cloneSoldier(s: Soldier): Soldier {
     },
     path: s.path.map((p) => ({ ...p })),
     sees: [...s.sees],
+    quals: { ...s.quals },
     traits: { ...s.traits },
   };
 }
