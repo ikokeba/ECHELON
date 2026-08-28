@@ -29,5 +29,7 @@ sim tests), `npm run lint`, `npm run typecheck`.
 - Verified in prototype: squad-leader ↔ fire-team-leader combat, CASEVAC (WIA/buddy-aid/litter),
   formation auto-select, CQB room entry, MOS balance. Platoon level has a first prototype.
 - Company-commander layer is designed in the spec but not yet prototyped.
-- **Open spec conflict:** buddy-aid treatment times disagree between the squad-level 3-tier model
-  (§9/§14) and the v5 FT-level MOS model (§9) — see the ⚠️ box in spec §9. Undecided.
+- Integrated implementation (`src/`) runs a squad-vs-squad autobattle: bounding overwatch →
+  contact → base-of-fire + maneuver → casualties, force-symmetric and deterministic.
+- Buddy-aid treatment time — formerly the one open spec conflict — is **resolved `[v6]`** in
+  favour of the FT-level MOS 2-tier model (3s / 1.5s).

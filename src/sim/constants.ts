@@ -58,11 +58,14 @@ export const FIRE_ALIGN_RAD = (9 * Math.PI) / 180;
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Confidence as a function of report age. Spec fixes three points:
- *   30s → 0.80, 90s → 0.50, 180s → 0 (contact "gone").
- * Decay is time-only; enemy movement is irrelevant. A "?" marker stays at the
- * last-seen position with an uncertainty circle that grows with age.
- * Curve shape between the points is OQ-2 (currently piecewise-linear).
+ * 報告確度の減衰。[spec §5 確定値]
+ *   30秒 → 0.80、90秒 → 0.50、180秒 → 0(「消滅」)
+ * 減衰のトリガーは時間経過のみで、敵の移動は無関係。最終目撃位置には「?」
+ * マーカーが残り、不確度円が時間とともに拡大する。
+ *
+ * `[v6]` カーブ形状は上記3点を通る連続関数(線形補間)で確定。階段状の離散低下は
+ * 採用しない(境界をまたぐ瞬間にAIの判断が急変するため)。確度0は情報の削除では
+ * なく、グレーのゴーストとして残置しAIの索敵対象からのみ除外する。
  */
 export const CONFIDENCE_POINTS: ReadonlyArray<readonly [ageSec: number, confidence: number]> = [
   [0, 1],
@@ -126,17 +129,28 @@ export const BLEED_OUT_SEC = 45;
 export const AID_SWITCH_BLEED_REMAIN_SEC = 15;
 
 /**
- * ⚠️ OQ-1 — buddy-aid treatment time is an UNRESOLVED spec conflict (spec §9 ⚠️
- * box, CLAUDE.md). Do not pick silently. Both candidate models are recorded;
- * the CASEVAC system must not be built until one is chosen.
+ * バディエイド処置時間。[spec §9, §14 `[v6]` 確定]
  *
- *   squad 3-tier (spec §9 / §14, squad-level):  medic 4s / CLS 6s / untrained 8s
- *   FT MOS 2-tier (spec §9 [v5], FT-level):      normal 3s / medical-cross-trained 1.5s
+ * かつて分隊単位3段階モデル(衛生兵4秒/CLS 6秒/未取得8秒)と併記され未決定
+ * だったが、編成モデル自体が分隊レベルからFTレベルへ移行済みであることに合わせ、
+ * **FT単位MOS 2段階モデルを正式値として確定**した(3段階モデルは破棄)。
+ *
+ * 注: 3秒は §9 が狙う「戦術的トレードオフ」としては軽い可能性があり、バランス
+ * 調整フェーズで延長を検討する。ただしそれは秒数のチューニングであって、
+ * モデル構造の変更ではない。
  */
 export const BUDDY_AID_SEC = {
-  squad3tier: { medic: 4, cls: 6, untrained: 8 },
-  ftMos2tier: { normal: 3, crossTrained: 1.5 },
+  /** 通常の隊員 */
+  normal: 3,
+  /** MOS「ライフルマン(衛生要員兼任)」 */
+  crossTrained: 1.5,
 } as const;
+
+/** 応急手当を実行できる負傷者からの距離、m。[spec §9 — 2.0m] */
+export const AID_RADIUS = 2.0;
+
+/** 処置中の処置者の露出度上昇(負傷者側は対象外)。[spec §9 — +50%] */
+export const AID_EXPOSURE_BONUS = 0.5;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CQB (spec §7 追補5)
