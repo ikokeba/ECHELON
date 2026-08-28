@@ -10,8 +10,40 @@ import { stepWorld } from "@sim/step.ts";
 import { createWorld, type World } from "@sim/world.ts";
 import { platoonClashScenario } from "@sim/scenario.ts";
 import { resolveView, type ViewResult } from "@sim/viewpoint.ts";
+import { swapTo } from "@sim/control.ts";
+import { orderControlledTo } from "@sim/playerOrders.ts";
 import { SIM_DT } from "@sim/constants.ts";
-import { currentSpeed, useSimStore, type HudSnapshot } from "./store.ts";
+import {
+  currentSpeed,
+  useSimStore,
+  type HudSnapshot,
+  type RosterPlatoon,
+} from "./store.ts";
+
+/** 階層ツリー用の編成一覧を組み立てる。損耗を反映するため定期的に更新する。 */
+function rosterOf(world: World): RosterPlatoon[] {
+  const out: RosterPlatoon[] = [];
+  for (const pl of world.platoons) {
+    const squads = world.squads
+      .filter((s) => s.side === pl.side && s.platoonId === pl.platoonId)
+      .map((sq) => {
+        const men = world.soldiers.filter((s) => s.side === sq.side && s.squadId === sq.squadId);
+        return {
+          squadId: sq.squadId,
+          effective: men.filter((s) => s.status === "ok").length,
+          total: men.length,
+        };
+      });
+    out.push({
+      side: pl.side,
+      platoonId: pl.platoonId,
+      effective: squads.reduce((a, s) => a + s.effective, 0),
+      total: squads.reduce((a, s) => a + s.total, 0),
+      squads,
+    });
+  }
+  return out;
+}
 
 function hudOf(world: World, view: ViewResult): HudSnapshot {
   let blueAlive = 0;
@@ -50,9 +82,22 @@ export function startRuntime(canvas: HTMLCanvasElement): () => void {
   let lastMs = performance.now();
   let lastStepNonce = useSimStore.getState().stepNonce;
   let hudCountdown = 0;
+  let lastControl = useSimStore.getState().control;
 
   const onResize = () => renderer.resize();
   window.addEventListener("resize", onResize);
+
+  /**
+   * 右クリックで操作中のユニットへ移動命令を出す(仕様 §6「移動命令」)。
+   * ポーズ中でも発行でき、解除後にタイムラグなく実行される(仕様 §6)。
+   */
+  const onContextMenu = (e: MouseEvent) => {
+    e.preventDefault();
+    if (!world.control) return;
+    const p = renderer.screenToWorld(e.clientX, e.clientY);
+    orderControlledTo(world, p);
+  };
+  canvas.addEventListener("contextmenu", onContextMenu);
 
   function frame(nowMs: number): void {
     if (!running) return;
@@ -64,6 +109,11 @@ export function startRuntime(canvas: HTMLCanvasElement): () => void {
     if (ui.stepNonce !== lastStepNonce) {
       requestSteps(clock, ui.stepNonce - lastStepNonce);
       lastStepNonce = ui.stepNonce;
+    }
+    // ホットスワップ要求をシムへ反映(仕様 §4: 制限なし・即時)
+    if (ui.control !== lastControl) {
+      swapTo(world, ui.control);
+      lastControl = ui.control;
     }
 
     const ticks = drainTicks(clock, elapsed);
@@ -80,6 +130,7 @@ export function startRuntime(canvas: HTMLCanvasElement): () => void {
 
     if (ticks > 0 && (hudCountdown -= 1) <= 0) {
       useSimStore.getState().pushHud(hudOf(world, view));
+      useSimStore.getState().setRoster(rosterOf(world));
       hudCountdown = 6;
     }
 
@@ -99,16 +150,13 @@ export function startRuntime(canvas: HTMLCanvasElement): () => void {
         }),
       ),
     );
+  useSimStore.getState().setRoster(rosterOf(world));
   requestAnimationFrame(frame);
 
   return () => {
     running = false;
     window.removeEventListener("resize", onResize);
+    canvas.removeEventListener("contextmenu", onContextMenu);
     renderer.dispose();
   };
-}
-
-/** UIの分隊セレクタ用: シナリオに存在する分隊IDを陣営別に返す。 */
-export function squadIdsOf(world: World, side: "blue" | "red"): number[] {
-  return world.squads.filter((s) => s.side === side).map((s) => s.squadId);
 }

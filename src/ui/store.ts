@@ -8,6 +8,22 @@
 import { create } from "zustand";
 import { SPEED_STEPS } from "@sim/constants.ts";
 import type { Side } from "@sim/types.ts";
+import type { ControlState } from "@sim/control.ts";
+
+/** 階層ツリーUIが表示する編成の一覧。毎フレームではなく編成が変わったときだけ更新する。 */
+export interface RosterSquad {
+  squadId: number;
+  effective: number;
+  total: number;
+}
+
+export interface RosterPlatoon {
+  side: Side;
+  platoonId: number;
+  effective: number;
+  total: number;
+  squads: RosterSquad[];
+}
 
 /**
  * プレイヤーがいま「どの立場で戦場を見ているか」。
@@ -45,6 +61,11 @@ interface UiState extends HudSnapshot {
   /** viewEchelon === "squad" のときに覗く分隊 */
   viewSquadId: number | null;
 
+  /** 人間が操作中のノード(仕様 §4)。null なら観戦 */
+  control: ControlState | null;
+  /** 階層ツリー表示用の編成一覧 */
+  roster: RosterPlatoon[];
+
   togglePause: () => void;
   cycleSpeed: () => void;
   requestStep: () => void;
@@ -52,6 +73,9 @@ interface UiState extends HudSnapshot {
   setViewSide: (side: Side) => void;
   setViewEchelon: (e: ViewEchelon) => void;
   setViewSquadId: (id: number | null) => void;
+  /** ホットスワップ要求。ランタイムが次フレームでシムへ反映する */
+  requestSwap: (c: ControlState | null) => void;
+  setRoster: (r: RosterPlatoon[]) => void;
   pushHud: (snap: HudSnapshot) => void;
 }
 
@@ -76,6 +100,8 @@ export const useSimStore = create<UiState>((set) => ({
   viewSide: "blue",
   viewEchelon: "platoon",
   viewSquadId: null,
+  control: null,
+  roster: [],
 
   togglePause: () => set((s) => ({ paused: !s.paused })),
   cycleSpeed: () => set((s) => ({ speedIdx: (s.speedIdx + 1) % RUN_SPEEDS.length })),
@@ -84,6 +110,23 @@ export const useSimStore = create<UiState>((set) => ({
   setViewSide: (side) => set({ viewSide: side }),
   setViewEchelon: (e) => set({ viewEchelon: e }),
   setViewSquadId: (id) => set({ viewSquadId: id }),
+  /**
+   * ホットスワップ。操作対象を変えると視点も自動でその階層へ合わせる —
+   * 仕様 §5 のとおり、操作している階層が知り得る情報だけが見えるべきなので、
+   * 「小隊長を操作しながら分隊長の視界で見る」ことは許さない。
+   */
+  requestSwap: (c) =>
+    set(
+      c === null
+        ? { control: null }
+        : {
+            control: c,
+            viewSide: c.side,
+            viewEchelon: c.echelon === "platoon" ? "platoon" : "squad",
+            viewSquadId: c.echelon === "squad" ? c.unitId : null,
+          },
+    ),
+  setRoster: (r) => set({ roster: r }),
   pushHud: (snap) => set(snap),
 }));
 

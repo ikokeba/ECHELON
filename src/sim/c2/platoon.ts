@@ -14,6 +14,7 @@
  */
 
 import { SIM_HZ } from "../constants.ts";
+import { aiSuppressed } from "../control.ts";
 import type { Contact, MovementTechnique, PlatoonState, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
@@ -63,6 +64,10 @@ function selectTechnique(pl: PlatoonState, from: Vec2): MovementTechnique {
 
 export function platoonAI(world: World): void {
   for (const pl of world.platoons) {
+    // 人間がこの小隊長を操作しているなら、AIの意思決定は行わない(仕様 §4)。
+    // 配管(belief の更新・報告の送受信)はそのまま動き続ける — 人間は
+    // 意思決定者を置き換えるだけで、情報の流れ方は変わらない。
+    if (aiSuppressed(world, "platoon", pl.side, pl.platoonId)) continue;
     if (world.tick - pl.lastDecisionTick < DECIDE_EVERY_TICKS) continue;
     pl.lastDecisionTick = world.tick;
 
@@ -117,6 +122,18 @@ export function platoonAI(world: World): void {
       };
       pl.squadObjectives.set(sq.squadId, objective);
       pl.squadTechniques.set(sq.squadId, technique);
+
+      // 人間が操作している分隊には再割り当てを行わない(仕様 §4)。
+      //
+      // この分隊の意思決定者は既に人間へ置き換わっている。AIの小隊長が2秒ごとに
+      // 目標を上書きすると、プレイヤーの出した命令が握り潰され「操作できない操作」に
+      // なってしまう。現実の分隊長も上級部隊の意図から逸脱しうる(仕様 §3⑤の
+      // アンカー+リーシュが個人レベルで認めているのと同じ性質)。
+      //
+      // 将来の精緻化: 小隊長は「任務(WHAT)」を与え、人間の分隊長はその範囲内で
+      // 自由に実行する、という二段構えにするのが本来の姿。現状は任務と目標地点が
+      // 未分化なため、単純に再割り当てを止めている。
+      if (aiSuppressed(world, "squad", sq.side, sq.squadId)) return;
 
       // 小隊長の命令を分隊長へ渡す。これが階層間の下向きの情報流。
       sq.objective = objective;

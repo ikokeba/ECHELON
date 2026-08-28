@@ -1,6 +1,7 @@
 import { useSimStore } from "./store.ts";
 import { TimeControls } from "./TimeControls.tsx";
 import { ViewControls } from "./ViewControls.tsx";
+import { EchelonTree } from "./EchelonTree.tsx";
 
 function fmtClock(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -9,7 +10,8 @@ function fmtClock(sec: number): string {
 }
 
 export function Hud() {
-  const { tick, simSeconds, blueAlive, redAlive, blueEffective, redEffective } = useSimStore();
+  const { tick, simSeconds, blueAlive, redAlive, blueEffective, redEffective, control } =
+    useSimStore();
 
   return (
     <div className="hud">
@@ -37,8 +39,12 @@ export function Hud() {
       </div>
 
       <ViewControls />
+      <EchelonTree />
 
-      <div className="hud-hint">ドラッグ: 移動 · ホイール: 拡大縮小 · Space: 一時停止 · . : 1ティック</div>
+      <div className="hud-hint">
+        ドラッグ: 移動 · ホイール: 拡大縮小 · Space: 一時停止 · . : 1ティック
+        {control && " · 右クリック: 移動命令"}
+      </div>
     </div>
   );
 }

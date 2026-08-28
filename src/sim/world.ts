@@ -8,6 +8,7 @@
 import { buildNavGrid, type NavGrid } from "./navgrid.ts";
 import { buildCoverPoints } from "./cover.ts";
 import { createRng, type Rng } from "./rng.ts";
+import type { ControlState } from "./control.ts";
 import { NAV_MARGIN_OUTDOOR, NAV_STEP_OUTDOOR } from "./constants.ts";
 import type {
   AABB,
@@ -52,6 +53,11 @@ export interface World {
   /** 伝達中の無線報告。world.tick >= report.deliverTick になった時点で到達する */
   reports: Report[];
   controlMeasures: ControlMeasure[];
+  /**
+   * いま人間が操作しているノード(仕様 §4)。null なら全ユニットがAI制御。
+   * 人間はAIの意思決定者を置き換えるだけで、配管も能力も変わらない。
+   */
+  control: ControlState | null;
 }
 
 /** 兵士をディープコピーし、Worldがシナリオから独立して状態を所有できるようにする。 */
@@ -187,6 +193,7 @@ export function createWorld(scenario: Scenario): World {
       ...cm,
       points: cm.points.map((p) => ({ ...p })),
     })),
+    control: null,
   };
 }
 

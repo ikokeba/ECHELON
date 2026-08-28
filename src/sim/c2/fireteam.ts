@@ -21,6 +21,7 @@ import {
   pickSupportedBoundTarget,
 } from "../cover.ts";
 import { CONFIDENCE_CUTOFF, POS_ERROR_GROWTH, POS_ERROR_MAX, SIM_HZ } from "../constants.ts";
+import { aiSuppressed } from "../control.ts";
 import { decayedConfidence } from "../belief.ts";
 import type { Contact, FireteamMode, FireteamState, Soldier, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
@@ -360,8 +361,15 @@ export function fireteamAI(world: World): void {
     );
     const living = members.filter((s) => s.status === "ok");
 
+    // world picture の更新は操作中でも必ず走らせる。人間が操作していても、
+    // そのFTが「何を見ているか」は変わらないため(仕様 §4: 能力を追加しない)。
     updateMemory(world, ft, living);
     if (living.length === 0) continue;
+
+    // 人間がこのFTリーダーを操作しているなら、AIの命令発行は行わない(仕様 §4)
+    const ftLeader = living.find((s) => s.isFireteamLeader);
+    if (ftLeader && aiSuppressed(world, "fireteam", ft.side, ftLeader.id)) continue;
+
     if (world.tick % DECIDE_EVERY_TICKS !== 0) continue;
 
     const contacts = [...ft.memory.values()];

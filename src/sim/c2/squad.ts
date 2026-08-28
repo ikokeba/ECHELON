@@ -12,6 +12,7 @@
  */
 
 import { SIM_HZ } from "../constants.ts";
+import { aiSuppressed } from "../control.ts";
 import type { Contact, Soldier, SquadState, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
@@ -80,6 +81,17 @@ function directFireteams(world: World, sq: SquadState): void {
   const threat = primaryThreat(sq.belief);
 
   for (const ft of fireteams) {
+    // 人間が操作しているFTには再割り当てを行わない(仕様 §4、小隊長と同じ理由)
+    const leader = world.soldiers.find(
+      (s) =>
+        s.side === ft.side &&
+        s.squadId === ft.squadId &&
+        s.fireteamId === ft.ftIndex &&
+        s.isFireteamLeader &&
+        s.status === "ok",
+    );
+    if (leader && aiSuppressed(world, "fireteam", ft.side, leader.id)) continue;
+
     // 任務目標と移動技術は上から下へそのまま伝播する
     ft.objective = { ...sq.objective };
     ft.technique = sq.technique;
@@ -120,12 +132,17 @@ export function squadAI(world: World): void {
   if (world.tick % DECIDE_EVERY_TICKS !== 0) return;
 
   for (const sq of world.squads) {
+    // 人間が操作している分隊長のAIは止める(仕様 §4)
+    if (aiSuppressed(world, "squad", sq.side, sq.squadId)) continue;
     directFireteams(world, sq);
   }
 
   // ── 分隊長自身の位置取り ──
   for (const sl of world.soldiers) {
     if (!sl.isSquadLeader || sl.status !== "ok") continue;
+    if (aiSuppressed(world, "squad", sl.side, sl.squadId)) continue;
+    // 分隊長本人が一兵卒として直接操作されている場合も、AIの位置取りは止める
+    if (aiSuppressed(world, "soldier", sl.side, sl.id)) continue;
 
     const squad = world.soldiers.filter(
       (s) =>
