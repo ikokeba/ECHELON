@@ -44,6 +44,12 @@ export interface HudSnapshot {
   knownContacts: number;
   /** そのうち確度0まで落ちた「最終目撃情報」の件数 */
   staleContacts: number;
+  /** CCPまで後送を完了した人数(仕様 §9)。生存者としてカウントされる */
+  blueEvacuated: number;
+  redEvacuated: number;
+  /** 戦場に倒れたまま後送を待っている人数 */
+  blueAwaitingEvac: number;
+  redAwaitingEvac: number;
 }
 
 interface UiState extends HudSnapshot {
@@ -91,6 +97,10 @@ export const useSimStore = create<UiState>((set) => ({
   redEffective: 0,
   knownContacts: 0,
   staleContacts: 0,
+  blueEvacuated: 0,
+  redEvacuated: 0,
+  blueAwaitingEvac: 0,
+  redAwaitingEvac: 0,
 
   paused: false,
   speedIdx: RUN_SPEEDS.indexOf(1) >= 0 ? RUN_SPEEDS.indexOf(1) : 0,

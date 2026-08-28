@@ -10,7 +10,7 @@ import * as THREE from "three";
 import type { World } from "@sim/world.ts";
 import type { Side } from "@sim/types.ts";
 import type { ViewResult } from "@sim/viewpoint.ts";
-import { SOLDIER_RADIUS } from "@sim/constants.ts";
+import { LITTER, SOLDIER_RADIUS } from "@sim/constants.ts";
 
 const SIDE_COLOR: Record<Side, number> = {
   blue: 0x4aa3ff,
@@ -24,6 +24,8 @@ const WALL_COLOR = 0x39435a;
 const GHOST_COLOR = 0x6b7280;
 /** 止血済みWIA。出血は止まったが行動不能で後送待ち(仕様 §9) */
 const STABILIZED_COLOR = 0x4fb477;
+/** 担架搬送中(負傷者本人と担架要員の両方)。仕様 §9 */
+const CARRYING_COLOR = 0x8fd6ff;
 const MAX_SOLDIERS = 512;
 const MAX_CONTACTS = 512;
 
@@ -115,6 +117,34 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       ring.position.set(cm.points[0].x, 0.02, cm.points[0].z);
       scene.add(ring);
     }
+  }
+
+  // 負傷者集合点(CCP、仕様 §9)。担架班の搬送先なので、常に両陣営分を描く。
+  for (const side of ["blue", "red"] as Side[]) {
+    const p = world.ccp[side];
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(LITTER.EVAC_RADIUS - 0.35, LITTER.EVAC_RADIUS, 32),
+      new THREE.MeshBasicMaterial({
+        color: SIDE_COLOR[side],
+        transparent: true,
+        opacity: 0.35,
+        side: THREE.DoubleSide,
+      }),
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(p.x, 0.02, p.z);
+    scene.add(ring);
+    // CCPだと分かるよう十字を重ねる(衛生標識の見立て)
+    const cross = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.6, 0.5),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 }),
+    );
+    cross.rotation.x = -Math.PI / 2;
+    cross.position.set(p.x, 0.021, p.z);
+    scene.add(cross);
+    const cross2 = cross.clone();
+    cross2.rotation.z = Math.PI / 2;
+    scene.add(cross2);
   }
 
   // 兵士 — インスタンス化した円盤 + 向きを示すくさび形
@@ -226,10 +256,14 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
         s.status === "kia"
           ? KIA_COLOR
           : s.status === "wia"
-            ? s.stabilized
-              ? STABILIZED_COLOR // 止血済み: 出血は止まり後送待ち(仕様 §9)
-              : WIA_COLOR // 出血中: 45秒以内に手当がなければKIAへ
-            : SIDE_COLOR[s.side];
+            ? s.evac === "carrying"
+              ? CARRYING_COLOR // 担架搬送中(仕様 §9)
+              : s.stabilized
+                ? STABILIZED_COLOR // 止血済み: 出血は止まり後送待ち(仕様 §9)
+                : WIA_COLOR // 出血中: 45秒以内に手当がなければKIAへ
+            : s.bearing !== null
+              ? CARRYING_COLOR // 担架要員: 搬送に専念していて射撃できない
+              : SIDE_COLOR[s.side];
       if (s.status === "ok" && s.suppressedUntilTick > world.tick) {
         color = col.setHex(color).lerp(col2.setHex(0xe8edf5), 0.55).getHex();
       }

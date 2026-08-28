@@ -10,8 +10,19 @@ function fmtClock(sec: number): string {
 }
 
 export function Hud() {
-  const { tick, simSeconds, blueAlive, redAlive, blueEffective, redEffective, control } =
-    useSimStore();
+  const {
+    tick,
+    simSeconds,
+    blueAlive,
+    redAlive,
+    blueEffective,
+    redEffective,
+    blueEvacuated,
+    redEvacuated,
+    blueAwaitingEvac,
+    redAwaitingEvac,
+    control,
+  } = useSimStore();
 
   return (
     <div className="hud">
@@ -29,11 +40,17 @@ export function Hud() {
           <span className="mono">
             {blueEffective}/{blueAlive}
           </span>
+          <span className="force-evac mono" title="後送待ち / 後送済み(仕様 §9)">
+            ▲{blueAwaitingEvac} ✚{blueEvacuated}
+          </span>
         </div>
         <div className="force force-red">
           <span className="force-label">RED</span>
           <span className="mono">
             {redEffective}/{redAlive}
+          </span>
+          <span className="force-evac mono" title="後送待ち / 後送済み(仕様 §9)">
+            ▲{redAwaitingEvac} ✚{redEvacuated}
           </span>
         </div>
       </div>

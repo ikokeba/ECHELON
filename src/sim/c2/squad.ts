@@ -11,8 +11,9 @@
  *   - 分隊長自身の位置取り(指揮を執れる位置に留まり、突撃の先頭には立たない)
  */
 
-import { SIM_HZ } from "../constants.ts";
+import { LITTER, SIM_HZ } from "../constants.ts";
 import { aiSuppressed } from "../control.ts";
+import { bearersNeeded, isCommittedToLitter } from "../systems/litter.ts";
 import type { Contact, Soldier, SquadState, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
@@ -128,6 +129,38 @@ function directFireteams(world: World, sq: SquadState): void {
   for (let i = 1; i < withDist.length; i++) withDist[i]!.ft.assignedRole = "maneuver";
 }
 
+/**
+ * 後送(担架搬送)の発令(仕様 §9)。
+ *
+ * 応急手当が命令不要の自律トリガーであるのに対し、**担架搬送は明示的な命令を要する**。
+ * これは仕様が意図した戦術的トレードオフそのもの: 後送すれば負傷者は生存者として
+ * 数えられるが、分隊は担架要員2〜4名を一時的に失う。
+ *
+ * AI分隊長の判断規則: 止血済みの負傷者について、担架班を出したあとも分隊に
+ * 最低限の戦力(LITTER.MIN_REMAINING_EFFECTIVE)が残る場合にのみ命じる。
+ * 残らないなら負傷者はその場に留まる — 前線が下がるか増援が来るのを待つことになる。
+ */
+function decideCasevac(world: World, sq: SquadState): void {
+  const members = world.soldiers.filter((s) => s.side === sq.side && s.squadId === sq.squadId);
+  const patients = members.filter(
+    (s) => s.status === "wia" && s.stabilized && s.evac === "none",
+  );
+  if (patients.length === 0) return;
+
+  const ccp = world.ccp[sq.side];
+  for (const p of patients) {
+    // 手当・搬送に就いていない健常隊員のみが担架要員になれる
+    const free = members.filter(
+      (s) => s.status === "ok" && s.bearing === null && s.treating === null,
+    ).length;
+    const need = bearersNeeded(p, ccp);
+    if (free - need < LITTER.MIN_REMAINING_EFFECTIVE) continue;
+
+    p.evac = "requested";
+    sq.casevacOrders.push(p.id);
+  }
+}
+
 export function squadAI(world: World): void {
   if (world.tick % DECIDE_EVERY_TICKS !== 0) return;
 
@@ -135,6 +168,7 @@ export function squadAI(world: World): void {
     // 人間が操作している分隊長のAIは止める(仕様 §4)
     if (aiSuppressed(world, "squad", sq.side, sq.squadId)) continue;
     directFireteams(world, sq);
+    decideCasevac(world, sq);
   }
 
   // ── 分隊長自身の位置取り ──
@@ -143,6 +177,8 @@ export function squadAI(world: World): void {
     if (aiSuppressed(world, "squad", sl.side, sl.squadId)) continue;
     // 分隊長本人が一兵卒として直接操作されている場合も、AIの位置取りは止める
     if (aiSuppressed(world, "soldier", sl.side, sl.id)) continue;
+    // 分隊長自身が担架要員に選ばれている間は、位置取りより搬送が優先される(仕様 §9)
+    if (isCommittedToLitter(sl)) continue;
 
     const squad = world.soldiers.filter(
       (s) =>

@@ -41,10 +41,14 @@ function wantsToMove(s: Soldier): boolean {
 
 export function movementSystem(world: World): void {
   const maxTurn = TURN_RATE * SIM_DT;
-  const maxStep = MOVE_SPEED * SIM_DT;
+  const baseStep = MOVE_SPEED * SIM_DT;
 
   for (const s of world.soldiers) {
     if (s.status === "kia" || s.status === "wia") continue;
+
+    // 速度の変調(担架搬送 0.5/0.85倍、室内進入 0.7倍 など)。
+    // 変調をかけたシステムが解除の責任を持つ(constants の speedMul を参照)。
+    const maxStep = baseStep * s.speedMul;
 
     if (wantsToMove(s) && s.pathIdx < s.path.length) {
       const step = advanceAlongPath(s.pos, s.path, s.pathIdx, maxStep);

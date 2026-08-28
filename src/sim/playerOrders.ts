@@ -47,6 +47,38 @@ export function orderPlatoonTo(world: World, target: Vec2): boolean {
   return true;
 }
 
+/**
+ * 操作中の分隊で、止血済みの負傷者に後送(担架搬送)を命じる(仕様 §9)。
+ *
+ * AI分隊長と**同じ経路**を通す — プレイヤーだけが担架班を無条件に編成できたり、
+ * 分隊の戦力を無視して後送できたりはしない(仕様 §13 の公平性)。違いは
+ * 「AIは戦力の残りを見て自制するが、人間は自分の判断で命じられる」点だけで、
+ * 実際に担架班が組めるかどうかは同じ litterSystem の条件に従う。
+ */
+export function orderCasevac(world: World, patientId?: number): boolean {
+  const c = world.control;
+  if (!c || c.echelon !== "squad") return false;
+  const sq = world.squads.find((s) => s.side === c.side && s.squadId === c.unitId);
+  if (!sq) return false;
+
+  const candidates = world.soldiers.filter(
+    (s) =>
+      s.side === sq.side &&
+      s.squadId === sq.squadId &&
+      s.status === "wia" &&
+      s.stabilized &&
+      s.evac === "none" &&
+      (patientId === undefined || s.id === patientId),
+  );
+  if (candidates.length === 0) return false;
+
+  for (const p of candidates) {
+    p.evac = "requested";
+    sq.casevacOrders.push(p.id);
+  }
+  return true;
+}
+
 /** 操作中の階層に応じて、目的地指示を適切な経路へ振り分ける。 */
 export function orderControlledTo(world: World, target: Vec2): boolean {
   const c = world.control;

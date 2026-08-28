@@ -23,6 +23,7 @@ import {
 import { CONFIDENCE_CUTOFF, POS_ERROR_GROWTH, POS_ERROR_MAX, SIM_HZ } from "../constants.ts";
 import { aiSuppressed } from "../control.ts";
 import { isCommittedToAid } from "../systems/casualties.ts";
+import { isCommittedToLitter } from "../systems/litter.ts";
 import { decayedConfidence } from "../belief.ts";
 import type { Contact, FireteamMode, FireteamState, Soldier, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
@@ -91,6 +92,9 @@ function issue(
   // 自律トリガーであり、命令系統の外側で発生する)。ここで上書きすると
   // 0.3秒ごとの命令更新で手当が永久に中断され続ける。
   if (isCommittedToAid(world, u)) return;
+  // 担架搬送に就いている隊員も同様。こちらは分隊長の後送命令で拘束されているので、
+  // FTリーダーの命令より上位の拘束になる(仕様 §9: 後送は明示的な命令)。
+  if (isCommittedToLitter(u)) return;
 
   const prev = u.order;
   const movingKind = kind === "move" || kind === "maneuver" || kind === "retreat" || kind === "evade";

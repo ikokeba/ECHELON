@@ -50,15 +50,26 @@ function hudOf(world: World, view: ViewResult): HudSnapshot {
   let redAlive = 0;
   let blueEffective = 0;
   let redEffective = 0;
+  let blueEvacuated = 0;
+  let redEvacuated = 0;
+  let blueAwaitingEvac = 0;
+  let redAwaitingEvac = 0;
   for (const s of world.soldiers) {
     const alive = s.status !== "kia";
     const effective = s.status === "ok";
+    const evacuated = s.evac === "evacuated";
+    // 後送を待っている = 倒れていて、まだCCPへ届いていない(仕様 §9)
+    const awaiting = s.status === "wia" && !evacuated;
     if (s.side === "blue") {
       if (alive) blueAlive++;
       if (effective) blueEffective++;
+      if (evacuated) blueEvacuated++;
+      if (awaiting) blueAwaitingEvac++;
     } else {
       if (alive) redAlive++;
       if (effective) redEffective++;
+      if (evacuated) redEvacuated++;
+      if (awaiting) redAwaitingEvac++;
     }
   }
   return {
@@ -70,6 +81,10 @@ function hudOf(world: World, view: ViewResult): HudSnapshot {
     redEffective,
     knownContacts: view.known,
     staleContacts: view.stale,
+    blueEvacuated,
+    redEvacuated,
+    blueAwaitingEvac,
+    redAwaitingEvac,
   };
 }
 

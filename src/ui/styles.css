@@ -130,9 +130,10 @@ body {
 
 .force {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  gap: 18px;
-  min-width: 130px;
+  gap: 12px;
+  min-width: 175px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -152,6 +153,13 @@ body {
 
 .force-red .force-label {
   color: var(--red);
+}
+
+/* 後送待ち / 後送済み(仕様 §9)。主戦力の数字より一段小さく、副次情報として置く */
+.force-evac {
+  font-size: 11px;
+  opacity: 0.72;
+  white-space: nowrap;
 }
 
 .hud-hint {

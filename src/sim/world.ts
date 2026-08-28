@@ -53,6 +53,8 @@ export interface World {
   /** 伝達中の無線報告。world.tick >= report.deliverTick になった時点で到達する */
   reports: Report[];
   controlMeasures: ControlMeasure[];
+  /** 陣営ごとの負傷者集合点(CCP、仕様 §9)。担架班の搬送先。 */
+  ccp: Record<Side, Vec2>;
   /**
    * いま人間が操作しているノード(仕様 §4)。null なら全ユニットがAI制御。
    * 人間はAIの意思決定者を置き換えるだけで、配管も能力も変わらない。
@@ -73,6 +75,7 @@ function cloneSoldier(s: Soldier): Soldier {
     },
     path: s.path.map((p) => ({ ...p })),
     sees: [...s.sees],
+    bearers: [...s.bearers],
     quals: { ...s.quals },
     traits: { ...s.traits },
   };
@@ -137,6 +140,7 @@ function buildSquads(scenario: Scenario, soldiers: Soldier[]): SquadState[] {
       advanceDir: { ...(spec?.advanceDir ?? s.facing) },
       rallyPoint: { ...(spec?.rallyPoint ?? s.pos) },
       lastReportTick: 0,
+      casevacOrders: [],
     });
   }
   return [...seen.values()];
@@ -169,6 +173,22 @@ function buildPlatoons(scenario: Scenario, soldiers: Soldier[]): PlatoonState[] 
   return [...seen.values()];
 }
 
+/**
+ * 陣営の負傷者集合点(CCP、仕様 §9)。シナリオ指定がなければ初期配置の重心を使う。
+ * 前線が押し上がっても後方に残るので、後送の距離が戦況とともに伸びていく。
+ */
+function defaultCcp(soldiers: readonly Soldier[], side: Side): Vec2 {
+  const men = soldiers.filter((s) => s.side === side);
+  if (men.length === 0) return { x: 0, z: 0 };
+  let x = 0;
+  let z = 0;
+  for (const m of men) {
+    x += m.pos.x;
+    z += m.pos.z;
+  }
+  return { x: x / men.length, z: z / men.length };
+}
+
 export function createWorld(scenario: Scenario): World {
   const walls = scenario.walls.map((w) => ({ ...w }));
   const navOutdoor = buildNavGrid(walls, scenario.bounds, NAV_STEP_OUTDOOR, NAV_MARGIN_OUTDOOR);
@@ -194,6 +214,10 @@ export function createWorld(scenario: Scenario): World {
       ...cm,
       points: cm.points.map((p) => ({ ...p })),
     })),
+    ccp: {
+      blue: { ...(scenario.ccp?.blue ?? defaultCcp(soldiers, "blue")) },
+      red: { ...(scenario.ccp?.red ?? defaultCcp(soldiers, "red")) },
+    },
     control: null,
   };
 }

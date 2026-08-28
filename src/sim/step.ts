@@ -11,6 +11,7 @@ import { separationSystem } from "./systems/separation.ts";
 import { perceptionSystem } from "./systems/perception.ts";
 import { combatSystem } from "./systems/combat.ts";
 import { casualtiesSystem } from "./systems/casualties.ts";
+import { litterSystem } from "./systems/litter.ts";
 import { fireteamAI } from "./c2/fireteam.ts";
 import { squadAI } from "./c2/squad.ts";
 import { platoonAI } from "./c2/platoon.ts";
@@ -36,8 +37,11 @@ export function stepWorld(world: World): void {
   separationSystem(world);
   // 7. 戦闘 — 交戦・命中判定・制圧の適用
   combatSystem(world);
-  // 8. 死傷 — 出血タイマーの進行
+  // 8. 死傷 — 出血タイマーの進行、応急手当(仕様 §9 前半)
   casualtiesSystem(world);
+  // 9. 後送 — 担架班の編成と搬送(仕様 §9 後半)。分離のあとに走らせて、
+  //    担架班を剛体として最終位置へ貼り直す
+  litterSystem(world);
 
   world.tick += 1;
 }

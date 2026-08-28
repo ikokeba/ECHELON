@@ -68,6 +68,10 @@ export function makeSoldier(seed: SoldierSeed): Soldier {
     treating: null,
     aidProgressTicks: 0,
     stabilized: false,
+    evac: "none",
+    bearers: [],
+    bearing: null,
+    speedMul: 1,
     traits: {
       aggressiveness: seed.traits?.aggressiveness ?? 0.5,
       boldness: seed.traits?.boldness ?? 0.5,

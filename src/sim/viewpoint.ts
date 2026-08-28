@@ -64,7 +64,9 @@ export function beliefFor(world: World, spec: ViewSpec): Map<string, Contact> {
 }
 
 export function resolveView(world: World, spec: ViewSpec): ViewResult {
-  const friendly = world.soldiers.filter((s) => s.side === spec.side);
+  // 後送済みの兵士は戦場を離脱しているので描画しない(仕様 §9)。
+  // 生存者としてはカウントされるため、HUDの集計とは別扱いになる。
+  const friendly = world.soldiers.filter((s) => s.side === spec.side && s.evac !== "evacuated");
   const enemySide: Side = spec.side === "blue" ? "red" : "blue";
 
   if (spec.echelon === "truth") {

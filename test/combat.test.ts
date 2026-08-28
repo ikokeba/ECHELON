@@ -116,10 +116,13 @@ describe("integrated combat", () => {
     const victim = w.soldiers[0]!;
     victim.status = "wia";
     victim.bleedOutTick = w.tick + Math.round(BLEED_OUT_SEC / SIM_DT);
-    // 本当に「未処置」にする。バディエイド(仕様 §9)が実装された今、同分隊員が
-    // 健在なら手当されて助かってしまうため、この検証には成立しない前提になる。
+    // 出血タイマー**だけ**を見るために、負傷者を完全に孤立させる。
+    //   - 同陣営を除去: バディエイド(仕様 §9)が実装された今、同分隊員が健在なら
+    //     手当されて助かってしまう
+    //   - 敵陣営も除去: 即死ルール(仕様 §9)が実装された今、他に撃つ相手がいない敵は
+    //     倒れている兵士へ火力を向け、45秒を待たずに戦死させてしまう
     for (const s of w.soldiers) {
-      if (s.side === victim.side && s.id !== victim.id) s.status = "kia";
+      if (s.id !== victim.id) s.status = "kia";
     }
     runTicks(w, Math.round((BLEED_OUT_SEC - 1) / SIM_DT));
     expect(victim.status).toBe("wia");

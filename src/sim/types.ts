@@ -56,6 +56,17 @@ export type MovementTechnique = "traveling" | "traveling_overwatch" | "bounding_
 export type SoldierStatus = "ok" | "wia" | "kia";
 
 /**
+ * 後送(担架搬送)の進行状態(仕様 §9)。
+ *
+ * `none` → 分隊長の後送命令で `requested` → 担架班が収容して `carrying`
+ * → CCP到達で `evacuated`(以後戦場から離脱、生存者としてカウント)。
+ *
+ * 応急手当が命令不要の自律トリガーであるのに対し、**担架搬送は明示的な命令を要する**
+ * (仕様 §9)。この差が「止血はするが後送は指揮判断」という戦術的トレードオフを作る。
+ */
+export type EvacStage = "none" | "requested" | "carrying" | "evacuated";
+
+/**
  * FT内の役割(仕様 §14 のMOS)。mos-balance-simulator が検証した4名編成に対応する。
  * 戦闘性能に効くのは SAW(制圧効果) と 擲弾手(遮蔽無視) のみで、それ以外は同一。
  */
@@ -135,6 +146,19 @@ export interface Soldier {
    * (仕様 §9: 負傷=即行動不能、バディエイドが必須。軽傷/重傷の段階分けはしない)。
    */
   stabilized: boolean;
+  /** 後送(担架搬送)の進行状態(仕様 §9)。 */
+  evac: EvacStage;
+  /** この負傷者を担いでいる担架要員のID列(2名 または 4名。仕様 §9) */
+  bearers: number[];
+  /** 自分がいま担いでいる負傷者のID(null = 担架要員ではない) */
+  bearing: number | null;
+
+  /**
+   * 移動速度の倍率。担架搬送(0.5/0.85倍)や室内進入(0.7倍)など、
+   * 一時的な速度変調をシステム間で受け渡すための共有フィールド。
+   * 毎ティック、変調をかけるシステムが自分で1.0へ戻す責任を持つ。
+   */
+  speedMul: number;
 
   order: SoldierOrder;
   /** 現在の経路(ウェイポイント列)。先頭から順に消費する */
@@ -254,6 +278,12 @@ export interface SquadState {
 
   /** 上位(小隊)へ最後に定時報告を送ったティック */
   lastReportTick: number;
+
+  /**
+   * 分隊長が後送を命じた負傷者のID(仕様 §9: 担架搬送は明示的な命令発行を要する)。
+   * 応急手当と違い自律トリガーではないので、ここに載って初めて担架班が編成される。
+   */
+  casevacOrders: number[];
 }
 
 /**
@@ -367,6 +397,11 @@ export interface Scenario {
   platoonPlans?: PlatoonPlan[];
   /** 参照・描画用の統制手段(仕様 §6): チェックポイント・フェーズライン・目標 */
   controlMeasures?: ControlMeasure[];
+  /**
+   * 陣営ごとの負傷者集合点(CCP、仕様 §9)。担架班はここへ負傷者を運ぶ。
+   * 未指定なら各陣営の初期位置の重心を使う。
+   */
+  ccp?: Record<Side, Vec2>;
 }
 
 export interface ControlMeasure {

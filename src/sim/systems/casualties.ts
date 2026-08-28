@@ -103,6 +103,8 @@ export function casualtiesSystem(world: World): void {
     for (const cand of world.soldiers) {
       if (cand.side !== patient.side || cand.squadId !== patient.squadId) continue;
       if (cand.status !== "ok" || cand.treating !== null) continue;
+      // 担架搬送に就いている隊員は手当に回せない(仕様 §9: 搬送要員は搬送に専念)
+      if (cand.bearing !== null) continue;
       const d = dist2(cand, patient);
       if (d < bestD) {
         bestD = d;

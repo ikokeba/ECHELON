@@ -78,19 +78,34 @@ function friendlyBlocksFire(world: World, shooter: Soldier, target: Soldier): bo
   return false;
 }
 
+/**
+ * 交戦対象の選択。**戦闘可能な敵を常に優先する**。
+ *
+ * 倒れている敵(WIA)も撃てるが、それは他に撃つべき相手がいない場合に限る。
+ * 仕様 §9 の即死ルール(「倒れている兵士を無防備に放置するリスクを明確化」)は
+ * この後回しの選択で成立する — 通常の撃ち合いの最中に負傷者へ火力が逸れると、
+ * 逆に「倒せば安全」という誤った圧力が生まれてしまう。
+ */
 function nearestVisibleTarget(world: World, shooter: Soldier): Soldier | null {
   let best: Soldier | null = null;
   let bestD = Infinity;
+  let downed: Soldier | null = null;
+  let downedD = Infinity;
   for (const id of shooter.sees) {
     const t = world.soldierById.get(id);
-    if (!t || t.status !== "ok") continue;
+    if (!t || t.status === "kia" || t.evac === "evacuated") continue;
     const d = Math.hypot(t.pos.x - shooter.pos.x, t.pos.z - shooter.pos.z);
-    if (d < bestD) {
-      bestD = d;
-      best = t;
+    if (t.status === "ok") {
+      if (d < bestD) {
+        bestD = d;
+        best = t;
+      }
+    } else if (d < downedD) {
+      downedD = d;
+      downed = t;
     }
   }
-  return best;
+  return best ?? downed;
 }
 
 interface PendingShot {
@@ -98,6 +113,8 @@ interface PendingShot {
   target: Soldier;
   outcome: ShotOutcome;
   suppressing: boolean;
+  /** 判定時点で目標が既に行動不能だったか(仕様 §9 の即死ルール) */
+  targetWasDowned: boolean;
 }
 
 /**
@@ -115,6 +132,8 @@ export function combatSystem(world: World): void {
     if (s.status !== "ok") continue;
     // 応急手当の実行中は射撃できない(仕様 §9: 処置中は両者とも無防備)
     if (s.treating !== null && s.aidProgressTicks > 0) continue;
+    // 担架搬送中は武器を使用できない(仕様 §9)
+    if (s.bearing !== null) continue;
 
     const target = nearestVisibleTarget(world, s);
     if (!target) continue;
@@ -144,13 +163,25 @@ export function combatSystem(world: World): void {
       // 選抜射手は制圧下でも命中率低下が軽い(仕様 §8.6 [v5], §14)
       shooterIsMarksman: s.quals.designatedMarksman,
     });
-    pending.push({ shooter: s, target, outcome, suppressing: s.suppressor });
+    pending.push({
+      shooter: s,
+      target,
+      outcome,
+      suppressing: s.suppressor,
+      targetWasDowned: target.status !== "ok",
+    });
   }
 
   // ── 適用フェーズ ──
-  for (const { target, outcome, suppressing } of pending) {
+  for (const { target, outcome, suppressing, targetWasDowned } of pending) {
     if (outcome.hit) {
-      if (outcome.lethal) {
+      // 即死ルール(仕様 §9): 行動不能中の兵士への追加被弾は、安定化・後送状況に
+      // 関係なく即時戦死。倒れた味方を無防備に放置するリスクを明確化するための規則。
+      if (targetWasDowned) {
+        target.status = "kia";
+        target.bleedOutTick = 0;
+        target.assignedAider = null;
+      } else if (outcome.lethal) {
         target.status = "kia";
         target.path = [];
         target.pathIdx = 0;
