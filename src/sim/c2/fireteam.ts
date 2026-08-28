@@ -1,17 +1,17 @@
 /**
- * Fireteam-leader AI — the command system (spec §1 [v5] correction: this state
- * machine *is* what the spec calls the 命令システム).
+ * ファイアチームリーダーAI — すなわち命令システム
+ * (仕様 §1 [v5] の訂正: このステートマシンこそが仕様のいう「命令システム」である)。
  *
- * Ported from squad-12v12-3ft-autobattle-mock.jsx `updateSquadOrders`, which the
- * v5 pass verified. Structure preserved:
- *   mode select (with dwell hysteresis) → per-mode order emission
- *   ADVANCE / SEARCH : bounding overwatch (one buddy pair moves, one overwatches)
- *   CONTACT          : base-of-fire element suppresses, maneuver element flanks
- *   FALLBACK         : withdraw to the rally point
- * Destination caches are held until reached (the mock's anti-dither rule).
+ * v5で検証済みの squad-12v12-3ft-autobattle-mock.jsx `updateSquadOrders` から移植。
+ * 構造は保存している:
+ *   モード選択(最小滞留時間によるヒステリシス付き) → モードごとの命令発行
+ *   ADVANCE / SEARCH : バウンディングオーバーウォッチ(片方の組が躍進、片方が警戒)
+ *   CONTACT          : ベース・オブ・ファイア組が制圧、機動組が側面へ回る
+ *   FALLBACK         : 集結地点へ後退
+ * 目的地キャッシュは到達するまで保持する(モックのばたつき防止規則)。
  *
- * Force symmetry (spec §2/§13): this runs identically for both sides. Nothing
- * here reads `side` to branch behaviour.
+ * 戦力対称性(仕様 §2/§13): このロジックは両陣営で完全に同一に動作する。
+ * ここには `side` を読んで挙動を分岐させる箇所は一切存在しない。
  */
 
 import { hasLineOfSight } from "../geometry.ts";
@@ -25,22 +25,22 @@ import { decayedConfidence } from "../belief.ts";
 import type { Contact, FireteamMode, FireteamState, Soldier, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
-// ── tuning (mock-derived; see squad-12v12 TEAM_DEFS). Individual variance from
-//    spec §14 modulates these per fireteam rather than per team "personality".
+// ── チューニング値(モック由来。squad-12v12 の TEAM_DEFS を参照)。
+//    仕様 §14 の個体差パラメータは、チーム単位の「性格」ではなくFT単位でこれらを変調する。
 const ENGAGE_MIN = 8;
 const ENGAGE_MAX = 15;
 const BOUND_MIN_ADV = 3;
 const BOUND_MAX_ADV = 7;
-/** minimum ticks in a mode before switching away (mock: 1.2s) — FALLBACK exempt */
+/** モードを離れるまでの最小滞留ティック数(モック: 1.2秒)— FALLBACKへの遷移は例外 */
 const MODE_DWELL_TICKS = Math.round(1.2 * SIM_HZ);
-/** re-pick a reached destination only after this long (mock: 1.5s) */
+/** 到達済みの目的地を再選択するまでの待ち時間(モック: 1.5秒) */
 const DEST_HOLD_TICKS = Math.round(1.5 * SIM_HZ);
-/** how close counts as "arrived" for a bound leg / destination (mock: 1.8 / 1.5m) */
+/** 躍進レグ/目的地の「到達」とみなす距離(モック: 1.8 / 1.5m) */
 const BOUND_ARRIVE = 1.8;
 const DEST_ARRIVE = 1.5;
-/** how far below enemy strength before withdrawing (mock: fallbackDeficit) */
+/** 何人差の劣勢で後退を判断するか(モック: fallbackDeficit) */
 const FALLBACK_DEFICIT = 1;
-/** the FT leader re-decides at this cadence, not every tick */
+/** FTリーダーの意思決定周期。毎ティックではない */
 const DECIDE_EVERY_TICKS = Math.round(0.3 * SIM_HZ);
 
 function centroid(units: readonly Soldier[]): Vec2 {
@@ -71,7 +71,7 @@ function dist(a: Vec2, b: Vec2): number {
   return Math.hypot(a.x - b.x, a.z - b.z);
 }
 
-/** Lateral offset so members of a moving element don't stack on one point. */
+/** 移動組の隊員が1点に重ならないよう、横方向へずらすオフセット。 */
 function offsetPerp(i: number, n: number, spacing: number, dir: Vec2): Vec2 {
   const perp = { x: -dir.z, z: dir.x };
   const k = i - (n - 1) / 2;
@@ -96,14 +96,14 @@ function issue(
     facing: { ...look },
     issuedTick: world.tick,
   };
-  // a genuinely new destination invalidates the cached path
+  // 本当に新しい目的地であればキャッシュ済みの経路を破棄する
   if (changedTarget) {
     u.path = [];
     u.pathIdx = 0;
   }
 }
 
-/** Merge everything the fireteam's members can see into the leader's picture. */
+/** FT隊員が見ているものをすべてリーダーの world picture へ統合する(仕様 §5 視界の合算)。 */
 function updateMemory(world: World, ft: FireteamState, members: readonly Soldier[]): void {
   for (const m of members) {
     for (const id of m.sees) {
@@ -131,7 +131,7 @@ function updateMemory(world: World, ft: FireteamState, members: readonly Soldier
     }
   }
 
-  // decay + drop, and forget anyone confirmed dead (spec §9: KIA leaves the picture at once)
+  // 減衰と切り捨て。戦死が確認された対象は即座に忘れる(仕様 §9: KIAは記憶からも即消去)
   for (const [key, c] of ft.memory) {
     const enemy = world.soldierById.get(Number(key.slice(1)));
     if (enemy && enemy.status === "kia") {
@@ -146,11 +146,12 @@ function updateMemory(world: World, ft: FireteamState, members: readonly Soldier
 }
 
 /**
- * Mode selection. The strength comparison weighs the **squad's** effective
- * strength — not just this fireteam's — against the threat this fireteam knows
- * about. A fireteam is half a squad by design and fights supported by the other
- * half (spec §6 fire and movement), so judging a 4-man team against every enemy
- * it can see makes both sides withdraw on first contact and no fight happens.
+ * モード選択。
+ *
+ * 戦力比較では、このFT単独ではなく**分隊全体**の有効戦力を、当該FTが把握している
+ * 脅威数と突き合わせる。FTは設計上「分隊の半分」であり、もう半分の支援を受けて戦う
+ * ものだから(仕様 §6 Fire and Movement)。4名を視認できる敵全員と比較してしまうと、
+ * 両陣営とも初回接敵で劣勢と判断して後退し、戦闘が一切成立しなくなる。
  */
 function selectMode(
   ft: FireteamState,
@@ -166,8 +167,8 @@ function selectMode(
 }
 
 /**
- * Bounding overwatch: one buddy pair moves to a covered position inside the
- * other pair's supporting fire; the pairs then swap roles (spec §6).
+ * バウンディングオーバーウォッチ: 一方のバディペアが、もう一方のペアの支援射撃範囲内に
+ * ある遮蔽位置へ躍進する。到達したら役割を交代する(仕様 §6)。
  */
 function runBoundingOverwatch(
   world: World,
@@ -179,7 +180,7 @@ function runBoundingOverwatch(
   const members = [...alpha, ...bravo];
   if (members.length === 0) return;
 
-  // A pair wiped out can't bound — move as one body instead of freezing.
+  // 片方のペアが全滅した場合は2組運用が成立しない。硬直させず、生存者全員を1集団として動かす。
   if (alpha.length === 0 || bravo.length === 0) {
     const mc = centroid(members);
     if (!ft.boundTarget || dist(mc, ft.boundTarget) < BOUND_ARRIVE) {
@@ -227,17 +228,18 @@ function runBoundingOverwatch(
 
   if (dest && moving.every((u) => dist(u.pos, dest) < BOUND_ARRIVE + 1.6)) {
     ft.boundingLeg = ft.boundingLeg === "alpha" ? "bravo" : "alpha";
-    ft.boundTarget = null; // recompute for the next leg
+    ft.boundTarget = null; // 次のレグのために再計算させる
   }
 
-  // At least one overwatcher covers the direction of movement; a second splits rearward.
+  // ドクトリン通り、最低1名は移動側が向かう方向(支援すべき方向)を注視する。
+  // 2名いる場合はもう1名が側背面を分担する。
   overwatch.forEach((u, i) => {
     const look = i === 0 ? forward : rotate(forward, (140 * Math.PI) / 180);
     issue(world, u, "hold", null, look);
   });
 }
 
-/** Pick the destination for a soldier, honouring the anti-dither hold. */
+/** 兵士の目的地を決める。ばたつき防止の保持時間を尊重する。 */
 function cachedDest(
   world: World,
   ft: FireteamState,
@@ -294,7 +296,7 @@ export function fireteamAI(world: World): void {
       }
     }
 
-    // buddy pairs within the fireteam (mock: i<2 = alpha, else bravo)
+    // FT内のバディペア(モック: i<2 が alpha、それ以外が bravo)
     const alpha = living.filter((_, i) => i < Math.ceil(living.length / 2));
     const bravo = living.filter((_, i) => i >= Math.ceil(living.length / 2));
     const mc = centroid(living);
@@ -317,7 +319,7 @@ export function fireteamAI(world: World): void {
       }
       const enemy = primary.pos;
 
-      // whichever pair already has eyes on becomes the base of fire
+      // すでに敵を視認できている側のペアがベース・オブ・ファイアを担当する
       const alphaLOS = alpha.some((u) => hasLineOfSight(world.walls, u.pos.x, u.pos.z, enemy.x, enemy.z));
       const bravoLOS = bravo.some((u) => hasLineOfSight(world.walls, u.pos.x, u.pos.z, enemy.x, enemy.z));
       let base: Soldier[];
@@ -386,10 +388,10 @@ export function fireteamAI(world: World): void {
         issue(world, u, "retreat", p, look);
       });
     } else {
-      // ADVANCE / SEARCH — bounding overwatch toward the objective or last contact
+      // ADVANCE / SEARCH — 任務目標または最終接敵位置へ向けてバウンディングオーバーウォッチ
       const aim = ft.mode === "SEARCH" && ft.searchPoint ? ft.searchPoint : ft.objective;
       if (ft.mode === "SEARCH" && ft.searchPoint && dist(mc, ft.searchPoint) < 3) {
-        // swept the last-known point and found nothing — resume the advance
+        // 最終目撃地点まで掃討して何も見つからなければ、前進を再開する
         ft.searchPoint = null;
         ft.memory.clear();
       }

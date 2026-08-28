@@ -1,26 +1,25 @@
 /**
- * Cover point generation + scoring. Ported from squad-12v12's COVER_POINTS /
- * coverBonus / nearestCoverTowards / bestCoverPoint / bestFlankPoint.
+ * 遮蔽点の生成と評価。squad-12v12 の COVER_POINTS / coverBonus /
+ * nearestCoverTowards / bestCoverPoint / bestFlankPoint からの移植。
  *
- * The point set is a coarse lattice of wall-free positions; scoring prefers
- * positions close to a wall (cover), inside the engagement band, and — for a
- * flank — off the base-of-fire element's axis so the enemy is caught from two
- * directions (spec §6 fire and movement).
+ * 候補点は壁のない位置を粗い格子状に並べたもの。評価は、壁に近い位置(=遮蔽が効く)、
+ * 交戦距離帯の内側、そして側面攻撃の場合はベース・オブ・ファイア組の軸から外れた
+ * 位置を優遇する。敵を2方向から捉えるためである(仕様 §6 Fire and Movement)。
  */
 
 import { collidesWall, hasLineOfSight, nearestWallDist, clamp } from "./geometry.ts";
 import type { AABB, Bounds, Vec2 } from "./types.ts";
 
-/** Spacing of the candidate lattice, m. [mock — squad-12v12 step 1.4*MAP_SCALE] */
+/** 候補点格子の間隔 m。[mock — squad-12v12 の step 1.4*MAP_SCALE 相当] */
 const COVER_STEP = 2.2;
-/** Cover credit saturates at this distance from a wall, m. [mock] */
+/** 壁からこの距離以遠は遮蔽の加点が飽和する m。[mock] */
 const COVER_SATURATE = 2.4;
 
 /**
- * Candidate positions on a lattice **centred on the map**, not grown from the
- * min corner. Centring matters: on a point-symmetric map a corner-grown lattice
- * gives the two forces different candidate sets, which quietly favours one side
- * and violates force symmetry (spec §2/§13).
+ * 候補位置を**マップ中心を原点とする格子**上に生成する(最小コーナーから伸ばさない)。
+ * 中心基準にすることには意味がある: 点対称なマップでコーナー起点の格子を作ると、
+ * 両陣営に異なる候補集合が与えられてしまい、片側を静かに有利にして戦力対称性
+ * (仕様 §2/§13)を壊すため。
  */
 export function buildCoverPoints(walls: readonly AABB[], bounds: Bounds): Vec2[] {
   const cx = (bounds.minX + bounds.maxX) / 2;
@@ -39,15 +38,15 @@ export function buildCoverPoints(walls: readonly AABB[], bounds: Bounds): Vec2[]
   return pts;
 }
 
-/** 0..COVER_SATURATE — higher means better covered. */
+/** 0..COVER_SATURATE の値。大きいほど遮蔽が効いている。 */
 export function coverBonus(walls: readonly AABB[], x: number, z: number): number {
   return clamp(COVER_SATURATE - nearestWallDist(walls, x, z), 0, COVER_SATURATE);
 }
 
 /**
- * Best bound destination: a covered point `minAdv`..`maxAdv` ahead along `dir`.
- * When `support` is given, the point must be visible from it — bounding elements
- * stay inside the overwatch element's supporting fire (spec §6).
+ * 最良の躍進先: `dir` 方向へ `minAdv`..`maxAdv` 前方にある遮蔽の効いた地点。
+ * `support`(オーバーウォッチ側の位置)が渡された場合、そこから視認できない地点は
+ * 候補から除外する — 躍進する組は常に警戒組の支援射撃範囲内に留まる(仕様 §6)。
  */
 export function nearestCoverTowards(
   walls: readonly AABB[],
@@ -80,8 +79,8 @@ export function nearestCoverTowards(
 }
 
 /**
- * Widening search for a supported bound target, then a relaxed pass that drops
- * the support requirement rather than freezing in place (mock behaviour).
+ * 支援下の躍進先を探索範囲を段階的に広げながら探す。それでも見つからない場合は、
+ * その場で完全停止させるのではなく支援条件だけを外して前進を優先する(モックの挙動)。
  */
 export function pickSupportedBoundTarget(
   walls: readonly AABB[],
@@ -104,7 +103,7 @@ export function pickSupportedBoundTarget(
   return nearestCoverTowards(walls, points, from, dir, minAdv, maxAdv * 2.4);
 }
 
-/** Best firing position on the enemy: in the engagement band, in LOS, in cover. */
+/** 敵に対する最良の射撃位置: 交戦距離帯の内側・LOSが通る・遮蔽が効く。 */
 export function bestCoverPoint(
   walls: readonly AABB[],
   points: readonly Vec2[],
@@ -133,9 +132,8 @@ export function bestCoverPoint(
 }
 
 /**
- * Best flanking position: like bestCoverPoint, but rewards angular separation
- * from the base-of-fire element as seen from the enemy — the maneuver element
- * should attack from a different axis.
+ * 最良の側面攻撃位置: bestCoverPoint と同様だが、敵から見たときのベース・オブ・
+ * ファイア組との角度差を加点する — 機動組は別の軸から攻撃すべきであるため。
  */
 export function bestFlankPoint(
   walls: readonly AABB[],
@@ -159,7 +157,7 @@ export function bestFlankPoint(
     const a = Math.atan2(p.x - enemy.x, p.z - enemy.z);
     let sep = Math.abs(a - baseAngle);
     while (sep > Math.PI) sep = Math.PI * 2 - sep;
-    // reward ~90° of separation from the base element
+    // ベース組から約90°離れている位置を最も高く評価する
     const sepScore = 1 - Math.abs(sep - Math.PI / 2) / (Math.PI / 2);
 
     const score = sepScore * 3 + coverBonus(walls, p.x, p.z) * 1.2 - travel * 0.3;

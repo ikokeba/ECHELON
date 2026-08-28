@@ -1,8 +1,7 @@
 /**
- * The runtime driver: owns the World, the renderer, and the sim clock, and ties
- * them together in a requestAnimationFrame loop. This is the only place the
- * render rate and the fixed sim rate meet. Lives in ui/ (not sim/) because it
- * touches rAF / performance.now / the DOM.
+ * ランタイムドライバ: World・レンダラ・シムクロックを保持し、requestAnimationFrame
+ * ループの中で結びつける。**描画レートと固定シムレートが出会う唯一の場所**。
+ * rAF / performance.now / DOM に触れるため、sim/ ではなく ui/ に置いている。
  */
 
 import { createRenderer, type Renderer } from "@render/renderer.ts";

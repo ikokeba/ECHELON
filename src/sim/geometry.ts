@@ -1,9 +1,10 @@
 /**
- * Shared geometry primitives. These were copy-pasted into every three.js
- * prototype (`rayAABB`, `castRay`, `hasLineOfSight`, `collidesWall`,
- * `edgeIsClear`); this is the single implementation. Behaviour — including the
- * exact epsilons — matches the verified mocks. Walls are passed in rather than
- * closed over.
+ * 共有ジオメトリ・プリミティブ。
+ *
+ * `rayAABB` / `castRay` / `hasLineOfSight` / `collidesWall` / `edgeIsClear` は
+ * three.js を使う各プロトタイプへコピペされていたもの。ここが唯一の実装となる。
+ * イプシロン値を含め、検証済みモックと挙動が完全に一致するよう移植した。壁は
+ * クロージャで閉じ込めず、引数として渡す形に変更している。
  */
 
 import type { AABB, Vec2 } from "./types.ts";
@@ -26,9 +27,9 @@ export function normalize(v: Vec2): Vec2 {
 }
 
 /**
- * Ray vs one AABB. Returns the hit distance along (dx,dz) within [0, maxDist],
- * or null. (dx,dz) is expected to be a unit vector. Slab method, ported verbatim
- * from squad-12v12-3ft-autobattle-mock.jsx.
+ * レイと1つのAABBの交差判定。(dx,dz) 方向に沿った [0, maxDist] 内の交差距離を返す。
+ * 交差しなければ null。(dx,dz) は単位ベクトルであることを前提とする。
+ * スラブ法。squad-12v12-3ft-autobattle-mock.jsx からそのまま移植。
  */
 export function rayAABB(
   ox: number,
@@ -71,7 +72,7 @@ export function rayAABB(
   return hit;
 }
 
-/** Nearest wall hit distance along a unit ray, capped at maxDist. */
+/** 単位レイに沿った最も近い壁までの距離。maxDist で打ち切る。 */
 export function castRay(
   walls: readonly AABB[],
   ox: number,
@@ -88,7 +89,7 @@ export function castRay(
   return best;
 }
 
-/** True if nothing blocks the segment (ox,oz)->(ex,ez). Matches the squad mock. */
+/** 線分 (ox,oz)->(ex,ez) が遮蔽されていなければ true。squadモックと同一挙動。 */
 export function hasLineOfSight(
   walls: readonly AABB[],
   ox: number,
@@ -106,7 +107,7 @@ export function hasLineOfSight(
   return hit >= d - 0.06;
 }
 
-/** True if a disc of radius r centred at (x,z) overlaps any wall. */
+/** (x,z) を中心とする半径 r の円が、いずれかの壁と重なっていれば true。 */
 export function collidesWall(
   walls: readonly AABB[],
   x: number,
@@ -123,8 +124,9 @@ export function collidesWall(
 }
 
 /**
- * True if a nav-grid edge (ax,az)->(bx,bz) is clear for a unit — the centre line
- * plus two parallel lines offset by `margin`. Ported from cqb-minimal-prototype.
+ * ナビグリッドの辺 (ax,az)->(bx,bz) が通行可能なら true。中心線に加え、`margin`
+ * だけ左右へオフセットした2本の平行線も判定する(兵士の幅を考慮)。
+ * cqb-minimal-prototype から移植。
  */
 export function edgeIsClear(
   walls: readonly AABB[],
@@ -153,7 +155,7 @@ export function edgeIsClear(
   return true;
 }
 
-/** Shortest distance from a point to the surface of any wall (0 if inside one). */
+/** 点から最も近い壁表面までの距離(壁の内部なら0)。 */
 export function nearestWallDist(walls: readonly AABB[], x: number, z: number): number {
   let best = Infinity;
   for (const w of walls) {

@@ -1,14 +1,14 @@
 /**
- * Combat resolution (spec §8) — the single place hits and suppression are
- * decided. `rollShot` is pure so the balance harness (src/balance/) runs the
- * exact same maths as the live sim.
+ * 戦闘判定(仕様 §8)— 命中と制圧を決定する唯一の場所。
+ * `rollShot` は純粋関数なので、バランス検証ハーネス(src/balance/)は実シムと
+ * 完全に同一の計算を回すことになる。
  *
- * Abstractions held simple per spec §8:
- *   - no ammo (grenades excepted, later);
- *   - no friendly fire — a friendly on the line of fire blocks the shot (§8.2);
- *   - suppression is a flat −40% accuracy (−10% for the marksman) with NO
- *     residue: it lapses within a tick of the suppressor ceasing fire (§8.6),
- *     and it only comes from a soldier in the "制圧役" (suppressor) role.
+ * 仕様 §8 に従い抽象化はシンプルに保つ:
+ *   - 弾薬管理なし(擲弾のみ後に例外扱い);
+ *   - 同士討ちなし — 射線上に味方がいる場合は「射線が通らない」として撃たない(§8.2);
+ *   - 制圧は一律 −40%(選抜射手は −10%)の命中率低下で、**余韻なし**:
+ *     制圧側が発砲を止めた瞬間(1ティック以内)に解除される(§8.6)。
+ *     また効果が発生するのは発砲側が「制圧役」ステートにある場合のみ。
  */
 
 import { chance, ratePerTick, type Rng } from "../rng.ts";
@@ -32,15 +32,15 @@ export function isSuppressed(s: Soldier, tick: number): boolean {
 }
 
 export interface ShotContext {
-  /** shooter is currently under suppression (its own accuracy is degraded) */
+  /** 射手自身がいま制圧を受けている(自分の命中率が下がる) */
   shooterSuppressed: boolean;
-  /** shooter is the squad's selected marksman (lighter suppression penalty) */
+  /** 射手が分隊の選抜射手である(制圧ペナルティが軽い) */
   shooterIsMarksman: boolean;
 }
 
 export type ShotOutcome = { hit: false } | { hit: true; lethal: boolean };
 
-/** Pure per-tick shot roll against a valid, in-LOS, aligned target. */
+/** 有効かつLOSが通り正対済みの目標に対する、1ティック分の射撃判定(純粋関数)。 */
 export function rollShot(rng: Rng, ctx: ShotContext): ShotOutcome {
   let accMul = 1;
   if (ctx.shooterSuppressed) {
@@ -56,7 +56,7 @@ function angleBetween(a: Vec2, b: Vec2): number {
   return Math.acos(dot);
 }
 
-/** A friendly body sitting on the shooter→target segment blocks the shot (§8.2). */
+/** 射手→目標の線分上に味方がいる場合、射線が通らないとして射撃を中止する(§8.2)。 */
 function friendlyBlocksFire(world: World, shooter: Soldier, target: Soldier): boolean {
   const sx = shooter.pos.x;
   const sz = shooter.pos.z;
@@ -100,11 +100,10 @@ interface PendingShot {
 }
 
 /**
- * Combat is resolved in two phases — every shooter rolls against the state at
- * the START of the tick, then all effects are applied. Sequential resolution
- * would give whichever force iterates first a free kill (the "first-mover bias"
- * the mos-balance prototype hit during verification) and would silently break
- * force symmetry (spec §2/§13).
+ * 戦闘は**2フェーズ**で解決する — 全射手がティック開始時点の状態に対して判定を行い、
+ * そのあとで効果をまとめて適用する。逐次に解決してしまうと、走査順が先の陣営が
+ * 一方的に有利になる(mos-balance プロトタイプが検証中に踏んだ「先手バイアス」)。
+ * これは戦力対称性(仕様 §2/§13)を静かに破壊する。
  */
 export function combatSystem(world: World): void {
   const maxTurn = TURN_RATE * SIM_DT;
@@ -123,7 +122,7 @@ export function combatSystem(world: World): void {
     const toTarget = { x: tx / tlen, z: tz / tlen };
     const moving = s.pathIdx < s.path.length;
 
-    // reflex aim: a stationary soldier turns onto the target before firing
+    // 反射的な照準: 静止中の兵士は発砲前に目標へ正対する
     if (!moving && angleBetween(s.facing, toTarget) > FIRE_ALIGN_RAD) {
       const cur = Math.atan2(s.facing.x, s.facing.z);
       const want = Math.atan2(toTarget.x, toTarget.z);
@@ -132,22 +131,22 @@ export function combatSystem(world: World): void {
       while (diff < -Math.PI) diff += Math.PI * 2;
       const na = Math.abs(diff) <= maxTurn ? want : cur + Math.sign(diff) * maxTurn;
       s.facing = { x: Math.sin(na), z: Math.cos(na) };
-      continue; // aiming this tick, not firing
+      continue; // このティックは照準のみで発砲しない
     }
 
-    if (angleBetween(s.facing, toTarget) > FIRE_ALIGN_RAD) continue; // moving & off-aim
+    if (angleBetween(s.facing, toTarget) > FIRE_ALIGN_RAD) continue; // 移動中かつ正対していない
     if (friendlyBlocksFire(world, s, target)) continue;
 
-    // firing — draw from the shooter's own force stream so mirrored situations
-    // roll identically on both sides (spec §2/§13 force symmetry)
+    // 発砲 — 射手が属する陣営のストリームから引く。鏡像の状況では両陣営が
+    // 同一の乱数を引くことになる(仕様 §2/§13 戦力対称性)
     const outcome = rollShot(world.rngBySide[s.side], {
       shooterSuppressed: isSuppressed(s, world.tick),
-      shooterIsMarksman: false, // set once the marksman slot exists (spec §14)
+      shooterIsMarksman: false, // 選抜射手スロットの実装後に設定する(仕様 §14)
     });
     pending.push({ shooter: s, target, outcome, suppressing: s.suppressor });
   }
 
-  // ── apply phase ──
+  // ── 適用フェーズ ──
   for (const { target, outcome, suppressing } of pending) {
     if (outcome.hit) {
       if (outcome.lethal) {
@@ -162,7 +161,7 @@ export function combatSystem(world: World): void {
         target.bleedOutTick = world.tick + Math.round(BLEED_OUT_SEC / SIM_DT);
       }
     }
-    // suppression persists only while a suppressor keeps fire on the target (§8.6)
+    // 制圧は、制圧役が目標へ発砲し続けている間だけ持続する(§8.6)
     if (suppressing && target.status === "ok") {
       target.suppressedUntilTick = world.tick + 1 + SUPPRESSION_GRACE_TICKS;
     }

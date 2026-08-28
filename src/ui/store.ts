@@ -1,8 +1,8 @@
 /**
- * Zustand store — the React-facing mirror of sim state and the place UI intent
- * (pause / speed / step / selection) is recorded. The runtime loop reads intent
- * from here each frame and writes back a small HUD snapshot. Per-tick simulation
- * data never lives here (design §2, mocks' "React state is HUD only" rule).
+ * Zustand ストア — シム状態のReact側ミラーであり、UIの意図(ポーズ/速度/ステップ/選択)を
+ * 記録する場所。ランタイムループが毎フレームここから意図を読み、小さなHUDスナップショットを
+ * 書き戻す。**毎ティックのシミュレーションデータは決してここに置かない**
+ * (design §2、およびモックの「React stateはHUD専用」規則)。
  */
 
 import { create } from "zustand";
@@ -19,9 +19,9 @@ export interface HudSnapshot {
 
 interface UiState extends HudSnapshot {
   paused: boolean;
-  /** index into SPEED_STEPS for the running (non-paused) speed */
+  /** 非ポーズ時の速度を指す SPEED_STEPS のindex */
   speedIdx: number;
-  /** bump to request one single sim step while paused */
+  /** ポーズ中に1ステップ実行を要求するためのカウンタ */
   stepNonce: number;
   selectedSoldierId: number | null;
 
@@ -32,7 +32,7 @@ interface UiState extends HudSnapshot {
   pushHud: (snap: HudSnapshot) => void;
 }
 
-/** running speeds only (drop the 0 that sits at SPEED_STEPS[0]) */
+/** 実行中の速度のみ(SPEED_STEPS[0] の 0 を除く) */
 export const RUN_SPEEDS = SPEED_STEPS.filter((s) => s > 0);
 
 export const useSimStore = create<UiState>((set) => ({
@@ -55,7 +55,7 @@ export const useSimStore = create<UiState>((set) => ({
   pushHud: (snap) => set(snap),
 }));
 
-/** current effective time-scale (0 while paused). */
+/** 現在の実効時間倍率(ポーズ中は0)。 */
 export function currentSpeed(s: Pick<UiState, "paused" | "speedIdx">): number {
   return s.paused ? 0 : (RUN_SPEEDS[s.speedIdx] ?? 1);
 }

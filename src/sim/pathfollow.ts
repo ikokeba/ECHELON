@@ -1,17 +1,17 @@
 /**
- * Path following. Pure port of `stepAlongPath` from cqb-minimal-prototype.jsx:
- * given a position, a waypoint list, the current waypoint index and a move
- * budget for this tick, return where the mover ends up.
+ * 経路追従。cqb-minimal-prototype.jsx の `stepAlongPath` を純粋関数として移植したもの。
+ * 現在位置・ウェイポイント列・現在のウェイポイントindex・このティックの移動量を受け取り、
+ * 移動後の状態を返す(引数は破壊しない)。
  */
 
 import type { Vec2 } from "./types.ts";
 
 export interface PathStep {
   pos: Vec2;
-  /** possibly-advanced waypoint index */
+  /** 進んだ結果更新されたウェイポイントindex */
   pathIdx: number;
   arrived: boolean;
-  /** unit heading of travel this step, if it moved */
+  /** 実際に移動した場合の進行方向(単位ベクトル) */
   dir?: Vec2;
 }
 
@@ -33,6 +33,7 @@ export function advanceAlongPath(
   let budget = maxDist;
   let dir: Vec2 | undefined;
 
+  // 1ティックの移動量が複数のウェイポイントをまたぐ場合があるのでループする
   while (idx < path.length && budget > 1e-9) {
     const wp = path[idx]!;
     const dx = wp.x - cx;

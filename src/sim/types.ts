@@ -1,9 +1,9 @@
 /**
- * Core simulation types. Pure data — no behaviour, no three.js, no DOM.
+ * シミュレーションのコア型定義。純粋なデータのみ — 振る舞いも three.js も DOM も持たない。
  *
- * Coordinate convention (unchanged from the prototype mocks):
- *   X / Z ground plane, Y is up, units are metres.
- *   Walls are axis-aligned boxes { cx, cz, hw, hd } (centre + half-extents).
+ * 座標系の規約(プロトタイプのモックから変更なし):
+ *   X/Z が地表平面、Y が上方向、単位はメートル。
+ *   壁は軸平行ボックス { cx, cz, hw, hd }(中心 + 半径)。
  */
 
 export interface Vec2 {
@@ -11,13 +11,13 @@ export interface Vec2 {
   z: number;
 }
 
-/** Axis-aligned wall/obstacle box on the ground plane. */
+/** 地表平面上の軸平行な壁・障害物ボックス。 */
 export interface AABB {
   cx: number;
   cz: number;
-  /** half-width along X */
+  /** X方向の半幅 */
   hw: number;
-  /** half-depth along Z */
+  /** Z方向の半奥行き */
   hd: number;
 }
 
@@ -28,13 +28,13 @@ export interface Bounds {
   maxZ: number;
 }
 
-/** Which force a unit belongs to. Both sides are mechanically identical (spec §2, §13). */
+/** 所属陣営。両陣営は機構的に完全同一(仕様 §2, §13)。 */
 export type Side = "blue" | "red";
 
-/** The five command echelons (spec §2). */
+/** 5つの指揮階層(仕様 §2)。 */
 export type Echelon = "company" | "platoon" | "squad" | "fireteam" | "soldier";
 
-/** Per-soldier order verbs emitted by the fireteam-leader AI (spec §1 [v5], §6). */
+/** ファイアチームリーダーAIが発行する兵士単位の命令(仕様 §1 [v5], §6)。 */
 export type SoldierOrderKind =
   | "move"
   | "hold"
@@ -43,69 +43,69 @@ export type SoldierOrderKind =
   | "retreat"
   | "evade";
 
-/** Fireteam-leader state machine modes (spec §1 [v5] — this *is* the "command system"). */
+/** FTリーダーのステートマシンのモード(仕様 §1 [v5] — これ自体が「命令システム」)。 */
 export type FireteamMode = "ADVANCE" | "CONTACT" | "SEARCH" | "FALLBACK";
 
-/** Outdoor movement techniques a squad/platoon leader selects (spec §6). */
+/** 分隊長/小隊長が選択する屋外の移動技術(仕様 §6)。 */
 export type MovementTechnique = "traveling" | "traveling_overwatch" | "bounding_overwatch";
 
 /**
- * Life state only. Suppression is NOT a status — it's a flat, no-residue accuracy
- * effect (spec §8.6) tracked by `suppressedUntilTick`.
+ * 生存状態のみを表す。制圧は status ではない — 余韻を持たない一律の命中率低下効果
+ * (仕様 §8.6)であり、`suppressedUntilTick` で管理する。
  */
 export type SoldierStatus = "ok" | "wia" | "kia";
 
 export interface SoldierOrder {
   kind: SoldierOrderKind;
-  /** destination for move/maneuver/retreat/evade */
+  /** move/maneuver/retreat/evade の目的地 */
   target?: Vec2;
-  /** aim/observe direction for hold/suppress (unit vector) */
+  /** hold/suppress の照準・監視方向(単位ベクトル) */
   facing?: Vec2;
-  /** sim tick this order was issued (for staleness / debugging) */
+  /** この命令が発行されたティック(陳腐化判定・デバッグ用) */
   issuedTick: number;
 }
 
 /**
- * One soldier. The atomic simulated entity. Everything above soldier level is a
- * *controller* (see c2/) that reads reports and emits orders — it is not an entity
- * with a body, except the leader soldier who physically occupies the unit.
+ * 兵士1名。シミュレーション上の最小実体。
+ * 分隊以上の階層は**コントローラ**(c2/ 配下)であって、身体を持つ実体ではない —
+ * ただし指揮官本人の兵士は例外的にユニットとして戦場に存在する。
  */
 export interface Soldier {
   id: number;
   side: Side;
-  /** squad id this soldier belongs to */
+  /** 所属分隊のID */
   squadId: number;
-  /** fireteam id (0 or 1 within the squad; -1 for the squad leader slot) */
+  /** 分隊内のファイアチームID(0 または 1。分隊長枠は -1) */
   fireteamId: number;
-  /** true for the soldier who is this fireteam's leader */
+  /** このFTのリーダーである兵士なら true */
   isFireteamLeader: boolean;
-  /** true for the soldier who is this squad's leader */
+  /** この分隊の分隊長である兵士なら true */
   isSquadLeader: boolean;
 
   pos: Vec2;
-  /** facing as a unit vector on the ground plane */
+  /** 向き。地表平面上の単位ベクトル */
   facing: Vec2;
   status: SoldierStatus;
 
-  /** sim tick until which this soldier is suppressed (0 = not suppressed) */
+  /** 制圧状態が解けるティック(0 = 非制圧) */
   suppressedUntilTick: number;
-  /** sim tick at which a WIA soldier bleeds out to KIA (0 = n/a) */
+  /** WIAがKIAへ移行するティック(0 = 該当なし) */
   bleedOutTick: number;
 
   order: SoldierOrder;
-  /** current path as a list of waypoints; consumed front-to-back */
+  /** 現在の経路(ウェイポイント列)。先頭から順に消費する */
   path: Vec2[];
   pathIdx: number;
 
   /**
-   * Enemy soldier ids this soldier can personally see this tick (range + view
-   * cone + LOS, spec §5). Transient — rebuilt every tick by perceptionSystem.
+   * このティックに本人が直接視認できている敵兵士のID(距離+視界扇形+LOS、仕様 §5)。
+   * 一時的な値で、毎ティック perceptionSystem が再構築する。
    */
   sees: number[];
-  /** true while acting as a suppressor (spec §8.6 "制圧役"); set by order or AI */
+  /** 「制圧役」状態(仕様 §8.6)。命令またはAIの自律判断で立つ */
   suppressor: boolean;
 
-  /** individual-variance parameters (spec §14); 0..1 each */
+  /** 個体差パラメータ(仕様 §14)。各 0..1 */
   traits: SoldierTraits;
 }
 
@@ -116,41 +116,41 @@ export interface SoldierTraits {
 }
 
 /**
- * A contact in some echelon's belief (spec §5). Never a direct reference to a
- * Soldier — it is a decaying, possibly-stale observation.
+ * ある階層の world picture に含まれる1件の接触情報(仕様 §5)。Soldier への直接参照
+ * では**ない** — 時間とともに減衰する、古くなりうる観測結果である。
  */
 export interface Contact {
-  /** stable key so repeated observations update rather than duplicate */
+  /** 安定キー。同一対象の再観測が重複ではなく更新になるように */
   key: string;
   side: Side;
-  /** last observed position */
+  /** 最終目撃位置 */
   pos: Vec2;
-  /** rough position-error radius in metres, grows as the contact ages */
+  /** 位置誤差の概算半径(m)。情報が古くなるほど拡大する */
   posError: number;
-  /** sim tick of the most recent observation feeding this contact */
+  /** この接触情報の元になった最新の観測ティック */
   lastSeenTick: number;
-  /** 0..1, decayed every tick against lastSeenTick (spec §5: 30s→.8 / 90s→.5 / 180s→0) */
+  /** 0..1。lastSeenTick からの経過で毎ティック減衰(仕様 §5: 30秒→.8 / 90秒→.5 / 180秒→0) */
   confidence: number;
-  /** how many soldiers were seen, if known */
+  /** 判明していれば目撃した人数 */
   count?: number;
 }
 
-/** An echelon controller's private world picture, built only from reports (spec §5). */
+/** 階層コントローラが持つ、報告のみから構築された私的な world picture(仕様 §5)。 */
 export interface Belief {
   contacts: Map<string, Contact>;
 }
 
-/** A radio report travelling up the chain (spec §5). Delivery is delayed. */
+/** 指揮系統を上へ伝わる無線報告(仕様 §5)。到達には遅延がある。 */
 export interface Report {
   fromEchelon: Echelon;
   fromUnitId: number;
   toUnitId: number;
-  /** sim tick the report was generated */
+  /** 報告が生成されたティック */
   sentTick: number;
-  /** sim tick the report becomes readable by the recipient (sentTick + latency) */
+  /** 受信側が読めるようになるティック(sentTick + 遅延) */
   deliverTick: number;
   contacts: Contact[];
-  /** sender's own strength / status summary */
+  /** 送信元自身の戦力・状況サマリ */
   ownStatus: {
     effective: number;
     total: number;
@@ -158,48 +158,7 @@ export interface Report {
   };
 }
 
-/**
- * A fireteam's controller state — the "command system" node (spec §1 [v5]).
- * Ported from the squad-12v12 mock's per-squad state object. Its `memory` is the
- * FT leader's world picture: the union of its members' vision (spec §5), decayed
- * over time.
- */
-export interface FireteamState {
-  id: number;
-  side: Side;
-  squadId: number;
-  /** index within the squad (0 or 1) */
-  ftIndex: number;
-
-  mode: FireteamMode;
-  /** tick the current mode was entered (hysteresis / dwell) */
-  modeSince: number;
-
-  /** which buddy pair is bounding this leg */
-  boundingLeg: "alpha" | "bravo";
-  /** the current bound destination; held until reached (mock: don't re-pick every cycle) */
-  boundTarget: Vec2 | null;
-  /** which pair is the base-of-fire element in CONTACT */
-  baseElement: "alpha" | "bravo";
-
-  /** per-soldier destination cache + the tick it was chosen (anti-dither, mock behaviour) */
-  unitDest: Map<number, Vec2>;
-  unitDestSince: Map<number, number>;
-
-  /** the FT leader's contact picture */
-  memory: Map<string, Contact>;
-  /** where to sweep after losing contact */
-  searchPoint: Vec2 | null;
-
-  /** where this fireteam is ultimately headed (its objective) */
-  objective: Vec2;
-  /** direction of the general advance, for fallback/spread reference */
-  advanceDir: Vec2;
-  /** rally point to fall back to */
-  rallyPoint: Vec2;
-}
-
-/** Scenario-level intent for one fireteam, used to seed its controller. */
+/** 1個ファイアチームに対するシナリオ側の意図。コントローラの初期化に使う。 */
 export interface FireteamPlan {
   side: Side;
   squadId: number;
@@ -209,22 +168,62 @@ export interface FireteamPlan {
   rallyPoint: Vec2;
 }
 
+/**
+ * ファイアチームのコントローラ状態 — 「命令システム」のノード(仕様 §1 [v5])。
+ * squad-12v12 モックの分隊単位ステートオブジェクトから移植。`memory` はFTリーダーの
+ * world picture であり、隷下隊員の視界の合算(仕様 §5)が時間とともに減衰したもの。
+ */
+export interface FireteamState {
+  id: number;
+  side: Side;
+  squadId: number;
+  /** 分隊内での序数(0 または 1) */
+  ftIndex: number;
+
+  mode: FireteamMode;
+  /** 現在のモードに入ったティック(ヒステリシス=最小滞留時間の判定用) */
+  modeSince: number;
+
+  /** このレグで躍進する側のバディペア */
+  boundingLeg: "alpha" | "bravo";
+  /** 現在の躍進先。到達するまで変更しない(モックの「決めたら変えない」規則) */
+  boundTarget: Vec2 | null;
+  /** CONTACT時にベース・オブ・ファイアを担当する側のペア */
+  baseElement: "alpha" | "bravo";
+
+  /** 兵士ごとの目的地キャッシュと決定ティック(ばたつき防止。モックの挙動) */
+  unitDest: Map<number, Vec2>;
+  unitDestSince: Map<number, number>;
+
+  /** FTリーダーの接触情報の記憶 */
+  memory: Map<string, Contact>;
+  /** 接敵をロストした後に掃討する地点 */
+  searchPoint: Vec2 | null;
+
+  /** このFTが最終的に目指す地点(任務目標) */
+  objective: Vec2;
+  /** 全体の前進方向。後退方向や展開の基準に使う */
+  advanceDir: Vec2;
+  /** 後退時の集結地点 */
+  rallyPoint: Vec2;
+}
+
 export interface Scenario {
   name: string;
   seed: number;
   bounds: Bounds;
   walls: AABB[];
-  /** starting soldiers, fully specified */
+  /** 初期配置の兵士(完全指定) */
   soldiers: Soldier[];
-  /** per-fireteam objectives; missing entries fall back to the map centre */
+  /** FTごとの任務目標。未指定のFTはマップ中心にフォールバックする */
   fireteamPlans?: FireteamPlan[];
-  /** control measures for reference/rendering (spec §6): checkpoints, phase lines, objectives */
+  /** 参照・描画用の統制手段(仕様 §6): チェックポイント・フェーズライン・目標 */
   controlMeasures?: ControlMeasure[];
 }
 
 export interface ControlMeasure {
   kind: "CP" | "PL" | "OBJ";
   label: string;
-  /** point for CP/OBJ, polyline for PL */
+  /** CP/OBJ は点、PL は折れ線 */
   points: Vec2[];
 }

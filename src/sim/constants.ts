@@ -1,64 +1,63 @@
 /**
- * Every spec / prototype-verified number the simulation depends on, in one
- * place, each tagged with its source. Rule inherited from the prototypes: no
- * spec number is ever hardcoded inline, and none changes here without the spec
- * (or a verified prototype) changing too.
+ * シミュレーションが依存する仕様値・プロトタイプ検証値をすべてここに集約する。
+ * 各値には出典タグを付ける。プロトタイプから受け継いだ規則: 仕様値をインラインに
+ * 直書きしない。また仕様(または検証済みプロトタイプ)を変えずにここだけ書き換えない。
  *
- * Tags:
- *   [spec §N]   — stated in docs/spec/...v5統合マスター版.md, section N
- *   [v5 proto]  — a value the v5 prototype pass confirmed (carries a §ref too)
- *   [mock]      — carried over from a prototype's own tuning; NOT spec-anchored,
- *                 free to retune during integration
- *   [OQ-n]      — blocked on an open question in docs/design/00 §6
+ * タグ:
+ *   [spec §N]   — docs/spec/...v5統合マスター版.md の第N章に明記された値
+ *   [v5 proto]  — v5プロトタイプ検証で確定した値(§参照も併記)
+ *   [v6]        — 統合実装の開始時に決定した値
+ *   [mock]      — プロトタイプ独自のチューニング値。仕様に紐づかないので統合中に再調整可
+ *   [OQ-n]      — docs/design/00 §6 の未解決事項に依存する暫定値
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Simulation clock
+// シミュレーションクロック
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Fixed simulation tick rate. Render is decoupled and interpolates. [design AD-3] */
+/** 固定シミュレーションティックレート。描画は分離され補間される。[design AD-3] */
 export const SIM_HZ = 30;
-/** Seconds per simulation tick. */
+/** 1ティックあたりの秒数。 */
 export const SIM_DT = 1 / SIM_HZ;
 
-/** Selectable time-scale multipliers for the loop (0 = paused). [design AD-6] */
+/** ループで選択できる時間倍率(0 = 一時停止)。[design AD-6] */
 export const SPEED_STEPS = [0, 0.25, 0.5, 1, 2, 4] as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Movement (common to both forces — spec §2/§13 symmetry)
+// 移動(両陣営共通 — 仕様 §2/§13 の対称性)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Base ground speed, m/s. [v5 proto — squad-12v12, spec §6] */
+/** 基本移動速度 m/s。[v5 proto — squad-12v12, 仕様 §6] */
 export const MOVE_SPEED = 2.6;
-/** Turn rate, rad/s. [v5 proto — squad-12v12] */
+/** 旋回速度 rad/s。[v5 proto — squad-12v12] */
 export const TURN_RATE = Math.PI * 1.3;
-/** Soldier collision / spacing radius, m. [mock — squad-12v12 collidesWall default] */
+/** 兵士の衝突・間隔半径 m。[mock — squad-12v12 collidesWall の既定値] */
 export const SOLDIER_RADIUS = 0.35;
-/** Indoor movement speed multiplier on room entry. [spec §7 追補5 — 0.7] */
+/** 室内進入時の移動速度倍率。[仕様 §7 追補5 — 0.7] */
 export const ENTRY_SPEED_MUL = 0.7;
 /**
- * Corridor-edge safety clamp, m: a soldier's formation slot is pulled inside the
- * passage boundary by at least this margin. [v5 proto — spec §6 line 145]
+ * 壁面安全クランプ m: 隊員の隊形position が通路境界からこのマージンを割り込む場合、
+ * 境界内へ引き戻す。[v5 proto — 仕様 §6]
  */
 export const WALL_SAFETY_CLAMP = 0.45;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Vision & detection (spec §5)
+// 視界・索敵(仕様 §5)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Half-angle of the soldier's forward view cone, rad (≈100° total). [v5 proto — squad-12v12] */
+/** 前方視界扇形の半角 rad(全体で約100°)。[v5 proto — squad-12v12] */
 export const FOV_HALF_RAD = (50 * Math.PI) / 180;
-/** Detection range, m. [v5 proto — squad-12v12] */
+/** 索敵距離 m。[v5 proto — squad-12v12] */
 export const DETECT_RANGE = 20;
-/** Aim alignment required to actually fire, rad (±9° off view centre). [v5 proto — squad-12v12] */
+/** 実射に必要な正対精度 rad(視界中心 ±9°)。[v5 proto — squad-12v12] */
 export const FIRE_ALIGN_RAD = (9 * Math.PI) / 180;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Report confidence decay (spec §5 — "確定値")
+// 報告確度の減衰(仕様 §5 — 確定値)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * 報告確度の減衰。[spec §5 確定値]
+ * 報告の経過時間に対する確度。[仕様 §5 確定値]
  *   30秒 → 0.80、90秒 → 0.50、180秒 → 0(「消滅」)
  * 減衰のトリガーは時間経過のみで、敵の移動は無関係。最終目撃位置には「?」
  * マーカーが残り、不確度円が時間とともに拡大する。
@@ -73,63 +72,63 @@ export const CONFIDENCE_POINTS: ReadonlyArray<readonly [ageSec: number, confiden
   [90, 0.5],
   [180, 0],
 ];
-/** Below this confidence a contact is dropped from AI targeting. [mock — squad-12v12 CONFIDENCE_CUTOFF] */
+/** この確度を下回った接触はAIの索敵対象から外す。[mock — squad-12v12 CONFIDENCE_CUTOFF] */
 export const CONFIDENCE_CUTOFF = 0.02;
-/** Growth rate of a stale contact's position-error circle, m per second of age. [mock] */
+/** 古い接触の位置誤差円の拡大率。経過1秒あたり m。[mock] */
 export const POS_ERROR_GROWTH = 0.15;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Radio / reporting (spec §5)
+// 無線・報告(仕様 §5)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Seconds between a child's routine status reports up the chain. [mock — tune vs platoon-command-report] */
+/** 隷下から上位への定時報告の間隔(秒)。[mock — platoon-command-report と要突き合わせ] */
 export const REPORT_INTERVAL_SEC = 5;
-/** One-hop radio delivery latency, seconds. [mock] */
+/** 無線1ホップあたりの伝達遅延(秒)。[mock] */
 export const RADIO_LATENCY_SEC = 1.0;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Combat resolution (spec §8)
+// 戦闘判定(仕様 §8)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Per-second lethal-fire and suppression-trigger rates against a valid,
- * in-LOS target. The mos-balance mock expressed these per 0.2s tick
- * (0.015 and 0.04); divided out to per-second here and re-quantised per tick
- * via rng.ratePerTick(). [mock — mos-balance 6.2, spec §8]
+ * LOSが通った有効目標に対する、毎秒あたりの命中率と制圧発動率。
+ * mos-balance モックはこれらを0.2秒ティック単位(0.015 と 0.04)で表現していたため、
+ * ここでは毎秒あたりへ割り戻し、rng.ratePerTick() でティック単位へ再量子化する。
+ * [mock — mos-balance 6.2, 仕様 §8]
  */
 export const HIT_RATE_PER_SEC = 0.015 / 0.2;
 export const SUPPRESS_TRIGGER_RATE_PER_SEC = 0.04 / 0.2;
-/** Grenadier: per-second attempt rate while charges remain. [mock — mos-balance] */
+/** 擲弾手: 残弾がある間の毎秒あたり使用試行率。[mock — mos-balance] */
 export const GRENADE_ATTEMPT_RATE_PER_SEC = 0.01 / 0.2;
 
-/** Suppression accuracy penalty, applied as a flat multiplier while suppressed. [spec §8.6 — −40%] */
+/** 制圧による命中率低下。制圧中は一律の乗数として作用する。[仕様 §8.6 — −40%] */
 export const SUPPRESSION_ACC_PENALTY = 0.4;
-/** Reduced penalty for the squad's selected marksman. [spec §8.6 [v5] — ≈−10%] */
+/** 分隊の選抜射手に対する軽減されたペナルティ。[仕様 §8.6 [v5] — 約−10%] */
 export const SUPPRESSION_ACC_PENALTY_MARKSMAN = 0.1;
 /**
- * Suppression has NO residue: it clears the instant the suppressor stops firing
- * (spec §8.6). Implementation: the combat system re-stamps suppressedUntilTick
- * to (tick + this) every tick suppression is active, so it lapses within one
- * tick of fire ceasing. Not a lingering timer.
+ * 制圧に**余韻はない**。発砲が止まった瞬間に解除される(仕様 §8.6)。
+ * 実装: 制圧が継続している間は戦闘システムが毎ティック suppressedUntilTick を
+ * (tick + この値)へ押し直す。よって発砲停止後1ティック以内に失効する。
+ * 持続タイマーではない点に注意。
  */
 export const SUPPRESSION_GRACE_TICKS = 1;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Casualties (spec §9)
+// 死傷(仕様 §9)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** A resolved hit is KIA with this probability, else WIA. [spec §9 — 30% / 70%] */
+/** 命中が確定した際、この確率でKIA、それ以外はWIA。[仕様 §9 — 30% / 70%] */
 export const KIA_ON_HIT_CHANCE = 0.3;
-/** WIA bleed-out timer, seconds; reaching 0 untreated ⇒ KIA. [spec §9 — 45s] */
+/** WIAの出血タイマー(秒)。未処置でこれを過ぎるとKIAへ移行。[仕様 §9 — 45秒] */
 export const BLEED_OUT_SEC = 45;
 /**
- * A soldier acting as aider abandons suppressing fire for treatment once the
- * casualty's bleed timer drops below this. [v5 proto — casevac-wia, spec §9 — 15s]
+ * 応急手当担当は、負傷者の出血タイマー残りがこれを下回ると制圧射撃を中断して
+ * 手当へ移行する。[v5 proto — casevac-wia, 仕様 §9 — 15秒]
  */
 export const AID_SWITCH_BLEED_REMAIN_SEC = 15;
 
 /**
- * バディエイド処置時間。[spec §9, §14 `[v6]` 確定]
+ * バディエイド処置時間。[仕様 §9, §14 `[v6]` 確定]
  *
  * かつて分隊単位3段階モデル(衛生兵4秒/CLS 6秒/未取得8秒)と併記され未決定
  * だったが、編成モデル自体が分隊レベルからFTレベルへ移行済みであることに合わせ、
@@ -146,42 +145,41 @@ export const BUDDY_AID_SEC = {
   crossTrained: 1.5,
 } as const;
 
-/** 応急手当を実行できる負傷者からの距離、m。[spec §9 — 2.0m] */
+/** 応急手当を実行できる負傷者からの距離、m。[仕様 §9 — 2.0m] */
 export const AID_RADIUS = 2.0;
 
-/** 処置中の処置者の露出度上昇(負傷者側は対象外)。[spec §9 — +50%] */
+/** 処置中の処置者の露出度上昇(負傷者側は対象外)。[仕様 §9 — +50%] */
 export const AID_EXPOSURE_BONUS = 0.5;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CQB (spec §7 追補5)
+// CQB(仕様 §7 追補5)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const CQB = {
-  /** stack formation distance from the door, m [spec §7 — 1.5] */
+  /** スタック形成距離(扉から m)[仕様 §7 — 1.5] */
   STACK_DIST: 1.5,
-  /** per-soldier corner-clear sector on entry, deg [spec §7 — 90] */
+  /** 進入直後のコーナークリア担当角度(度)[仕様 §7 — 90] */
   CORNER_ANGLE_DEG: 90,
-  /** single-file entry interval after breach, s/soldier [spec §7 — 0.6] */
+  /** ブリーチ後の単一ファイル流入間隔(秒/名)[仕様 §7 — 0.6] */
   ENTRY_STAGGER_SEC: 0.6,
-  /** fine nav-grid resolution inside buildings, m [v5 proto — cqb-minimal] */
+  /** 建物内部の細かいナビグリッド解像度 m [v5 proto — cqb-minimal] */
   NAV_STEP: 0.3,
-  /** nav margin (≈ soldier radius) for the fine grid, m [v5 proto — cqb-minimal] */
+  /** 細グリッドのナビマージン(≒兵士半径)m [v5 proto — cqb-minimal] */
   NAV_MARGIN: 0.3,
 } as const;
 
-/** Outdoor nav-grid resolution, m. [design §4.2] */
+/** 屋外のナビグリッド解像度 m。[design §4.2] */
 export const NAV_STEP_OUTDOOR = 1.0;
-/** Outdoor nav margin, m. [design §4.2] */
+/** 屋外のナビマージン m。[design §4.2] */
 export const NAV_MARGIN_OUTDOOR = 0.4;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Command succession / decapitation (spec §12, §13) — placeholder, OQ-4
+// 指揮継承・指揮官排除(仕様 §12, §13)— 暫定値、OQ-4
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * When a leader is neutralised, subordinate decision cadence is slowed by
- * DEGRADE_FACTOR for DEGRADE_SEC[echelon], recovering linearly. Numbers are
- * placeholders pending OQ-4.
+ * 指揮官が無力化されると、隷下の意思決定周期が DEGRADE_FACTOR 倍に鈍り、
+ * DEGRADE_SEC[階層] のあいだ線形に回復する。数値はOQ-4の決定待ちの暫定値。
  */
 export const DEGRADE_FACTOR = 0.5;
 export const DEGRADE_SEC: Record<"squad" | "platoon" | "company", number> = {

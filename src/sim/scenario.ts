@@ -1,8 +1,8 @@
 /**
- * Scenario builders. For now: default soldier construction plus a symmetric
- * "crossing" scenario used by the renderer bring-up and the determinism /
- * force-symmetry tests. Real scenarios become JSON files under src/scenarios/
- * (design §2, AD-10); this stays as the programmatic fixture.
+ * シナリオ生成。現時点では兵士の既定構築と、レンダラの立ち上げおよび決定性・
+ * 戦力対称性テストで使う対称な「crossing」シナリオのみ。
+ * 実運用のシナリオは src/scenarios/ 配下のJSONになる予定(design §2, AD-10)。
+ * このファイルはプログラム的なフィクスチャとして残す。
  */
 
 import type { AABB, Bounds, FireteamPlan, Scenario, Side, Soldier, Vec2 } from "./types.ts";
@@ -53,7 +53,7 @@ export function makeSoldier(seed: SoldierSeed): Soldier {
   };
 }
 
-/** 9-soldier squad: SL + 2 fireteams of 4, laid out in a row facing `dir`. */
+/** 9名の分隊: 分隊長1 + 4名FT×2。`dir` 方向を向いて横並びに配置する。 */
 function makeSquad(
   side: Side,
   squadId: number,
@@ -102,7 +102,7 @@ function makeSquad(
   return soldiers;
 }
 
-/** Mirror a quarter-map wall list across both axes. */
+/** 1象限分の壁リストを両軸に鏡像展開する。 */
 function mirror(base: AABB[]): AABB[] {
   const out: AABB[] = [];
   for (const w of base) {
@@ -125,8 +125,8 @@ export function demoCrossingScenario(seed = 1): Scenario {
     { cx: 24, cz: 3, hw: 0.4, hd: 2.5 },
     { cx: 3, cz: 3, hw: 0.6, hd: 0.6 },
   ]);
-  // central compound — a pinwheel that is symmetric under 180° rotation about the
-  // origin, so the two forces face a genuinely fair board (spec §2/§13).
+  // 中央施設 — 原点まわりの180°回転に対して対称なピンホイール形状。
+  // これにより両陣営が本当に公平な盤面で戦うことになる(仕様 §2/§13)。
   walls.push(
     { cx: 1.4, cz: 3, hw: 1.6, hd: 0.4 },
     { cx: -1.4, cz: -3, hw: 1.6, hd: 0.4 },
@@ -143,8 +143,8 @@ export function demoCrossingScenario(seed = 1): Scenario {
     ...makeSquad("red", 1, redStart, { x: 0, z: -1 }, objective),
   ];
 
-  // Both squads are ordered onto the same central objective, so they meet and
-  // fight. Fireteam controllers take over from the initial move orders.
+  // 両分隊とも同一の中央目標へ向かうよう命令されるため、必ず接敵して戦闘になる。
+  // 初期の移動命令は、以後FTコントローラが引き継ぐ。
   const fireteamPlans: FireteamPlan[] = [
     ...[0, 1].map((ft) => ({
       side: "blue" as const,

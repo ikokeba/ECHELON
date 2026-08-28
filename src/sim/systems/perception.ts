@@ -1,11 +1,11 @@
 /**
- * Perception system: fills each living soldier's `sees` with the ids of enemy
- * soldiers it can personally detect this tick — inside the forward view cone
- * (spec §5: 角度+距離), within DETECT_RANGE, with a clear line of sight. KIA
- * bodies are not detected (spec §9: removed from the picture immediately).
+ * 索敵システム: 生存している各兵士の `sees` に、このティックに本人が直接視認できる
+ * 敵兵士のIDを詰める。条件は前方視界扇形の内側(仕様 §5: 角度+距離)・DETECT_RANGE
+ * 以内・遮蔽物で遮られていないこと。KIA の遺体は索敵対象にならない
+ * (仕様 §9: 記憶からも即座に消去される)。
  *
- * Fireteam / squad aggregation (union of members' vision, spec §5) is derived on
- * demand by the c2 layer from these per-soldier sets — it is not stored here.
+ * FT/分隊単位の視界の合算(仕様 §5)は、この兵士単位の集合から C2 層が必要に応じて
+ * 導出する。ここには保持しない。
  */
 
 import { hasLineOfSight } from "../geometry.ts";
@@ -22,7 +22,7 @@ export function canSee(walls: World["walls"], viewer: Soldier, target: Soldier):
   const d2 = dx * dx + dz * dz;
   if (d2 > DETECT_RANGE_SQ || d2 < 1e-6) return false;
   const inv = 1 / Math.sqrt(d2);
-  // dot(viewDir, toTarget) vs cos(halfFov)
+  // 視線方向と目標方向の内積を cos(半角) と比較する
   if (viewer.facing.x * dx * inv + viewer.facing.z * dz * inv < COS_FOV) return false;
   return hasLineOfSight(walls, viewer.pos.x, viewer.pos.z, target.pos.x, target.pos.z);
 }

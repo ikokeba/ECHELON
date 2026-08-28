@@ -3,6 +3,7 @@ import { GameView } from "./ui/GameView.tsx";
 import { useSimStore } from "./ui/store.ts";
 
 export function App() {
+  // グローバルなキーボードショートカット: Space でポーズ切替、"." で1ティック実行
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.code === "Space" && e.target === document.body) {

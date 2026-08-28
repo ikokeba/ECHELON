@@ -1,26 +1,24 @@
 /**
- * Squad-leader AI (spec §3 ③ — the FSW core layer).
+ * 分隊長AI(仕様 §3 ③ — FSWのコア層)。
  *
- * Current scope: the SL's own body. It sees the union of its two fireteams'
- * vision (spec §5) and positions itself where it can command — behind the
- * leading fireteam, oriented on the threat — rather than leading the assault.
- * On contact it takes cover and observes; it does not join the base of fire.
+ * 現在の実装範囲: 分隊長自身の身体のみ。隷下2個FTの視界の合算(仕様 §5)を持ち、
+ * 突撃の先頭に立つのではなく指揮を執れる位置 — 先頭FTの後方で脅威方向を向いた位置 —
+ * に自らを置く。接敵時は遮蔽をとって観測し、ベース・オブ・ファイアには加わらない。
  *
- * NOT yet implemented (next slice): the SL *directing* its fireteams — choosing
- * the movement technique (spec §6 traveling / traveling overwatch / bounding
- * overwatch) and assigning base-of-fire vs maneuver roles between them. Today
- * each fireteam decides that for itself in c2/fireteam.ts.
+ * **未実装**(次スライス): 分隊長が隷下FTを**指揮する**部分 —
+ * 移動技術の選択(仕様 §6 前進/警戒前進/躍進前進)と、FT間へのベース・オブ・ファイア/
+ * 機動役の割り当て。現状はこれを各FTが c2/fireteam.ts 内で自分で決めている。
  */
 
 import { SIM_HZ } from "../constants.ts";
 import type { Soldier, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
-/** How far behind the squad's leading edge the SL holds, m. */
+/** 分隊の先端から分隊長が後方に位置する距離 m。 */
 const TRAIL_DIST = 4;
-/** Re-decide at this cadence rather than every tick. */
+/** 意思決定周期。毎ティックではない。 */
 const DECIDE_EVERY_TICKS = Math.round(0.3 * SIM_HZ);
-/** Don't re-issue a destination this close to the current one, m. */
+/** 現在の目的地からこの距離以内なら再発行しない m。 */
 const DEST_EPS = 1.2;
 
 function centroid(units: readonly Soldier[]): Vec2 {
@@ -52,7 +50,7 @@ export function squadAI(world: World): void {
     );
     if (squad.length === 0) continue;
 
-    // the SL's picture: the union of its subordinate fireteams' vision (spec §5)
+    // 分隊長の world picture: 隷下FTの視界の合算(仕様 §5)
     const fireteams = world.fireteams.filter(
       (f) => f.side === sl.side && f.squadId === sl.squadId,
     );
@@ -69,7 +67,7 @@ export function squadAI(world: World): void {
 
     const mc = centroid(squad);
     const forward = threat ? dirTo(mc, threat) : { ...sl.facing };
-    // hold back from the squad's leading edge, on the threat axis
+    // 脅威の軸線上で、分隊の先端から後退した位置に構える
     const post: Vec2 = { x: mc.x - forward.x * TRAIL_DIST, z: mc.z - forward.z * TRAIL_DIST };
     const look = threat ? dirTo(sl.pos, threat) : forward;
 

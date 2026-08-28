@@ -1,25 +1,25 @@
 /**
- * Deterministic pseudo-random number generator for the simulation.
+ * シミュレーション用の決定論的疑似乱数生成器。
  *
- * The prototype mocks all use `Math.random()`, which makes replay, regression
- * tests, and the force-symmetry test impossible. The integrated sim routes ALL
- * randomness through one seeded stream held in world state. `Math.random` is
- * lint-banned under src/sim/.
+ * プロトタイプのモックはすべて `Math.random()` を使っていたが、それではリプレイ・
+ * 回帰テスト・戦力対称性の検証が成立しない。統合シムでは**すべての乱数**を
+ * ワールド状態が保持する1本のシード付きストリームに通す。`src/sim/` 配下では
+ * `Math.random` を ESLint で禁止している。
  *
- * Algorithm: mulberry32 — small, fast, good enough for gameplay. Not for crypto.
+ * アルゴリズムは mulberry32 — 小さく高速で、ゲーム用途には十分。暗号用途には不可。
  */
 
 export interface Rng {
-  /** raw 32-bit state; serialisable, so replays and snapshots are exact */
+  /** 32bitの生状態。シリアライズ可能なので、リプレイもスナップショットも厳密に再現できる */
   state: number;
 }
 
 export function createRng(seed: number): Rng {
-  // force to uint32
+  // uint32 へ丸める
   return { state: seed >>> 0 };
 }
 
-/** Advance the stream and return a float in [0, 1). Mutates `rng`. */
+/** ストリームを1つ進めて [0, 1) の実数を返す。`rng` を破壊的に更新する。 */
 export function next(rng: Rng): number {
   rng.state = (rng.state + 0x6d2b79f5) | 0;
   let t = rng.state;
@@ -28,32 +28,32 @@ export function next(rng: Rng): number {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
 
-/** Float in [min, max). */
+/** [min, max) の実数。 */
 export function randRange(rng: Rng, min: number, max: number): number {
   return min + next(rng) * (max - min);
 }
 
-/** Integer in [min, max] inclusive. */
+/** [min, max] の整数(両端を含む)。 */
 export function randInt(rng: Rng, min: number, max: number): number {
   return min + Math.floor(next(rng) * (max - min + 1));
 }
 
-/** True with probability p (0..1). */
+/** 確率 p (0..1) で true。 */
 export function chance(rng: Rng, p: number): boolean {
   return next(rng) < p;
 }
 
 /**
- * Convert a per-second rate to a per-tick probability for a Poisson-like event.
- * The mos-balance mock expressed hit/suppress chances per 0.2s tick; the
- * integrated sim runs at a different rate, so rates are stored per-second in
- * constants.ts and converted here.
+ * 毎秒あたりの発生率を、1ティックあたりの確率へ変換する(ポアソン的な事象を想定)。
+ * mos-balance モックは命中率・制圧率を「0.2秒ティックあたり」で表現していたが、
+ * 統合シムのティックレートは異なる。そのため constants.ts では毎秒あたりで保持し、
+ * ここでティック単位へ再量子化する。
  */
 export function ratePerTick(ratePerSecond: number, dtSeconds: number): number {
   return 1 - Math.exp(-ratePerSecond * dtSeconds);
 }
 
-/** Uniformly pick an element; returns undefined for an empty array. */
+/** 一様に1要素を選ぶ。空配列なら undefined。 */
 export function pick<T>(rng: Rng, arr: readonly T[]): T | undefined {
   if (arr.length === 0) return undefined;
   return arr[Math.floor(next(rng) * arr.length)];

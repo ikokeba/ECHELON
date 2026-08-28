@@ -1,10 +1,10 @@
 /**
- * Movement system: consumes each soldier's current path and order-facing,
- * advancing position and heading by one tick. Ported from the per-frame motion
- * in squad-12v12 / cqb-minimal (turnToward + stepAlongPath + wall clamp).
+ * 移動システム: 各兵士の現在の経路と命令の向きを消費し、位置と向きを1ティック分進める。
+ * squad-12v12 / cqb-minimal の毎フレーム処理(turnToward + stepAlongPath + 壁クランプ)
+ * からの移植。
  *
- * Suppression does NOT slow movement (spec §8.6: penalty is accuracy only).
- * WIA/KIA soldiers cannot move (spec §9).
+ * 制圧は移動を遅くしない(仕様 §8.6: ペナルティは命中率のみ)。
+ * WIA/KIA の兵士は移動できない(仕様 §9)。
  */
 
 import { advanceAlongPath } from "../pathfollow.ts";
@@ -29,7 +29,7 @@ function faceAngle(s: Soldier, angle: number): void {
   s.facing = { x: Math.sin(angle), z: Math.cos(angle) };
 }
 
-/** Move toward `to`, sliding along walls; returns the accepted position. */
+/** `to` へ移動する。壁に当たる場合は壁沿いにスライドし、採用した位置を返す。 */
 function moveWithWallSlide(walls: World["walls"], from: Vec2, to: Vec2): Vec2 {
   if (!collidesWall(walls, to.x, to.z, SOLDIER_RADIUS)) return to;
   const slideX = { x: to.x, z: from.z };

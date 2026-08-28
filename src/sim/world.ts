@@ -1,8 +1,8 @@
 /**
- * The World: the single mutable simulation state container. Everything needed to
- * advance the sim by one tick lives here or is derived from here. It holds no
- * three.js and no DOM handles, and it is fully serialisable so replays and
- * headless tests can snapshot it.
+ * World: シミュレーション状態を保持する唯一のミュータブルなコンテナ。
+ * 1ティック進めるのに必要なものはすべてここに存在するか、ここから導出される。
+ * three.js のハンドルも DOM のハンドルも持たず、完全にシリアライズ可能なので
+ * リプレイやヘッドレステストからスナップショットを取れる。
  */
 
 import { buildNavGrid, type NavGrid } from "./navgrid.ts";
@@ -25,30 +25,30 @@ export interface World {
   tick: number;
   bounds: Bounds;
   walls: AABB[];
-  /** outdoor coarse nav grid; per-building fine grids are added later (design §4.2) */
+  /** 屋外の粗いナビグリッド。建物ごとの細グリッドは後のスライスで追加(design §4.2) */
   navOutdoor: NavGrid;
-  /** candidate cover lattice used by the C2 layer for bound/fire/flank positions */
+  /** C2層が躍進先・射撃位置・側面攻撃位置を選ぶための遮蔽候補点の格子 */
   coverPoints: Vec2[];
-  /** general-purpose stream for anything not attributable to one force */
+  /** どちらの陣営にも帰属しない事象のための汎用ストリーム */
   rng: Rng;
   /**
-   * One RNG stream PER FORCE, both seeded identically from the scenario seed.
-   * This makes force symmetry a hard guarantee (spec §2/§13): in a mirrored
-   * situation each side draws the same rolls, so outcomes mirror. In a real
-   * (asymmetric) fight the streams diverge naturally because the inputs differ.
+   * **陣営ごとに独立した乱数ストリーム**。両方ともシナリオのシードで同一に初期化する。
+   * これにより戦力対称性(仕様 §2/§13)が構造的に保証される: 鏡像の状況では両陣営が
+   * 同じ乱数を引くため結果も鏡像になる。実際の(非対称な)戦闘では入力が異なるので
+   * ストリームは自然に分岐していく。
    */
   rngBySide: Record<Side, Rng>;
-  /** stable insertion order — iterate this, not a Map, so stepping is deterministic */
+  /** 挿入順が安定した配列。Mapではなくこちらを走査することでステップが決定論的になる */
   soldiers: Soldier[];
   soldierById: Map<number, Soldier>;
-  /** fireteam controllers — the lowest C2 node (spec §1 [v5]) */
+  /** FTコントローラ — 最下位のC2ノード(仕様 §1 [v5]) */
   fireteams: FireteamState[];
-  /** radio reports in flight, delivered when world.tick >= report.deliverTick */
+  /** 伝達中の無線報告。world.tick >= report.deliverTick になった時点で到達する */
   reports: Report[];
   controlMeasures: ControlMeasure[];
 }
 
-/** Deep-clone a soldier so the World owns its state independently of the scenario. */
+/** 兵士をディープコピーし、Worldがシナリオから独立して状態を所有できるようにする。 */
 function cloneSoldier(s: Soldier): Soldier {
   return {
     ...s,
@@ -65,12 +65,12 @@ function cloneSoldier(s: Soldier): Soldier {
   };
 }
 
-/** Build one controller per (side, squad, fireteam) present in the roster. */
+/** 編成に存在する (陣営, 分隊, FT) の組ごとにコントローラを1つ生成する。 */
 function buildFireteams(scenario: Scenario, soldiers: Soldier[]): FireteamState[] {
   const seen = new Map<string, FireteamState>();
   let id = 0;
   for (const s of soldiers) {
-    if (s.fireteamId < 0) continue; // squad-leader slot has no fireteam of its own
+    if (s.fireteamId < 0) continue; // 分隊長枠は自身のFTを持たない
     const key = `${s.side}:${s.squadId}:${s.fireteamId}`;
     if (seen.has(key)) continue;
     const spec = scenario.fireteamPlans?.find(

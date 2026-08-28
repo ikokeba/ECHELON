@@ -1,9 +1,8 @@
 /**
- * stepWorld: advance the simulation by exactly one fixed tick.
+ * stepWorld: シミュレーションをちょうど1固定ティック進める。
  *
- * Systems run in a fixed order every tick. The order is the contract — changing
- * it changes outcomes. As slices land, more systems slot in here (c2 controllers
- * ahead of pathing/combat; radio/belief between perception and c2).
+ * 各システムは毎ティック**固定された順序**で実行される。この順序こそが仕様であり、
+ * 変更すれば結果が変わる。スライスが進むにつれてここへシステムが追加されていく。
  */
 
 import { pathingSystem } from "./systems/pathing.ts";
@@ -16,27 +15,26 @@ import { squadAI } from "./c2/squad.ts";
 import type { World } from "./world.ts";
 
 export function stepWorld(world: World): void {
-  // 1. perception — who each soldier can personally see right now (spec §5)
+  // 1. 索敵 — 各兵士がいま自分の目で何を見ているか(仕様 §5)
   perceptionSystem(world);
-  // 2. C2 — fireteam leaders update their picture and emit per-soldier orders,
-  //    then squad leaders posture on the resulting picture.
-  //    (platoon / company controllers slot in above this; radio delivery between
-  //    echelons lands in the next slice)
+  // 2. C2 — FTリーダーが world picture を更新して兵士単位の命令を発行し、
+  //    続いて分隊長がその状況判断に基づいて自身の位置を決める。
+  //    (小隊・中隊のコントローラはこの上に入る。階層間の無線伝達は次のスライス)
   fireteamAI(world);
   squadAI(world);
-  // 3. path requests — turn moving orders into waypoint lists
+  // 3. 経路要求 — 移動系の命令をウェイポイント列へ変換する
   pathingSystem(world);
-  // 4. movement — consume paths / order-facing
+  // 4. 移動 — 経路と命令の向きを消費する
   movementSystem(world);
-  // 5. combat — engage, roll hits, apply suppression
+  // 5. 戦闘 — 交戦・命中判定・制圧の適用
   combatSystem(world);
-  // 6. casualties — bleed-out progression
+  // 6. 死傷 — 出血タイマーの進行
   casualtiesSystem(world);
 
   world.tick += 1;
 }
 
-/** Convenience for headless runs and tests. */
+/** ヘッドレス実行およびテスト用のユーティリティ。 */
 export function runTicks(world: World, n: number): void {
   for (let i = 0; i < n; i++) stepWorld(world);
 }

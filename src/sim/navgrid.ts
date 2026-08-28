@@ -1,16 +1,15 @@
 /**
- * Uniform navigation grid + A* pathfinding.
+ * 一様ナビゲーショングリッドと A* 経路探索。
  *
- * Ported from cqb-minimal-prototype.jsx (`NAV_GRID` + `findPath`), with two
- * changes for the integrated sim:
- *   - the grid is built from arguments (walls / bounds / step / margin) instead
- *     of module-level constants, so outdoor (1 m) and per-building (0.3 m) grids
- *     can coexist (see docs/design/00 §4.2);
- *   - search is A* on a binary heap instead of full-graph Dijkstra, so it stays
- *     affordable on a company-scale map.
+ * cqb-minimal-prototype.jsx の `NAV_GRID` + `findPath` からの移植だが、統合シム向けに
+ * 2点を変更している:
+ *   - グリッドをモジュール定数ではなく引数(壁/境界/刻み/マージン)から構築する。
+ *     屋外(1m)と建物ごと(0.3m)のグリッドを共存させるため(docs/design/00 §4.2)。
+ *   - 探索を全グラフ走査のダイクストラから、バイナリヒープ上の A* へ変更した。
+ *     中隊規模のマップでも計算量が破綻しないようにするため。
  *
- * Grid semantics are unchanged: 8-connected, and an edge is dropped when it
- * crosses a wall (AABB + parallel-offset LOS via `edgeIsClear`).
+ * グリッドの意味論は変更なし: 8近傍で、壁を貫通する辺は接続しない
+ * (AABB + 平行オフセットLOS を `edgeIsClear` で判定)。
  */
 
 import { edgeIsClear, collidesWall } from "./geometry.ts";
@@ -25,11 +24,11 @@ export interface NavNode {
 
 export interface NavGrid {
   nodes: NavNode[];
-  /** adjacency: adj[i] = [neighbourNodeIndex, edgeCost][] */
+  /** 隣接リスト: adj[i] = [隣接ノードのindex, 辺のコスト][] */
   adj: [number, number][][];
   cols: number;
   rows: number;
-  /** cols*rows, entry = node index or -1 */
+  /** 長さ cols*rows。各要素はノードindex、通行不可なら -1 */
   idxMap: Int32Array;
   step: number;
   margin: number;
@@ -85,7 +84,7 @@ export function buildNavGrid(
   return { nodes, adj, cols, rows, idxMap, step, margin, bounds };
 }
 
-/** Nearest walkable node to an arbitrary world point, or -1 if the grid is empty. */
+/** 任意のワールド座標に最も近い通行可能ノード。グリッドが空なら -1。 */
 export function nearestNavNode(grid: NavGrid, x: number, z: number): number {
   const { bounds, step, cols, rows, idxMap } = grid;
   const cgx = Math.round((x - bounds.minX) / step);
@@ -99,14 +98,14 @@ export function nearestNavNode(grid: NavGrid, x: number, z: number): number {
   const direct = at(cgx, cgz);
   if (direct !== -1) return direct;
 
-  // spiral outward for the closest free cell
+  // 直上のセルが埋まっている場合は、外側へ渦巻き状に探して最も近い空きセルを取る
   const maxR = Math.max(cols, rows);
   let best = -1;
   let bestD = Infinity;
   for (let r = 1; r <= maxR; r++) {
     for (let gx = cgx - r; gx <= cgx + r; gx++) {
       for (let gz = cgz - r; gz <= cgz + r; gz++) {
-        if (Math.max(Math.abs(gx - cgx), Math.abs(gz - cgz)) !== r) continue; // ring only
+        if (Math.max(Math.abs(gx - cgx), Math.abs(gz - cgz)) !== r) continue; // リング上のみ
         const idx = at(gx, gz);
         if (idx === -1) continue;
         const nd = Math.hypot(grid.nodes[idx]!.x - x, grid.nodes[idx]!.z - z);
@@ -121,7 +120,7 @@ export function nearestNavNode(grid: NavGrid, x: number, z: number): number {
   return best;
 }
 
-/** Min-heap keyed by fScore; stores node indices. */
+/** fScore をキーとする最小ヒープ。ノードindexを格納する。 */
 class MinHeap {
   private items: number[] = [];
   constructor(private readonly key: (n: number) => number) {}
@@ -163,9 +162,8 @@ class MinHeap {
 }
 
 /**
- * A* from (sx,sz) to (tx,tz). Returns a list of waypoints ending at the exact
- * target point (absorbing node-centre offset, as the cqb mock did), or null if
- * unreachable.
+ * (sx,sz) から (tx,tz) への A*。ウェイポイント列を返し、末尾は厳密な目標点にする
+ * (ノード中心とのズレを吸収。cqbモックと同じ処理)。到達不能なら null。
  */
 export function findPath(
   grid: NavGrid,

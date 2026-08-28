@@ -1,9 +1,9 @@
 /**
- * Top-down three.js view. Reads World, draws; never mutates sim state.
+ * three.js による見下ろしビュー。World を読んで描画するだけで、シム状態は一切変更しない。
  *
- * Orthographic camera looking straight down (−Y). Screen axes: +X right,
- * +Z downward. Flat tokens for now (discs + facing wedge); 3D figures can
- * replace them later without touching the sim (design AD-4/AD-5).
+ * 正射影カメラで真下(−Y)を向く。画面軸は +X が右、+Z が下。
+ * 現状は平面トークン(円盤 + 向きを示すくさび形)。将来3Dフィギュアへ差し替える際も
+ * シム側には手を入れずに済む(design AD-4/AD-5)。
  */
 
 import * as THREE from "three";
@@ -37,7 +37,7 @@ function snapshot(world: World): TickSnapshot {
 export interface Renderer {
   render(world: World, alpha: number): void;
   resize(): void;
-  /** world-space point under a screen pixel (for selection / orders later) */
+  /** 画面ピクセル下のワールド座標(将来の選択・命令発行用) */
   screenToWorld(clientX: number, clientY: number): { x: number; z: number };
   dispose(): void;
 }
@@ -49,14 +49,14 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(GROUND_COLOR);
 
-  // Camera: metres of world height visible is `viewSpan`; pan via target.
+  // カメラ: 画面に収まるワールド高さ(m)が `viewSpan`。パンは target を動かす。
   let viewSpan = 60;
   const target = new THREE.Vector3(0, 0, 0);
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 500);
   camera.position.set(0, 100, 0);
   camera.up.set(0, 0, -1);
 
-  // Ground
+  // 地面
   const groundW = world.bounds.maxX - world.bounds.minX;
   const groundH = world.bounds.maxZ - world.bounds.minZ;
   const ground = new THREE.Mesh(
@@ -71,7 +71,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   );
   scene.add(ground);
 
-  // Border
+  // マップ境界
   const border = new THREE.LineSegments(
     new THREE.EdgesGeometry(new THREE.PlaneGeometry(groundW, groundH)),
     new THREE.LineBasicMaterial({ color: 0x2a3446 }),
@@ -80,7 +80,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   border.position.copy(ground.position);
   scene.add(border);
 
-  // Walls — few enough to be individual meshes
+  // 壁 — 数が少ないので個別メッシュで足りる
   const wallMat = new THREE.MeshBasicMaterial({ color: WALL_COLOR });
   for (const w of world.walls) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w.hw * 2, 2, w.hd * 2), wallMat);
@@ -88,7 +88,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     scene.add(m);
   }
 
-  // Control measures (objective rings etc.)
+  // 統制手段(目標リングなど)
   for (const cm of world.controlMeasures) {
     if (cm.kind === "OBJ" && cm.points[0]) {
       const ring = new THREE.Mesh(
@@ -101,7 +101,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     }
   }
 
-  // Soldiers — instanced discs + instanced facing wedges
+  // 兵士 — インスタンス化した円盤 + 向きを示すくさび形
   const discGeo = new THREE.CircleGeometry(SOLDIER_RADIUS * 1.6, 16);
   discGeo.rotateX(-Math.PI / 2);
   const discMesh = new THREE.InstancedMesh(
@@ -182,7 +182,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       }
       discMesh.setColorAt(i, col.setHex(color));
 
-      // facing wedge only for soldiers still in the fight
+      // 向きのくさび形は、まだ戦闘可能な兵士にのみ表示する
       const wedgeScale = s.status === "ok" ? 1 : 0.001;
       dummy.position.set(
         x + Math.sin(heading) * SOLDIER_RADIUS * 1.1,
@@ -216,7 +216,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     return { x: target.x + ndcX * halfW, z: target.z - ndcY * halfH };
   }
 
-  // ── camera controls: drag to pan, wheel to zoom ──
+  // ── カメラ操作: ドラッグでパン、ホイールでズーム ──
   let dragging = false;
   let lastX = 0;
   let lastY = 0;

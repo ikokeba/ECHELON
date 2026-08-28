@@ -1,15 +1,16 @@
 /**
- * Confidence decay for contact reports (spec §5).
+ * 接触報告の確度減衰(仕様 §5)。
  *
- * The spec fixes three points as 確定値: 30s → 80%, 90s → 50%, 180s → gone.
- * Decay is driven by elapsed time only — enemy movement is irrelevant. The
- * interpolation shape between those points is OQ-2 (docs/design/00 §6); the
- * current choice is piecewise-linear, which passes exactly through all three.
+ * 仕様は3点を確定値としている: 30秒 → 80%、90秒 → 50%、180秒 → 消滅。
+ * 減衰を駆動するのは経過時間のみで、敵の移動は無関係。
+ *
+ * `[v6]` 3点の間の補間形状は線形補間で確定(3点を厳密に通る)。階段状の離散低下は
+ * 採用しない — 境界をまたぐ瞬間にAIの判断が急変してしまうため。
  */
 
 import { CONFIDENCE_POINTS } from "./constants.ts";
 
-/** Confidence in [0,1] for a contact last observed `ageSeconds` ago. */
+/** `ageSeconds` 秒前に観測された接触の確度 [0,1]。 */
 export function decayedConfidence(ageSeconds: number): number {
   if (ageSeconds <= 0) return 1;
   const pts = CONFIDENCE_POINTS;
