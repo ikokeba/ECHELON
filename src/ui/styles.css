@@ -1,0 +1,35 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, "Segoe UI", "Yu Gothic UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: #0b0e14;
+  color: #d7dde8;
+}
+
+.app-shell {
+  padding: 2rem;
+}
+
+.app-shell h1 {
+  letter-spacing: 0.3em;
+  font-weight: 600;
+}
+
+code {
+  background: #1a2030;
+  padding: 0.1em 0.4em;
+  border-radius: 3px;
+}
