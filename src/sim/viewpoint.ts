@@ -38,6 +38,12 @@ export interface ViewResult {
   friendly: Soldier[];
   /** 敵は視点階層の world picture 経由でしか見えない */
   enemies: VisibleEnemy[];
+  /**
+   * 神視点(`truth`)のときだけ入る、敵兵士の実体そのもの(仕様 §5 の境界の外)。
+   * レンダラはこれがある場合、敵も味方と同じ向き付きトークンで描く
+   * (指摘: 神視点では陣営に関係なく全ユニットを方向含めて表示)。非truthでは常に空。
+   */
+  enemiesTruth: Soldier[];
   /** 敵陣営(描画色の決定に使う) */
   enemySide: Side;
   /** 確度が尽きていない接触の件数 */
@@ -80,11 +86,11 @@ export function resolveView(world: World, spec: ViewSpec): ViewResult {
   const enemySide: Side = spec.side === "blue" ? "red" : "blue";
 
   if (spec.echelon === "truth") {
-    // デバッグ視点: 敵の現在位置をそのまま出す。確度は常に1。
-    const enemies = world.soldiers
-      .filter((s) => s.side !== spec.side && s.status !== "kia")
-      .map((s) => ({ pos: { ...s.pos }, confidence: 1, posError: 0 }));
-    return { friendly, enemies, enemySide, known: enemies.length, stale: 0 };
+    // デバッグ視点: 敵の実体をそのまま渡す(向き付きトークンで描くため)。
+    const enemiesTruth = world.soldiers.filter(
+      (s) => s.side !== spec.side && s.status !== "kia" && !isOffField(s),
+    );
+    return { friendly, enemies: [], enemiesTruth, enemySide, known: enemiesTruth.length, stale: 0 };
   }
 
   const belief = beliefFor(world, spec);
@@ -96,5 +102,5 @@ export function resolveView(world: World, spec: ViewSpec): ViewResult {
     if (c.confidence > 0) known++;
     else stale++;
   }
-  return { friendly, enemies, enemySide, known, stale };
+  return { friendly, enemies, enemiesTruth: [], enemySide, known, stale };
 }

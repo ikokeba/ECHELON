@@ -6,10 +6,19 @@
  */
 
 import { create } from "zustand";
-import { SPEED_STEPS } from "@sim/constants.ts";
+import {
+  DETECT_RANGE,
+  FIRE_ALIGN_RAD,
+  FOV_HALF_RAD,
+  MOVE_SPEED,
+  SPEED_STEPS,
+  TURN_RATE,
+} from "@sim/constants.ts";
 import type { ScenarioKey } from "@sim/scenario.ts";
-import type { Side, VictoryState } from "@sim/types.ts";
+import type { Echelon, Side, Vec2, VictoryState } from "@sim/types.ts";
 import type { ControlState } from "@sim/control.ts";
+
+const RAD2DEG = 180 / Math.PI;
 
 /** 階層ツリーUIが表示する編成の一覧。毎フレームではなく編成が変わったときだけ更新する。 */
 export interface RosterSquad {
@@ -82,6 +91,68 @@ export interface HudSnapshot {
   victory: VictoryState | null;
 }
 
+/** デバッグ表示のトグル(仕様外・開発用。squad-12v12 モックの「デバッグ表示」に対応)。 */
+export interface DebugState {
+  /** デバッグパネルを開いているか(キー H / ボタンで切替) */
+  panelOpen: boolean;
+  /** 視界扇形(FOV)をどこまで描くか */
+  fov: "off" | "selected" | "side" | "all";
+  /** 選択ユニットの計画経路(soldier.path) */
+  showPaths: boolean;
+  /** 選択ユニット視点の隠蔽率カラーグリッド */
+  showConcealment: boolean;
+  /** 発砲線(トレーサー) */
+  showShotLines: boolean;
+  /** 操作中ユニットの移動命令マーカー + 目的地までの線 */
+  showOrders: boolean;
+  /** 敵接触の不確度円(既存表示) */
+  showContactRings: boolean;
+}
+
+/** デバッグパネルのスライダーが持つ共通チューニング(表示は度、シムへ渡すときrad化)。 */
+export interface TuningUi {
+  detectRange: number;
+  fovDeg: number;
+  fireAlignDeg: number;
+  moveSpeed: number;
+  turnRateDeg: number;
+}
+
+/** FTごとの思考・状態の要約(ThinkingPanel 用。runtime が間引いて書き込む)。 */
+export interface ThinkingFT {
+  label: string;
+  mode: string;
+  role: string;
+  routed: boolean;
+}
+export interface ThinkingSquad {
+  label: string;
+  technique: string;
+  cqb: boolean;
+  degraded: boolean;
+}
+export interface ThinkingSelected {
+  id: number;
+  side: Side;
+  role: string;
+  hqRole: string | null;
+  order: string;
+  hasTarget: boolean;
+  sees: number;
+  /** いずれかの敵の視界扇形の中にいる(=被発見)か */
+  observed: boolean;
+  suppressed: boolean;
+  routed: boolean;
+  evac: string;
+  squadId: number;
+  fireteamId: number;
+}
+export interface ThinkingSnapshot {
+  fireteams: ThinkingFT[];
+  squads: ThinkingSquad[];
+  selected: ThinkingSelected | null;
+}
+
 interface UiState extends HudSnapshot {
   paused: boolean;
   /** 非ポーズ時の速度を指す SPEED_STEPS のindex */
@@ -107,6 +178,17 @@ interface UiState extends HudSnapshot {
   /** 階層ツリー表示用の編成一覧 */
   roster: RosterCompany[];
 
+  /** 直近に出した移動命令(OrderToast 用)。tick は発行時のシムtick */
+  lastOrder: { target: Vec2; tick: number; echelon: Echelon } | null;
+  /** 表示側の思考・状態の要約(ThinkingPanel 用) */
+  thinking: ThinkingSnapshot;
+  /** デバッグ表示トグル */
+  debug: DebugState;
+  /** デバッグ用スライダー(共通チューニング) */
+  tuning: TuningUi;
+  /** デバッグ用スライダー(陣営別リスク許容度 0..1) */
+  posture: Record<Side, { riskTolerance: number }>;
+
   togglePause: () => void;
   cycleSpeed: () => void;
   requestStep: () => void;
@@ -120,7 +202,23 @@ interface UiState extends HudSnapshot {
   requestSwap: (c: ControlState | null) => void;
   setRoster: (r: RosterCompany[]) => void;
   pushHud: (snap: HudSnapshot) => void;
+  setLastOrder: (o: { target: Vec2; tick: number; echelon: Echelon }) => void;
+  pushThinking: (t: ThinkingSnapshot) => void;
+  setDebug: (patch: Partial<DebugState>) => void;
+  setTuning: (patch: Partial<TuningUi>) => void;
+  setPosture: (side: Side, riskTolerance: number) => void;
+  /** 共通チューニングとリスク許容度を仕様の既定値へ戻す */
+  resetTuning: () => void;
 }
+
+/** constants.ts そのままの表示用チューニング値(スライダーの初期値・リセット先)。 */
+export const DEFAULT_TUNING_UI: TuningUi = {
+  detectRange: DETECT_RANGE,
+  fovDeg: Math.round(FOV_HALF_RAD * 2 * RAD2DEG),
+  fireAlignDeg: Math.round(FIRE_ALIGN_RAD * RAD2DEG),
+  moveSpeed: MOVE_SPEED,
+  turnRateDeg: Math.round(TURN_RATE * RAD2DEG),
+};
 
 /** 実行中の速度のみ(SPEED_STEPS[0] の 0 を除く) */
 export const RUN_SPEEDS = SPEED_STEPS.filter((s) => s > 0);
@@ -153,6 +251,20 @@ export const useSimStore = create<UiState>((set) => ({
   scenarioKey: "platoon",
   control: null,
   roster: [],
+
+  lastOrder: null,
+  thinking: { fireteams: [], squads: [], selected: null },
+  debug: {
+    panelOpen: false,
+    fov: "off",
+    showPaths: true,
+    showConcealment: false,
+    showShotLines: true,
+    showOrders: true,
+    showContactRings: true,
+  },
+  tuning: { ...DEFAULT_TUNING_UI },
+  posture: { blue: { riskTolerance: 0.5 }, red: { riskTolerance: 0.5 } },
 
   togglePause: () => set((s) => ({ paused: !s.paused })),
   cycleSpeed: () => set((s) => ({ speedIdx: (s.speedIdx + 1) % RUN_SPEEDS.length })),
@@ -189,6 +301,17 @@ export const useSimStore = create<UiState>((set) => ({
     ),
   setRoster: (r) => set({ roster: r }),
   pushHud: (snap) => set(snap),
+  setLastOrder: (o) => set({ lastOrder: o }),
+  pushThinking: (t) => set({ thinking: t }),
+  setDebug: (patch) => set((s) => ({ debug: { ...s.debug, ...patch } })),
+  setTuning: (patch) => set((s) => ({ tuning: { ...s.tuning, ...patch } })),
+  setPosture: (side, riskTolerance) =>
+    set((s) => ({ posture: { ...s.posture, [side]: { riskTolerance } } })),
+  resetTuning: () =>
+    set({
+      tuning: { ...DEFAULT_TUNING_UI },
+      posture: { blue: { riskTolerance: 0.5 }, red: { riskTolerance: 0.5 } },
+    }),
 }));
 
 /** 現在の実効時間倍率(ポーズ中は0)。 */

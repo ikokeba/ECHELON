@@ -3,6 +3,10 @@ import { TimeControls } from "./TimeControls.tsx";
 import { ViewControls } from "./ViewControls.tsx";
 import { EchelonTree } from "./EchelonTree.tsx";
 import { ObjectivePanel } from "./ObjectivePanel.tsx";
+import { ControlBanner } from "./ControlBanner.tsx";
+import { OrderToast } from "./OrderToast.tsx";
+import { ThinkingPanel } from "./ThinkingPanel.tsx";
+import { DebugPanel } from "./DebugPanel.tsx";
 
 function fmtClock(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -35,6 +39,9 @@ export function Hud() {
         <TimeControls />
       </div>
 
+      <ControlBanner />
+      <OrderToast />
+
       <div className="hud-forces">
         <div className="force force-blue">
           <span className="force-label">BLUE</span>
@@ -59,9 +66,12 @@ export function Hud() {
       <ViewControls />
       <ObjectivePanel />
       <EchelonTree />
+      <ThinkingPanel />
+      <DebugPanel />
 
       <div className="hud-hint">
-        ドラッグ: 移動 · ホイール: 拡大縮小 · Space: 一時停止 · . : 1ティック
+        ドラッグ: 移動 · ホイール: 拡大縮小 · Space: 一時停止 · . : 1ティック · 左クリック:
+        ユニット選択 · H: デバッグ
         {control && " · 右クリック: 移動命令"}
       </div>
     </div>

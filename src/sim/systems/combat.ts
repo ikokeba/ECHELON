@@ -15,7 +15,6 @@ import { chance, ratePerTick, type Rng } from "../rng.ts";
 import {
   BLEED_OUT_SEC,
   EVADE_SEC,
-  FIRE_ALIGN_RAD,
   GRENADE,
   GRENADE_ATTEMPT_RATE_PER_SEC,
   HIT_RATE_PER_SEC,
@@ -30,7 +29,6 @@ import {
   SUPPRESSION_GRACE_TICKS,
   SUPPRESS_TRIGGER_RATE_PER_SEC,
   SOLDIER_RADIUS,
-  TURN_RATE,
 } from "../constants.ts";
 import { angleOf, dirFromAngle, turnToward } from "../geometry.ts";
 import { isOffField } from "./litter.ts";
@@ -200,7 +198,9 @@ function tryGrenade(
  * これは戦力対称性(仕様 §2/§13)を静かに破壊する。
  */
 export function combatSystem(world: World): void {
-  const maxTurn = TURN_RATE * SIM_DT;
+  // 旋回速度・正対精度は実行時チューニング可(`[v6.1]`)。既定は定数と一致。
+  const maxTurn = world.tuning.turnRate * SIM_DT;
+  const fireAlignRad = world.tuning.fireAlignRad;
   const pending: PendingShot[] = [];
   const grenades: PendingGrenade[] = [];
 
@@ -241,13 +241,13 @@ export function combatSystem(world: World): void {
     // 反射的な照準: 静止中の兵士は発砲前に目標へ正対する。
     // 旋回は geometry.ts の共通実装を使う — ±π の畳み方が対称性に効くため、
     // ここで独自実装を持つと片側だけ有利になる(実際にその不具合を起こした)。
-    if (!moving && angleBetween(s.facing, toTarget) > FIRE_ALIGN_RAD) {
+    if (!moving && angleBetween(s.facing, toTarget) > fireAlignRad) {
       const na = turnToward(angleOf(s.facing), angleOf(toTarget), maxTurn);
       s.facing = dirFromAngle(na);
       continue; // このティックは照準のみで発砲しない
     }
 
-    if (angleBetween(s.facing, toTarget) > FIRE_ALIGN_RAD) continue; // 移動中かつ正対していない
+    if (angleBetween(s.facing, toTarget) > fireAlignRad) continue; // 移動中かつ正対していない
     if (friendlyBlocksFire(world, s, target)) continue;
 
     // 発砲 — 射手が属する陣営のストリームから引く。鏡像の状況では両陣営が
@@ -304,7 +304,15 @@ export function combatSystem(world: World): void {
     }
   };
 
-  for (const { target, outcome, suppressing, triggersEvade, targetWasDowned } of pending) {
+  for (const { shooter, target, outcome, suppressing, triggersEvade, targetWasDowned } of pending) {
+    // 発砲線(`[v6.1]`)。戦闘は移動の後なので pos は確定済み。シムの判断には使わない。
+    world.fx.push({
+      kind: "shot",
+      from: { x: shooter.pos.x, z: shooter.pos.z },
+      to: { x: target.pos.x, z: target.pos.z },
+      side: shooter.side,
+      hit: outcome.hit,
+    });
     if (outcome.hit) {
       // 即死ルール(仕様 §9): 行動不能中の兵士への追加被弾は、安定化・後送状況に
       // 関係なく即時戦死。倒れた味方を無防備に放置するリスクを明確化するための規則。
@@ -330,5 +338,13 @@ export function combatSystem(world: World): void {
       const wasDowned = v.status !== "ok";
       applyHit(v, wasDowned, chance(world.rngBySide[g.side], KIA_ON_HIT_CHANCE));
     }
+    // 着弾円(`[v6.1]`)。範囲攻撃であることが分かるよう半径ごと渡す(指摘: 擲弾を可視化)
+    world.fx.push({
+      kind: "grenade",
+      at: { x: g.impact.x, z: g.impact.z },
+      side: g.side,
+      radius: GRENADE.BLAST_RADIUS,
+      victims: g.victims.length,
+    });
   }
 }

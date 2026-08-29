@@ -10,6 +10,7 @@ import { buildCoverPoints } from "./cover.ts";
 import { successionSystem } from "./c2/succession.ts";
 import { clamp } from "./geometry.ts";
 import { createRng, type Rng } from "./rng.ts";
+import { defaultPosture, defaultTuning } from "./tuning.ts";
 import type { ControlState } from "./control.ts";
 import {
   CASEVAC_ASSETS_PER_COMPANY,
@@ -28,13 +29,16 @@ import type {
   ControlMeasure,
   Door,
   FireteamState,
+  FxEvent,
   Objective,
   PlatoonState,
+  Posture,
   Report,
   Scenario,
   Side,
   Soldier,
   SquadState,
+  Tuning,
   Vec2,
   VictoryState,
 } from "./types.ts";
@@ -98,6 +102,18 @@ export interface World {
    * 人間はAIの意思決定者を置き換えるだけで、配管も能力も変わらない。
    */
   control: ControlState | null;
+  /**
+   * そのティックの描画用エフェクトイベント(`[v6.1]`)。`stepWorld` 先頭で空にし、
+   * `combatSystem` が発砲・擲弾着弾を push する。**シムの結果には影響しない**。
+   */
+  fx: FxEvent[];
+  /**
+   * 実行時チューニング(`[v6.1]`)。既定は `constants.ts` そのまま。デバッグUIの
+   * スライダーだけがこれを書き換える。対称性・決定論テストはここに触れない。
+   */
+  tuning: Tuning;
+  /** 陣営ごとのリスク許容度(`[v6.1]`)。既定は両陣営 0.5 で現行挙動と一致。 */
+  posture: Record<Side, Posture>;
 }
 
 /** 兵士をディープコピーし、Worldがシナリオから独立して状態を所有できるようにする。 */
@@ -404,6 +420,9 @@ function buildWorld(scenario: Scenario): World {
     majoritySince: { blue: null, red: null },
     victory: null,
     control: null,
+    fx: [],
+    tuning: defaultTuning(),
+    posture: defaultPosture(),
   };
 }
 

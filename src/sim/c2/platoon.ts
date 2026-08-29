@@ -15,7 +15,9 @@
 
 import { SIM_HZ } from "../constants.ts";
 import { aiSuppressed } from "../control.ts";
+import { postureFactors } from "../tuning.ts";
 import { commandFactor } from "./succession.ts";
+import { clampToObjective, heldObjectiveNear } from "./objectiveHold.ts";
 import type { Contact, MovementTechnique, PlatoonState, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
@@ -57,12 +59,13 @@ function primaryThreat(belief: Map<string, Contact>): Contact | null {
   return best;
 }
 
-function selectTechnique(pl: PlatoonState, from: Vec2): MovementTechnique {
+function selectTechnique(pl: PlatoonState, from: Vec2, rangeMul: number): MovementTechnique {
   const threat = primaryThreat(pl.belief);
   if (!threat) return "traveling";
   const d = dist(from, threat.pos);
-  if (d <= TECHNIQUE_THRESHOLDS.boundingWithin) return "bounding_overwatch";
-  if (d <= TECHNIQUE_THRESHOLDS.travelingOverwatchWithin) return "traveling_overwatch";
+  // リスク許容度(`[v6.1]`)でしきい距離を伸縮する。既定(0.5)では rangeMul === 1。
+  if (d <= TECHNIQUE_THRESHOLDS.boundingWithin * rangeMul) return "bounding_overwatch";
+  if (d <= TECHNIQUE_THRESHOLDS.travelingOverwatchWithin * rangeMul) return "traveling_overwatch";
   return "traveling";
 }
 
@@ -146,7 +149,7 @@ export function platoonAI(world: World): void {
     anchor.x /= livingSquads.length;
     anchor.z /= livingSquads.length;
 
-    const technique = selectTechnique(pl, anchor);
+    const technique = selectTechnique(pl, anchor, postureFactors(world.posture[pl.side]).techniqueRangeMul);
     const threat = primaryThreat(pl.belief);
 
     // 目標軸に対して直交する方向へ分隊を並べ、担当区域を割り当てる。
@@ -162,10 +165,32 @@ export function platoonAI(world: World): void {
 
     livingSquads.forEach((sq, i) => {
       const lateral = (i - (livingSquads.length - 1) / 2) * SQUAD_FRONTAGE;
-      const objective: Vec2 = {
+      let objective: Vec2 = {
         x: aim.x + right.x * lateral,
         z: aim.z + right.z * lateral,
       };
+
+      // 確保済み拠点の保持(`[v6.1]`)。この分隊のいる場所の近くに守るべき自軍拠点が
+      // あれば、脅威へ引きずられる持ち場を拠点の内側へ引き戻す。近くに無ければ素通り。
+      const sqMembers = world.soldiers.filter(
+        (s) => s.side === sq.side && s.squadId === sq.squadId && s.status === "ok",
+      );
+      if (sqMembers.length > 0) {
+        let sx = 0;
+        let sz = 0;
+        for (const m of sqMembers) {
+          sx += m.pos.x;
+          sz += m.pos.z;
+        }
+        const held = heldObjectiveNear(world, pl.side, {
+          x: sx / sqMembers.length,
+          z: sz / sqMembers.length,
+        });
+        // 0.7: 拠点の縁寄りまで許して守備隊を中心に固めず、拠点内の遮蔽へ分散させる
+        // (`[v6.1]` 指摘: 守備隊は拠点内の遮蔽に散る)。
+        if (held) objective = clampToObjective(objective, held, 0.7);
+      }
+
       pl.squadObjectives.set(sq.squadId, objective);
       pl.squadTechniques.set(sq.squadId, technique);
 

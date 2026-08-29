@@ -83,6 +83,7 @@ export function makeSoldier(seed: SoldierSeed): Soldier {
     status: "ok",
     suppressedUntilTick: 0,
     evadeUntilTick: 0,
+    observedByEnemy: false,
     // 擲弾は擲弾手のみが携行する(仕様 §14: 3発/戦闘)
     grenades: (seed.role ?? "rifleman") === "grenadier" ? GRENADE.CHARGES : 0,
     routed: false,

@@ -18,20 +18,27 @@ import { isOffField } from "./litter.ts";
 import type { World } from "../world.ts";
 import type { Soldier, Vec2 } from "../types.ts";
 
-const COS_FOV = Math.cos(FOV_HALF_RAD);
-const DETECT_RANGE_SQ = DETECT_RANGE * DETECT_RANGE;
-
-/** セルサイズは索敵距離の半分。1回の問い合わせで走査するセル数を小さく保つ。 */
+/** セルサイズは索敵距離の半分。1回の問い合わせで走査するセル数を小さく保つ(性能係数のみ)。 */
 const hash = createSpatialHash<Soldier>(DETECT_RANGE / 2);
 
-export function canSee(walls: World["walls"], viewer: Soldier, target: Soldier): boolean {
+/**
+ * `range` / `fovHalfRad` は省略時に仕様定数へフォールバックする(既存テストの3引数呼び出しを
+ * 壊さないため)。`perceptionSystem` は `world.tuning` の実行時値を渡す(`[v6.1]`)。
+ */
+export function canSee(
+  walls: World["walls"],
+  viewer: Soldier,
+  target: Soldier,
+  range: number = DETECT_RANGE,
+  fovHalfRad: number = FOV_HALF_RAD,
+): boolean {
   const dx = target.eye.x - viewer.eye.x;
   const dz = target.eye.z - viewer.eye.z;
   const d2 = dx * dx + dz * dz;
-  if (d2 > DETECT_RANGE_SQ || d2 < 1e-6) return false;
+  if (d2 > range * range || d2 < 1e-6) return false;
   const inv = 1 / Math.sqrt(d2);
   // 視線方向と目標方向の内積を cos(半角) と比較する
-  if (viewer.facing.x * dx * inv + viewer.facing.z * dz * inv < COS_FOV) return false;
+  if (viewer.facing.x * dx * inv + viewer.facing.z * dz * inv < Math.cos(fovHalfRad)) return false;
   return hasLineOfSight(walls, viewer.eye.x, viewer.eye.z, target.eye.x, target.eye.z);
 }
 
@@ -96,19 +103,33 @@ export function perceptionSystem(world: World): void {
     insert(hash, s.pos, s);
   }
 
+  // 索敵距離・視界角は実行時チューニング可(`[v6.1]`)。既定は仕様定数と一致。
+  const detectRange = world.tuning.detectRange;
+  const fovHalfRad = world.tuning.fovHalfRad;
   for (const s of world.soldiers) {
     if (s.status === "kia" || isOffField(s)) {
       if (s.sees.length) s.sees = [];
       continue;
     }
     const seen: number[] = [];
-    forEachNear(hash, s.pos, DETECT_RANGE, (other) => {
+    forEachNear(hash, s.pos, detectRange, (other) => {
       if (other.side === s.side) return;
-      if (canSee(world.walls, s, other)) seen.push(other.id);
+      if (canSee(world.walls, s, other, detectRange, fovHalfRad)) seen.push(other.id);
     });
     // 走査順が空間ハッシュのセル順に依存するので、IDで整列して決定性を保つ。
     // ここを揺らすと同一シードのリプレイが再現しなくなる。
     seen.sort((a, b) => a - b);
     s.sees = seen;
+  }
+
+  // `敵.sees` の逆引き = 「自分は敵の視界扇形の中にいるか」(仕様 §5 `[v6.1]`)。
+  // FTの接敵反応の分岐(仕様 §6)に使う。`sees` は敵しか含まないので、
+  // これで「いずれかの敵に視認されている」が過不足なく求まる。
+  for (const s of world.soldiers) s.observedByEnemy = false;
+  for (const viewer of world.soldiers) {
+    for (const id of viewer.sees) {
+      const seen = world.soldierById.get(id);
+      if (seen) seen.observedByEnemy = true;
+    }
   }
 }

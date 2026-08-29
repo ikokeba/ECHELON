@@ -9,7 +9,7 @@
 
 import { advanceAlongPath } from "../pathfollow.ts";
 import { angleOf, collidesWall, dirFromAngle, turnToward } from "../geometry.ts";
-import { MOVE_SPEED, SIM_DT, SOLDIER_RADIUS, TURN_RATE } from "../constants.ts";
+import { SIM_DT, SOLDIER_RADIUS } from "../constants.ts";
 import type { World } from "../world.ts";
 import type { Soldier, Vec2 } from "../types.ts";
 
@@ -40,8 +40,9 @@ function wantsToMove(s: Soldier): boolean {
 }
 
 export function movementSystem(world: World): void {
-  const maxTurn = TURN_RATE * SIM_DT;
-  const baseStep = MOVE_SPEED * SIM_DT;
+  // 旋回速度・基本移動速度は実行時チューニング可(`[v6.1]`)。既定は仕様定数と一致。
+  const maxTurn = world.tuning.turnRate * SIM_DT;
+  const baseStep = world.tuning.moveSpeed * SIM_DT;
 
   for (const s of world.soldiers) {
     if (s.status === "kia" || s.status === "wia") continue;

@@ -444,3 +444,180 @@ span.obj-contested { background: none; flex: none; }
   opacity: 0.75;
   letter-spacing: 0;
 }
+
+/* ── 操作中バナー(指摘: いまどの階層・代表ユニットか) ── */
+.control-banner {
+  position: absolute;
+  left: 50%;
+  top: 12px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(6px);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.control-banner.cb-blue { border-color: var(--blue); box-shadow: 0 0 0 1px rgba(74, 163, 255, 0.35); }
+.control-banner.cb-red { border-color: var(--red); box-shadow: 0 0 0 1px rgba(255, 90, 74, 0.35); }
+.control-banner.cb-idle { opacity: 0.7; }
+.cb-side { font-weight: 800; letter-spacing: 0.14em; font-size: 11px; }
+.cb-blue .cb-side { color: var(--blue); }
+.cb-red .cb-side { color: var(--red); }
+.cb-role {
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.cb-unit { font-weight: 600; }
+.cb-rep { color: var(--muted); font-weight: 400; font-size: 11px; }
+.cb-view { color: var(--muted); font-size: 11px; }
+
+/* ── 移動命令トースト(指摘: 命令が出せているか分からない) ── */
+.order-toast {
+  position: absolute;
+  left: 50%;
+  top: 52px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 5px 12px;
+  border-radius: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(6px);
+  font-size: 12px;
+  transition: opacity 0.4s;
+}
+.order-toast.ot-flash {
+  border-color: #f5d84a;
+  color: #f5d84a;
+}
+.ot-head { font-weight: 700; }
+.ot-dest { color: var(--muted); }
+
+/* ── 思考パネル(指摘: 各分隊・ユニットの思考や状態を可視化) ── */
+.thinking-panel {
+  position: absolute;
+  left: 12px;
+  top: 292px;
+  width: 240px;
+  max-height: calc(100vh - 520px);
+  min-height: 120px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 10px;
+  backdrop-filter: blur(6px);
+  font-size: 11px;
+}
+.tp-title { font-size: 11px; color: var(--muted); }
+.tp-list { display: flex; flex-direction: column; gap: 5px; }
+.tp-squad { border-left: 2px solid var(--border); padding-left: 6px; }
+.tp-squad-head { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.tp-name { font-weight: 700; }
+.tp-tech { color: var(--muted); }
+.tp-tag {
+  font-size: 9px;
+  padding: 0 4px;
+  border-radius: 3px;
+}
+.tp-cqb { background: #2a2718; color: #f5c451; }
+.tp-deg { background: #4a2020; color: #ff9a8a; }
+.tp-ft {
+  display: flex;
+  gap: 6px;
+  padding-left: 8px;
+  color: var(--muted);
+}
+.tp-ft-name { width: 34px; flex: none; }
+.tp-mode { color: var(--text); }
+.tp-routed { color: var(--red); }
+.tp-role { color: var(--muted); }
+.tp-selected { border-top: 1px solid var(--border); padding-top: 6px; }
+.tp-sel-body { display: flex; flex-direction: column; gap: 2px; font-size: 11px; line-height: 1.5; }
+.tp-empty { color: var(--muted); font-size: 10px; }
+
+/* ── デバッグパネル(指摘: デバッグ用UI) ── */
+.debug-panel {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  width: 300px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  backdrop-filter: blur(8px);
+  font-size: 12px;
+  z-index: 5;
+}
+.dbg-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.dbg-x {
+  background: #1a2233;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  width: 22px;
+  height: 22px;
+  cursor: pointer;
+  line-height: 1;
+}
+.dbg-sec { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--border); padding-top: 8px; }
+.dbg-sec-title { font-weight: 600; color: var(--text); }
+.dbg-row { display: flex; flex-direction: column; gap: 4px; }
+.dbg-k { color: var(--muted); font-size: 11px; }
+.dbg-seg { display: flex; gap: 4px; }
+.dbg-seg-btn {
+  flex: 1;
+  background: #1a2233;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 4px 2px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.dbg-seg-btn.dbg-on { border-color: #7ff0ff; color: #7ff0ff; background: #14323a; }
+.dbg-chk { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+.dbg-slider { display: flex; flex-direction: column; gap: 3px; }
+.dbg-slider-head { display: flex; justify-content: space-between; color: var(--muted); }
+.dbg-slider input[type="range"] { width: 100%; accent-color: #f5c451; }
+.dbg-note, .dbg-legend div { font-size: 10px; color: var(--muted); line-height: 1.5; }
+.dbg-blue { color: var(--blue); }
+.dbg-red { color: var(--red); }
+.dbg-reset {
+  background: #1a2233;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.dbg-reset:hover { background: #24304a; }
+.dbg-legend { display: flex; flex-direction: column; gap: 3px; border-top: 1px solid var(--border); padding-top: 8px; }
+.dbg-legend div { display: flex; align-items: center; gap: 6px; }
+.lg-swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; display: inline-block; }

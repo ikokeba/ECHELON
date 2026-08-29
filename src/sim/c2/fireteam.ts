@@ -30,6 +30,7 @@ import {
 } from "../constants.ts";
 import { formationSlots } from "../formation.ts";
 import { aiSuppressed } from "../control.ts";
+import { postureFactors } from "../tuning.ts";
 import { isCommittedToAid } from "../systems/casualties.ts";
 import { isCommittedToLitter, isOffField } from "../systems/litter.ts";
 import { exitCqb, runCqb } from "./cqbDrill.ts";
@@ -58,6 +59,15 @@ const DECIDE_EVERY_TICKS = Math.round(0.3 * SIM_HZ);
 const MIN_ROUT_TICKS = Math.round(MORALE.MIN_ROUT_SEC * SIM_HZ);
 /** 回避行動で下がる距離 m。遮蔽が見つからない場合はこの距離をそのまま下がる `[v6]` */
 const EVADE_DIST = 6;
+/**
+ * break contact(FALLBACK)で1回に下がる距離 m。`[v6.1]`
+ * **集結地点までの全面後退はしない** — 前線での躍進的な後退に留める。集結地点へ戻すのは
+ * 士気崩壊(ROUT)だけ。頭数だけで下がって前線が消える不具合(初回テストプレイ指摘)への対処。
+ */
+const BREAK_DIST = 12;
+/** FALLBACK 判定で「いま実際に撃ち合える敵」とみなす確度と距離。`[v6.1]` */
+const NEAR_THREAT_CONF = 0.7;
+const NEAR_THREAT_RANGE_MUL = 1.6;
 
 function centroid(units: readonly Soldier[]): Vec2 {
   if (units.length === 0) return { x: 0, z: 0 };
@@ -189,11 +199,25 @@ function updateMemory(world: World, ft: FireteamState, members: readonly Soldier
  * `[v6]` 分母は「まだ戦場にいる隊員(健常+負傷)」とする。戦死者まで分母に残すと、
  * 半数が戦死した4名チームは残り2名がどうなろうと永久に潰走しなくなり、
  * 「崩壊」という現象が起きなくなってしまう。
+ *
+ * `[v6.1]` **未処置WIA比率は「崩壊のトリガー」であって「再編成のゲートではない」。**
+ * 最小時間を過ぎ、隊が集結地点付近まで下がって接敵を切れたら立て直す(routed を解除)。
+ * これをしないと、下がりきった隊が永久に50%アンカーで固まり、被弾で新たなWIAが出るたびに
+ * 潰走が延命して二度と戦列復帰できない(初回テストプレイ指摘: 士気崩壊の回復を明確に)。
  */
+/** 立て直しとみなす、集結地点からの距離 m。`[v6.1]` */
+const REFORM_RALLY_DIST = 15;
+
 function evaluateMorale(world: World, ft: FireteamState, onField: Soldier[]): boolean {
   if (ft.routedSinceTick !== null) {
     // 一度潰走したら最低時間は続ける。条件のふらつきで点滅させない
     if (world.tick - ft.routedSinceTick < MIN_ROUT_TICKS) return true;
+    // 最小時間経過後: 集結地点付近まで下がり、いま制圧も受けていなければ立て直す。
+    const mobile = onField.filter((s) => s.status === "ok");
+    const reachedRally =
+      mobile.length > 0 && dist(centroid(mobile), ft.rallyPoint) < REFORM_RALLY_DIST;
+    const stillPinned = mobile.some((s) => s.suppressedUntilTick > world.tick);
+    if (reachedRally && !stillPinned) return false;
   }
   if (onField.length === 0) return false;
   const untreated = onField.filter((s) => s.status === "wia" && !s.stabilized).length;
@@ -214,11 +238,20 @@ function selectMode(
   memberCount: number,
   contacts: Contact[],
   routed: boolean,
+  fallbackDeficit: number,
+  /** 近距離・確度の高い脅威の数(`[v6.1]`)。全メモリ件数ではなくこれで劣勢を測る */
+  nearThreats: number,
+  /** FT内に制圧/回避中の隊員がいるか(`[v6.1]`)。break contact の必要条件 */
+  pinned: boolean,
 ): FireteamMode {
-  const known = contacts.length;
   // 潰走はあらゆる判断に優先する。指揮ではなく崩壊なので、命令系統の外側にある
   if (routed) return "ROUT";
-  if (memberCount > 0 && squadStrength < known - FALLBACK_DEFICIT) return "FALLBACK";
+  // `[v6.1]` break contact は「多数を視認した」だけでは起こさない。
+  // ①いま撃ち合える距離の確度の高い脅威に**局所的に**数で圧倒され、かつ
+  // ②実際に制圧/回避へ追い込まれている、の両方が揃ったときだけ下がる。
+  // 頭数(全メモリ件数)だけで下がると、両軍が初回接敵の直後に後退して前線が消える
+  // (初回テストプレイ指摘: 前線を維持せず放棄する)。
+  if (memberCount > 0 && pinned && squadStrength + fallbackDeficit < nearThreats) return "FALLBACK";
   // 突入命令を受けている間は室内専用モード。仕様 §7.3 は「室内クリアリング中は
   // 専用モードとして扱い、ADVANCE/CONTACT/SEARCH/FALLBACK のいずれとも異なる」と
   // 明記している。ただし後退判断だけは上位に置く — 崩れているのに突入はしない。
@@ -238,9 +271,13 @@ function runBoundingOverwatch(
   alpha: Soldier[],
   bravo: Soldier[],
   forward: Vec2,
+  /** 躍進歩幅の乗数(`[v6.1]` リスク許容度。既定 1 で現行値) */
+  boundStepMul = 1,
 ): void {
   const members = [...alpha, ...bravo];
   if (members.length === 0) return;
+  const boundMin = BOUND_MIN_ADV * boundStepMul;
+  const boundMax = BOUND_MAX_ADV * boundStepMul;
 
   // 片方のペアが全滅した場合は2組運用が成立しない。硬直させず、生存者全員を1集団として動かす。
   if (alpha.length === 0 || bravo.length === 0) {
@@ -251,8 +288,8 @@ function runBoundingOverwatch(
         world.coverPoints,
         mc,
         forward,
-        BOUND_MIN_ADV,
-        BOUND_MAX_ADV,
+        boundMin,
+        boundMax,
       );
     }
     const dest = ft.boundTarget;
@@ -274,8 +311,8 @@ function runBoundingOverwatch(
       world.coverPoints,
       centroid(moving),
       forward,
-      BOUND_MIN_ADV,
-      BOUND_MAX_ADV,
+      boundMin,
+      boundMax,
       centroid(overwatch),
     );
   }
@@ -390,6 +427,8 @@ function runAdvance(
   alpha: Soldier[],
   bravo: Soldier[],
   forward: Vec2,
+  /** 躍進歩幅の乗数(`[v6.1]` リスク許容度。既定 1 で現行値) */
+  boundStepMul = 1,
 ): void {
   switch (ft.technique) {
     case "traveling":
@@ -399,7 +438,7 @@ function runAdvance(
       runTravelingOverwatch(world, ft, alpha, bravo, forward);
       return;
     case "bounding_overwatch":
-      runBoundingOverwatch(world, ft, alpha, bravo, forward);
+      runBoundingOverwatch(world, ft, alpha, bravo, forward, boundStepMul);
       return;
   }
 }
@@ -443,12 +482,34 @@ export function fireteamAI(world: World): void {
 
     if (world.tick % DECIDE_EVERY_TICKS !== 0) continue;
 
+    // リスク許容度(`[v6.1]`)。既定(0.5)では乗数1・加算0で現行の定数と厳密一致する。
+    const pf = postureFactors(world.posture[ft.side]);
+    const engageMin = ENGAGE_MIN * pf.engageRangeMul;
+    const engageMax = ENGAGE_MAX * pf.engageRangeMul;
+    const fallbackDeficit = FALLBACK_DEFICIT + pf.fallbackDeficitBonus;
+
     const contacts = [...ft.memory.values()];
     const squadStrength = world.soldiers.filter(
       (s) => s.side === ft.side && s.squadId === ft.squadId && s.status === "ok",
     ).length;
+
+    // `[v6.1]` FALLBACK 判定用の材料。全メモリ件数ではなく「いま撃ち合える敵」と
+    // 「実際に押されているか」で測る(前線オシレーションの対処)。
+    const ftCenter = centroid(living);
+    const nearBand = engageMax * NEAR_THREAT_RANGE_MUL;
+    let nearThreats = 0;
+    for (const c of contacts) {
+      if (c.confidence < NEAR_THREAT_CONF) continue;
+      if (dist(c.pos, ftCenter) > nearBand) continue;
+      nearThreats += 1;
+    }
+    const pinned = living.some(
+      (u) => u.suppressedUntilTick > world.tick || u.evadeUntilTick > world.tick,
+    );
+
     // 崩壊/後退の判定(仕様 §12)。戦死者を除いた「まだ戦場にいる隊員」で見る
     const onField = members.filter((s) => s.status !== "kia" && !isOffField(s));
+    const prevRouted = ft.routedSinceTick !== null;
     const routed = evaluateMorale(world, ft, onField);
     if (routed && ft.routedSinceTick === null) ft.routedSinceTick = world.tick;
     if (!routed) ft.routedSinceTick = null;
@@ -459,14 +520,33 @@ export function fireteamAI(world: World): void {
     }
 
     const prevMode = ft.mode;
-    const next = selectMode(ft, squadStrength, living.length, contacts, routed);
+    const next = selectMode(
+      ft,
+      squadStrength,
+      living.length,
+      contacts,
+      routed,
+      fallbackDeficit,
+      nearThreats,
+      pinned,
+    );
     if (next !== ft.mode) {
-      // 後退と潰走は最小滞留時間を無視する。どちらも「判断」ではなく、
-      // 崩れたという事実への反応なので、様子見の余地がない
-      if (next === "FALLBACK" || next === "ROUT" || world.tick - ft.modeSince >= MODE_DWELL_TICKS) {
+      // FALLBACK / ROUT への遷移は最小滞留時間を無視する(「判断」ではなく崩れた事実への反応)。
+      // ただし `[v6.1]` FALLBACK から**復帰する**ときは長めに落ち着かせる — 短い滞留だと
+      // 前進 → 再接敵 → 再後退 のポンプ運動が止まらない(初回テストプレイ指摘)。
+      const dwell = prevMode === "FALLBACK" ? MODE_DWELL_TICKS * 3 : MODE_DWELL_TICKS;
+      if (next === "FALLBACK" || next === "ROUT" || world.tick - ft.modeSince >= dwell) {
         ft.mode = next;
         ft.modeSince = world.tick;
       }
+    }
+    // `[v6.1]` ROUT から立て直した直後は、いきなり前進へ戻さず**再編成のひと呼吸**を挟む
+    // (指摘: 士気崩壊の回復を明確に)。FALLBACK 相当 = 直近の脅威から離れて遮蔽で立て直す
+    // 短い動き + 復帰まで 3.6 秒の滞留。回復自体は「未処置WIAが50%を下回った」ときにしか
+    // 起きないので、衛生の追いつき → 再編成 → 前線復帰、という段取りになる。
+    if (prevRouted && !routed && ft.mode !== "ROUT" && ft.mode !== "CQB") {
+      ft.mode = "FALLBACK";
+      ft.modeSince = world.tick;
     }
     if (prevMode !== ft.mode) {
       ft.boundTarget = null;
@@ -518,7 +598,7 @@ export function fireteamAI(world: World): void {
         }
       }
       if (!primary) {
-        runAdvance(world, ft, alpha, bravo, dirTo(mc, ft.objective));
+        runAdvance(world, ft, alpha, bravo, dirTo(mc, ft.objective), pf.boundStepMul);
         continue;
       }
       const enemy = primary.pos;
@@ -560,14 +640,14 @@ export function fireteamAI(world: World): void {
         const d = dist(u.pos, enemy);
         const inPosition =
           hasLineOfSight(world.walls, u.pos.x, u.pos.z, enemy.x, enemy.z) &&
-          d >= ENGAGE_MIN - 2 &&
-          d <= ENGAGE_MAX + 2;
+          d >= engageMin - 2 &&
+          d <= engageMax + 2;
         if (inPosition) {
           ft.unitDest.delete(u.id);
           issue(world, u, "suppress", null, dirTo(u.pos, enemy));
         } else {
           const p = cachedDest(world, ft, u, () =>
-            bestCoverPoint(world.walls, world.coverPoints, u.pos, enemy, ENGAGE_MIN, ENGAGE_MAX),
+            bestCoverPoint(world.walls, world.coverPoints, u.pos, enemy, engageMin, engageMax),
           );
           if (p) {
             issue(world, u, "suppress", p, dirTo(u.pos, enemy));
@@ -580,7 +660,7 @@ export function fireteamAI(world: World): void {
               world,
               u,
               "maneuver",
-              { x: enemy.x - toEnemy.x * ENGAGE_MAX, z: enemy.z - toEnemy.z * ENGAGE_MAX },
+              { x: enemy.x - toEnemy.x * engageMax, z: enemy.z - toEnemy.z * engageMax },
               toEnemy,
             );
           }
@@ -596,31 +676,39 @@ export function fireteamAI(world: World): void {
             u.pos,
             enemy,
             baseCentroid,
-            ENGAGE_MIN,
-            ENGAGE_MAX,
+            engageMin,
+            engageMax,
           ),
         );
         const fallback = { x: u.pos.x + (enemy.x - u.pos.x) * 0.2, z: u.pos.z + (enemy.z - u.pos.z) * 0.2 };
         issue(world, u, "maneuver", p ?? fallback, dirTo(u.pos, enemy));
       }
     } else if (ft.mode === "FALLBACK") {
+      // `[v6.1]` break contact は集結地点までの全面後退ではなく、直近の脅威から離れる向きへ
+      // 短く1回下がって遮蔽に入るだけ。前線そのものは放棄しない(全面後退は ROUT のみ)。
       const freshest = contacts.reduce<Contact | null>(
         (a, c) => (!a || c.lastSeenTick > a.lastSeenTick ? c : a),
         null,
       );
+      const away = freshest
+        ? dirTo(freshest.pos, mc)
+        : { x: -ft.advanceDir.x, z: -ft.advanceDir.z };
+      if (!ft.boundTarget) {
+        ft.boundTarget =
+          nearestCoverTowards(world.walls, world.coverPoints, mc, away, 6, BREAK_DIST + 6) ?? {
+            x: mc.x + away.x * BREAK_DIST,
+            z: mc.z + away.z * BREAK_DIST,
+          };
+      }
+      const dest = ft.boundTarget;
       living.forEach((u, i) => {
-        const p =
-          ft.unitDest.get(u.id) ??
-          (() => {
-            const off = offsetPerp(i, living.length, 2, ft.advanceDir);
-            const d = { x: ft.rallyPoint.x + off.x, z: ft.rallyPoint.z + off.z };
-            ft.unitDest.set(u.id, d);
-            ft.unitDestSince.set(u.id, world.tick);
-            return d;
-          })();
+        const off = offsetPerp(i, living.length, 1.8, ft.advanceDir);
+        // 下がりながらも脅威の方を警戒し続ける(背中を見せて棒立ちで走らない)
         const look = freshest ? dirTo(u.pos, freshest.pos) : ft.advanceDir;
-        issue(world, u, "retreat", p, look);
+        issue(world, u, "retreat", { x: dest.x + off.x, z: dest.z + off.z }, look);
       });
+      // 全員が下がり切ったら目的地を捨て、次の判断周期で改めて評価させる
+      if (living.every((u) => dist(u.pos, dest) < 3)) ft.boundTarget = null;
     } else if (ft.mode === "SEARCH") {
       // 最終接敵位置へ向けて掃討する。見失った直後は危険度が高いので、
       // 小隊長の指示に関係なく躍進前進で慎重に進む。
@@ -630,10 +718,10 @@ export function fireteamAI(world: World): void {
         ft.searchPoint = null;
         ft.memory.clear();
       }
-      runBoundingOverwatch(world, ft, alpha, bravo, dirTo(mc, aim));
+      runBoundingOverwatch(world, ft, alpha, bravo, dirTo(mc, aim), pf.boundStepMul);
     } else {
       // ADVANCE — 分隊長(ひいては小隊長)が指示した移動技術で任務目標へ向かう(仕様 §6)
-      runAdvance(world, ft, alpha, bravo, dirTo(mc, ft.objective));
+      runAdvance(world, ft, alpha, bravo, dirTo(mc, ft.objective), pf.boundStepMul);
     }
 
     // 制圧が誘発した回避行動(仕様 §14)は、モードごとの命令より優先する。

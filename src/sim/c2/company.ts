@@ -32,6 +32,7 @@ import { aiSuppressed } from "../control.ts";
 import { clamp } from "../geometry.ts";
 import { next } from "../rng.ts";
 import { commandFactor } from "./succession.ts";
+import { clampToObjective, heldObjectiveNear } from "./objectiveHold.ts";
 import type { CompanyState, Contact, Soldier, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
@@ -91,6 +92,7 @@ function joinReplacement(world: World, casualty: Soldier): void {
     quals: { ...casualty.quals },
     suppressedUntilTick: 0,
     evadeUntilTick: 0,
+    observedByEnemy: false,
     grenades: casualty.role === "grenadier" ? GRENADE.CHARGES : 0,
     routed: false,
     bleedOutTick: 0,
@@ -249,10 +251,31 @@ export function companyAI(world: World): void {
 
     living.forEach((pl, i) => {
       const lateral = (i - (living.length - 1) / 2) * frontage;
-      const objective: Vec2 = {
+      let objective: Vec2 = {
         x: aim.x + right.x * lateral,
         z: aim.z + right.z * lateral,
       };
+
+      // 確保済み拠点の保持(`[v6.1]`)。担当区域の近くに守るべき自軍拠点があれば、
+      // 脅威へ寄った持ち場を拠点の内側へ引き戻す(仕様 §12。詳細は c2/objectiveHold.ts)。
+      const plMen = world.soldiers.filter(
+        (s) => s.side === pl.side && s.platoonId === pl.platoonId && s.status === "ok",
+      );
+      if (plMen.length > 0) {
+        let sx = 0;
+        let sz = 0;
+        for (const m of plMen) {
+          sx += m.pos.x;
+          sz += m.pos.z;
+        }
+        const held = heldObjectiveNear(world, co.side, {
+          x: sx / plMen.length,
+          z: sz / plMen.length,
+        });
+        // 0.7: 守備の小隊を拠点中心に固めず、拠点内の遮蔽へ広めに散らす(`[v6.1]`)。
+        if (held) objective = clampToObjective(objective, held, 0.7);
+      }
+
       co.platoonObjectives.set(pl.platoonId, objective);
 
       // 人間が操作している小隊には再割り当てを行わない(仕様 §4 `[v6]`)

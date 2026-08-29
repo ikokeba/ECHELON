@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { createWorld } from "../src/sim/world.ts";
 import { runTicks } from "../src/sim/step.ts";
-import { demoCrossingScenario } from "../src/sim/scenario.ts";
+import { demoCrossingScenario, platoonClashScenario } from "../src/sim/scenario.ts";
 import { decayedConfidence } from "../src/sim/belief.ts";
-import type { FireteamMode } from "../src/sim/types.ts";
+import type { FireteamMode, Side } from "../src/sim/types.ts";
 
 describe("belief decay (spec §5 確定値)", () => {
   it("hits the three fixed points exactly", () => {
@@ -88,4 +88,87 @@ describe("force symmetry (spec §2, §13)", () => {
     const casualties = w.soldiers.filter((s) => s.status !== "ok").length;
     expect(casualties).toBeGreaterThan(4);
   }, 30000);
+});
+
+describe("break contact は前線を放棄しない (`[v6.1]` 初回テストプレイ指摘)", () => {
+  it("接敵後、部隊は自陣スポーン端まで逃げ帰らず前線付近に留まる", () => {
+    // platoonClash: blue が z=-32、red が z=+32 から中央(0,0)へ前進して衝突する。
+    // 不具合時は「頭数を見ただけで FALLBACK → 集結地点(=スポーン端)へ全面後退 →
+    // 前進 → 再後退」を繰り返し、前線が消えていた。
+    const w = createWorld(platoonClashScenario(3));
+    const fightingCz = (side: Side): number => {
+      const men = w.soldiers.filter(
+        (s) => s.side === side && s.status === "ok" && s.fireteamId >= 0,
+      );
+      return men.length ? men.reduce((a, s) => a + s.pos.z, 0) / men.length : 0;
+    };
+    // まだ戦力の残っている(生存者のいる)FTだけを見る。全滅したFTの mode フィールドは
+    // 更新されず古い値のまま固まるので、母数に入れない。
+    const liveFts = (side: Side) =>
+      w.fireteams.filter(
+        (f) =>
+          f.side === side &&
+          w.soldiers.some(
+            (s) =>
+              s.side === f.side &&
+              s.squadId === f.squadId &&
+              s.fireteamId === f.ftIndex &&
+              s.status === "ok",
+          ),
+      );
+    const modeFrac = (side: Side, mode: string): number => {
+      const fts = liveFts(side);
+      return fts.filter((f) => f.mode === mode).length / Math.max(1, fts.length);
+    };
+
+    const stillAlive = (f: (typeof w.fireteams)[number]) =>
+      w.soldiers.some(
+        (s) =>
+          s.side === f.side &&
+          s.squadId === f.squadId &&
+          s.fireteamId === f.ftIndex &&
+          s.status === "ok",
+      );
+
+    // 2秒ごとに 200秒までサンプル。前線位置と、各FTの ROUT 入り/立て直りを追う。
+    let worstBlue = 0;
+    let worstRed = 0;
+    let maxFallback = 0;
+    const enteredRout = new Set<number>();
+    const exitedRout = new Set<number>();
+    for (let t = 0; t < 100; t++) {
+      runTicks(w, 2 * 30);
+      for (const f of w.fireteams) {
+        if (f.mode === "ROUT") enteredRout.add(f.id);
+        else if (enteredRout.has(f.id)) exitedRout.add(f.id);
+      }
+      if (w.victory) break;
+      if (t < 10) continue; // 接敵前は前線評価しない
+      worstBlue = Math.max(worstBlue, -fightingCz("blue"));
+      worstRed = Math.max(worstRed, fightingCz("red"));
+      maxFallback = Math.max(
+        maxFallback,
+        modeFrac("blue", "FALLBACK"),
+        modeFrac("red", "FALLBACK"),
+      );
+    }
+
+    // blue は -32 方向、red は +32 方向へ逃げる。「端まで逃げていない」= |cz| が
+    // スポーン(32m)の 7 割(≒22m)を超えない
+    expect(worstBlue).toBeLessThan(22);
+    expect(worstRed).toBeLessThan(22);
+    // ほぼ全FTが同時に FALLBACK へ抜ける(=前線が消える)状態にはならない。
+    // 数個が同時に躍進的後退するのは正常なので、8割を閾値にする。
+    expect(maxFallback).toBeLessThan(0.8);
+    // `[v6.1]` 士気崩壊の回復: ROUT に入ったFTは、集結地点まで下がって接敵を切れれば
+    // 未処置WIA比率に関係なく立て直る。追い詰められて撃たれ続ける残党1個までは許容し、
+    // それ以外はすべて回復していること(旧実装は「WIA50%アンカー」で永久に固まっていた)。
+    const stuck = [...enteredRout].filter((id) => {
+      if (exitedRout.has(id)) return false;
+      const f = w.fireteams.find((x) => x.id === id)!;
+      return stillAlive(f); // 全滅したFTの mode は更新されず固まるだけなので除外
+    });
+    expect(enteredRout.size).toBeGreaterThan(0); // この seed では実際に ROUT が起きる
+    expect(stuck.length).toBeLessThanOrEqual(1);
+  }, 60000);
 });

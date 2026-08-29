@@ -3,7 +3,8 @@ import { createWorld } from "../src/sim/world.ts";
 import { runTicks } from "../src/sim/step.ts";
 import { demoCrossingScenario, platoonClashScenario } from "../src/sim/scenario.ts";
 import { OBJECTIVE, SIM_HZ } from "../src/sim/constants.ts";
-import type { Side, Soldier } from "../src/sim/types.ts";
+import { clampToObjective, heldObjectiveNear } from "../src/sim/c2/objectiveHold.ts";
+import type { Objective, Side, Soldier } from "../src/sim/types.ts";
 
 /** 兵士 n 名を拠点の中心へ置き、それ以外は遠くへ退ける。 */
 function stage(
@@ -111,6 +112,82 @@ describe("拠点確保(仕様 §12 メイン条件)", () => {
     // 赤が入って剥がしにかかる
     holdTicks(w, Math.round(20 * SIM_HZ), 0, { red: 3 });
     expect(o.progress).toBeLessThan(1);
+  }, 60000);
+});
+
+describe("確保済み拠点の保持(仕様 §12 / [v6.1])", () => {
+  it("heldObjectiveNear: 近い自軍拠点を返し、遠い/敵所有は返さない", () => {
+    const w = createWorld(platoonClashScenario(1));
+    const [alpha, bravo, charlie] = w.objectives;
+    alpha!.owner = "blue";
+    charlie!.owner = "red";
+
+    expect(heldObjectiveNear(w, "blue", { x: alpha!.pos.x + 3, z: alpha!.pos.z })?.id).toBe(
+      alpha!.id,
+    );
+    // 外周から 30m 超は守備範囲外(遠くを行軍中の部隊を足止めしない)
+    expect(heldObjectiveNear(w, "blue", { x: alpha!.pos.x + 80, z: alpha!.pos.z })).toBeNull();
+    // 敵所有は「守る」対象ではない
+    expect(heldObjectiveNear(w, "blue", { x: charlie!.pos.x + 2, z: charlie!.pos.z })).toBeNull();
+    // 中立でも自軍が確保を進めていれば守る
+    bravo!.progressBy = "blue";
+    expect(heldObjectiveNear(w, "blue", { x: bravo!.pos.x, z: bravo!.pos.z })?.id).toBe(bravo!.id);
+  });
+
+  it("clampToObjective: 拠点外の狙い点を半径内へ引き戻す", () => {
+    const o: Objective = {
+      id: 1,
+      label: "X",
+      pos: { x: 0, z: 0 },
+      radius: 10,
+      size: "large",
+      owner: null,
+      progress: 0,
+      progressBy: null,
+      contested: false,
+    };
+    const clamped = clampToObjective({ x: 100, z: 0 }, o, 0.5);
+    expect(Math.hypot(clamped.x, clamped.z)).toBeCloseTo(5, 5);
+    // 既に内側ならそのまま
+    expect(clampToObjective({ x: 2, z: 0 }, o, 0.5)).toEqual({ x: 2, z: 0 });
+  });
+
+  it("確保した分隊は別方面で接敵しても拠点付近に留まる", () => {
+    const w = createWorld(platoonClashScenario(1));
+    const alpha = w.objectives[0]!; // x = -26
+    alpha.owner = "blue";
+    alpha.progress = 1;
+    alpha.progressBy = "blue";
+
+    // 青分隊0を ALPHA 上へ。赤は青分隊2(x≈30)の正面へ固めて「別方面の脅威」を作る。
+    const putSquad = (side: Side, squadId: number, at: { x: number; z: number }): void => {
+      for (const s of w.soldiers) {
+        if (s.side === side && s.squadId === squadId) {
+          s.pos = { ...at };
+          s.path = [];
+          s.pathIdx = 0;
+        }
+      }
+    };
+    putSquad("blue", 0, { x: alpha.pos.x, z: alpha.pos.z });
+
+    for (let i = 0; i < Math.round(30 * SIM_HZ); i++) {
+      // 赤小隊を毎ティック青分隊2の正面へ貼り直す(脅威源を固定)
+      for (const s of w.soldiers) {
+        if (s.side === "red") {
+          s.pos = { x: 28, z: -20 };
+          s.path = [];
+          s.pathIdx = 0;
+        }
+      }
+      runTicks(w, 1);
+    }
+
+    const sq0 = w.soldiers.filter((s) => s.side === "blue" && s.squadId === 0 && s.status === "ok");
+    const cx = sq0.reduce((a, s) => a + s.pos.x, 0) / sq0.length;
+    const cz = sq0.reduce((a, s) => a + s.pos.z, 0) / sq0.length;
+    // 脅威(x≈28)へ行進せず、ALPHA(x=-26)の周辺に居続けている
+    expect(Math.hypot(cx - alpha.pos.x, cz - alpha.pos.z)).toBeLessThan(alpha.radius + 14);
   }, 60000);
 });
 

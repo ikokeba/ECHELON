@@ -3,15 +3,24 @@ import { GameView } from "./ui/GameView.tsx";
 import { useSimStore } from "./ui/store.ts";
 
 export function App() {
-  // グローバルなキーボードショートカット: Space でポーズ切替、"." で1ティック実行
+  // グローバルなキーボードショートカット:
+  //   Space  ポーズ切替 / "."  1ティック実行 / "H"  デバッグパネル / Esc  選択解除
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.code === "Space" && e.target === document.body) {
+      const onBody = e.target === document.body;
+      if (e.code === "Space" && onBody) {
         e.preventDefault();
         useSimStore.getState().togglePause();
       }
       if (e.code === "Period" && useSimStore.getState().paused) {
         useSimStore.getState().requestStep();
+      }
+      if ((e.code === "KeyH" || e.key === "h") && onBody) {
+        const s = useSimStore.getState();
+        s.setDebug({ panelOpen: !s.debug.panelOpen });
+      }
+      if (e.code === "Escape") {
+        useSimStore.getState().select(null);
       }
     };
     window.addEventListener("keydown", onKey);

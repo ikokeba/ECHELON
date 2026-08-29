@@ -8,9 +8,34 @@
 
 import * as THREE from "three";
 import type { World } from "@sim/world.ts";
-import type { Side } from "@sim/types.ts";
+import type { Side, Soldier, Vec2 } from "@sim/types.ts";
 import type { ViewResult } from "@sim/viewpoint.ts";
 import { LITTER, SOLDIER_RADIUS } from "@sim/constants.ts";
+import { collidesWall, hasLineOfSight } from "@sim/geometry.ts";
+import { coverBonus } from "@sim/cover.ts";
+
+/**
+ * レンダラへ毎フレーム渡す「いま何を強調して描くか」。ui/store の debug スライスと
+ * 構造的に一致していればよい(レンダラは ui/ に依存しない)。
+ */
+export interface RenderOpts {
+  debug: {
+    fov: "off" | "selected" | "side" | "all";
+    showPaths: boolean;
+    showConcealment: boolean;
+    showShotLines: boolean;
+    showOrders: boolean;
+    showContactRings: boolean;
+  };
+  /** クリック選択した兵士(デバッグ表示の基準) */
+  selectedId: number | null;
+  /** 人間が操作中のノードの身体(仕様 §4) */
+  controlledId: number | null;
+  /** いま見ている陣営 */
+  viewSide: Side;
+  /** 神視点か(敵も向き付きトークンで描く) */
+  truth: boolean;
+}
 
 const SIDE_COLOR: Record<Side, number> = {
   blue: 0x4aa3ff,
@@ -32,6 +57,38 @@ const NEUTRAL_OBJ_COLOR = 0x6de0a0;
 const CONTESTED_OBJ_COLOR = 0xf5c451;
 /** 確度が尽きた最終目撃情報(ゴースト)の色。仕様 §5 `[v6]` */
 const GHOST_COLOR = 0x6b7280;
+/** 人間が操作中のノードを囲むリング(指摘: いまどのユニットを操作しているか分からない) */
+const CONTROL_RING_COLOR = 0xf5d84a;
+/** クリック選択した兵士を囲むリング(デバッグ表示の基準) */
+const SELECT_RING_COLOR = 0x7ff0ff;
+/** 発砲線: 命中 / 外れ */
+const TRACER_HIT_COLOR = 0xffe08a;
+const TRACER_MISS_COLOR = 0x8a939c;
+/** 発砲線の寿命(秒)。短く光ってすぐ消える */
+const TRACER_LIFE = 0.11;
+/** 擲弾の着弾円の寿命(秒) */
+const BLAST_LIFE = 0.55;
+const MAX_TRACERS = 400;
+const MAX_BLASTS = 24;
+/** 隠蔽率グリッドの1セルの1辺 m と最大セル数 */
+const GRID_CELL = 2.5;
+const MAX_GRID_CELLS = 6000;
+
+interface Tracer {
+  fx: number;
+  fz: number;
+  tx: number;
+  tz: number;
+  hit: boolean;
+  life: number;
+}
+interface Blast {
+  x: number;
+  z: number;
+  radius: number;
+  side: Side;
+  life: number;
+}
 /** 止血済みWIA。出血は止まったが行動不能で後送待ち(仕様 §9) */
 const STABILIZED_COLOR = 0x4fb477;
 /** 担架搬送中(負傷者本人と担架要員の両方)。仕様 §9 */
@@ -56,9 +113,10 @@ export interface Renderer {
   /**
    * 1フレーム描画する。
    * `view` は「いまどの立場から戦場を見ているか」の解決結果(仕様 §5)。
-   * レンダラは world.soldiers を敵の描画には使わない — 敵は必ず view 経由。
+   * レンダラは world.soldiers を敵の描画には使わない — 敵は必ず view 経由
+   * (神視点 `opts.truth` のときだけ `view.enemiesTruth` を実体として描く)。
    */
-  render(world: World, view: ViewResult, alpha: number): void;
+  render(world: World, view: ViewResult, alpha: number, opts: RenderOpts): void;
   resize(): void;
   /** 画面ピクセル下のワールド座標(将来の選択・命令発行用) */
   screenToWorld(clientX: number, clientY: number): { x: number; z: number };
@@ -217,12 +275,18 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   discMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_SOLDIERS * 3), 3);
   scene.add(discMesh);
 
-  const wedgeGeo = new THREE.CircleGeometry(SOLDIER_RADIUS * 2.4, 3);
+  // 向きを示すくさび形。指摘に合わせて小さくし(2.4→1.5)、色は陣営色にする
+  // (以前は全兵士が近白の固定色で、プレイヤーの向き三角に見えていた)。
+  const wedgeGeo = new THREE.CircleGeometry(SOLDIER_RADIUS * 1.5, 3);
   wedgeGeo.rotateX(-Math.PI / 2);
   const wedgeMesh = new THREE.InstancedMesh(
     wedgeGeo,
-    new THREE.MeshBasicMaterial({ color: 0xdfe7f5 }),
+    new THREE.MeshBasicMaterial(),
     MAX_SOLDIERS,
+  );
+  wedgeMesh.instanceColor = new THREE.InstancedBufferAttribute(
+    new Float32Array(MAX_SOLDIERS * 3),
+    3,
   );
   scene.add(wedgeMesh);
 
@@ -256,6 +320,169 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   );
   scene.add(errorRingMesh);
 
+  // ── 操作中 / 選択ハイライト(指摘: いまどの階層・代表ユニットを操作しているか) ──
+  const makeHiRing = (color: number, seg: number, inner: number, outer: number) => {
+    const g = new THREE.RingGeometry(SOLDIER_RADIUS * inner, SOLDIER_RADIUS * outer, seg);
+    g.rotateX(-Math.PI / 2);
+    const m = new THREE.Mesh(
+      g,
+      new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.95,
+        side: THREE.DoubleSide,
+        depthTest: false,
+      }),
+    );
+    m.renderOrder = 20;
+    m.visible = false;
+    scene.add(m);
+    return m;
+  };
+  const controlRing = makeHiRing(CONTROL_RING_COLOR, 40, 2.4, 3.0);
+  const selectRing = makeHiRing(SELECT_RING_COLOR, 4, 2.7, 3.3);
+
+  // ── 移動命令の可視化(指摘: 移動命令が出せているか分からない) ──
+  const orderMarkerGeo = new THREE.RingGeometry(0.7, 1.05, 4);
+  orderMarkerGeo.rotateX(-Math.PI / 2);
+  const orderMarker = new THREE.Mesh(
+    orderMarkerGeo,
+    new THREE.MeshBasicMaterial({
+      color: CONTROL_RING_COLOR,
+      transparent: true,
+      opacity: 0.9,
+      side: THREE.DoubleSide,
+      depthTest: false,
+    }),
+  );
+  orderMarker.renderOrder = 19;
+  orderMarker.visible = false;
+  scene.add(orderMarker);
+
+  const makePolyline = (color: number, opacity: number) => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(64 * 3), 3));
+    const l = new THREE.Line(
+      g,
+      new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthTest: false }),
+    );
+    l.renderOrder = 18;
+    l.visible = false;
+    l.frustumCulled = false;
+    scene.add(l);
+    return l;
+  };
+  const orderLine = makePolyline(CONTROL_RING_COLOR, 0.7); // 操作中ユニット → 目的地
+  const controlPathLine = makePolyline(CONTROL_RING_COLOR, 0.5); // 操作中ユニットの計画経路
+  const selectPathLine = makePolyline(SELECT_RING_COLOR, 0.7); // 選択ユニットの計画経路
+
+  // ── 発砲線(指摘: 撃った時の線) ── 1本のLineSegmentsを毎フレーム詰め替える
+  const tracerGeo = new THREE.BufferGeometry();
+  tracerGeo.setAttribute(
+    "position",
+    new THREE.BufferAttribute(new Float32Array(MAX_TRACERS * 2 * 3), 3),
+  );
+  tracerGeo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(MAX_TRACERS * 2 * 3), 3));
+  const tracerMesh = new THREE.LineSegments(
+    tracerGeo,
+    new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, depthTest: false }),
+  );
+  tracerMesh.renderOrder = 22;
+  tracerMesh.frustumCulled = false;
+  scene.add(tracerMesh);
+
+  // ── 擲弾の着弾円(指摘: 榴弾は範囲攻撃なのでもっと見えるように) ──
+  const blastPool = Array.from({ length: MAX_BLASTS }, () => {
+    const fillGeo = new THREE.CircleGeometry(1, 28);
+    fillGeo.rotateX(-Math.PI / 2);
+    const fill = new THREE.Mesh(
+      fillGeo,
+      new THREE.MeshBasicMaterial({
+        transparent: true,
+        opacity: 0,
+        side: THREE.DoubleSide,
+        depthTest: false,
+      }),
+    );
+    const ringGeo = new THREE.RingGeometry(0.92, 1, 40);
+    ringGeo.rotateX(-Math.PI / 2);
+    const ring = new THREE.Mesh(
+      ringGeo,
+      new THREE.MeshBasicMaterial({
+        transparent: true,
+        opacity: 0,
+        side: THREE.DoubleSide,
+        depthTest: false,
+      }),
+    );
+    fill.renderOrder = 21;
+    ring.renderOrder = 21;
+    fill.visible = false;
+    ring.visible = false;
+    scene.add(fill);
+    scene.add(ring);
+    return { fill, ring };
+  });
+
+  // ── デバッグ: 視界扇形(FOV) ── ジオメトリは tuning 変化時に作り直す
+  const buildConeGeo = (halfRad: number, range: number): THREE.BufferGeometry => {
+    const shape = new THREE.Shape();
+    const segs = 24;
+    shape.moveTo(0, 0);
+    for (let i = 0; i <= segs; i++) {
+      const a = -halfRad + (2 * halfRad * i) / segs;
+      shape.lineTo(Math.sin(a) * range, Math.cos(a) * range);
+    }
+    shape.lineTo(0, 0);
+    const g = new THREE.ShapeGeometry(shape);
+    // Shape の +Y をローカル +Z(前方)へ。instance の rotationY(heading) で
+    // ローカル +Z が world (sin heading, cos heading) = 兵士の向きに一致する。
+    g.rotateX(Math.PI / 2);
+    return g;
+  };
+  let coneHalf = world.tuning.fovHalfRad;
+  let coneRange = world.tuning.detectRange;
+  let coneGeo = buildConeGeo(coneHalf, coneRange);
+  const fovMesh = new THREE.InstancedMesh(
+    coneGeo,
+    new THREE.MeshBasicMaterial({
+      transparent: true,
+      opacity: 0.1,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    }),
+    MAX_SOLDIERS,
+  );
+  fovMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_SOLDIERS * 3), 3);
+  fovMesh.count = 0;
+  fovMesh.frustumCulled = false;
+  scene.add(fovMesh);
+
+  // ── デバッグ: 隠蔽率カラーグリッド(選択ユニット視点の視認可否 × 地形カバー) ──
+  const cellGeo = new THREE.PlaneGeometry(GRID_CELL * 0.92, GRID_CELL * 0.92);
+  cellGeo.rotateX(-Math.PI / 2);
+  const gridMesh = new THREE.InstancedMesh(
+    cellGeo,
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.28, depthWrite: false }),
+    MAX_GRID_CELLS,
+  );
+  gridMesh.instanceColor = new THREE.InstancedBufferAttribute(
+    new Float32Array(MAX_GRID_CELLS * 3),
+    3,
+  );
+  gridMesh.count = 0;
+  gridMesh.frustumCulled = false;
+  scene.add(gridMesh);
+  /** グリッド再計算のキャッシュキー(選択・tick・tuning が変わったときだけ組み直す) */
+  let gridKey = "";
+
+  const tracerPos = tracerGeo.getAttribute("position") as THREE.BufferAttribute;
+  const tracerColArr = tracerGeo.getAttribute("color") as THREE.BufferAttribute;
+  let tracers: Tracer[] = [];
+  let blasts: Blast[] = [];
+  let lastFxTick = world.tick;
+  let lastFrameMs = performance.now();
+
   const dummy = new THREE.Object3D();
   const col = new THREE.Color();
   const col2 = new THREE.Color();
@@ -284,7 +511,37 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     updateCamera();
   }
 
-  function render(world: World, view: ViewResult, alpha: number): void {
+  /** world.control が指す上位ノードの現在の任務目標(移動命令マーカー用)。 */
+  function controlObjective(): Vec2 | null {
+    const c = world.control;
+    if (!c) return null;
+    if (c.echelon === "squad")
+      return world.squads.find((s) => s.side === c.side && s.squadId === c.unitId)?.objective ?? null;
+    if (c.echelon === "platoon")
+      return (
+        world.platoons.find((p) => p.side === c.side && p.platoonId === c.unitId)?.objective ?? null
+      );
+    if (c.echelon === "company")
+      return (
+        world.companies.find((x) => x.side === c.side && x.companyId === c.unitId)?.objective ?? null
+      );
+    return null;
+  }
+
+  function setPolyline(line: THREE.Line, pts: ReadonlyArray<Vec2>, y: number): void {
+    const attr = line.geometry.getAttribute("position") as THREE.BufferAttribute;
+    const n = Math.min(pts.length, attr.count);
+    for (let idx = 0; idx < n; idx++) attr.setXYZ(idx, pts[idx]!.x, y, pts[idx]!.z);
+    line.geometry.setDrawRange(0, n);
+    attr.needsUpdate = true;
+    line.visible = n >= 2;
+  }
+
+  function render(world: World, view: ViewResult, alpha: number, opts: RenderOpts): void {
+    const nowMs = performance.now();
+    const dt = Math.min(0.05, Math.max(0, (nowMs - lastFrameMs) / 1000));
+    lastFrameMs = nowMs;
+
     // 扉の開閉を反映する。開いた扉は薄くして「通り抜けられる」ことを示す
     world.doors.forEach((d, i) => {
       const m = doorMeshes[i];
@@ -317,9 +574,24 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     }
     const a = prev === cur ? 1 : alpha;
 
-    // ── 味方 ── 自軍の編成は完全に把握しているので、実体をそのまま描く
+    /** 兵士1名の補間済み位置と向き。 */
+    const interp = (id: number): { x: number; z: number; heading: number } | null => {
+      const p = prev.pos.get(id);
+      const c = cur.pos.get(id) ?? p;
+      if (!p || !c) return null;
+      return {
+        x: p.x + (c.x - p.x) * a,
+        z: p.z + (c.z - p.z) * a,
+        heading: Math.atan2(p.fx + (c.fx - p.fx) * a, p.fz + (c.fz - p.fz) * a),
+      };
+    };
+
+    // ── 味方トークン + 神視点では敵も実体トークンで描く(指摘: 神視点で全ユニットを方向含めて) ──
+    const tokens: Soldier[] = opts.truth
+      ? view.friendly.concat(view.enemiesTruth)
+      : view.friendly;
     let i = 0;
-    for (const s of view.friendly) {
+    for (const s of tokens) {
       const p = prev.pos.get(s.id) ?? cur.pos.get(s.id)!;
       const c = cur.pos.get(s.id) ?? p;
       const x = p.x + (c.x - p.x) * a;
@@ -353,18 +625,19 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       }
       discMesh.setColorAt(i, col.setHex(color));
 
-      // 向きのくさび形は、まだ戦闘可能な兵士にのみ表示する
+      // 向きのくさび形は、まだ戦闘可能な兵士にのみ表示する。色は陣営色(指摘)。
       const wedgeScale = s.status === "ok" ? 1 : 0.001;
       dummy.position.set(
-        x + Math.sin(heading) * SOLDIER_RADIUS * 1.1,
+        x + Math.sin(heading) * SOLDIER_RADIUS * 0.9,
         0.06,
-        z + Math.cos(heading) * SOLDIER_RADIUS * 1.1,
+        z + Math.cos(heading) * SOLDIER_RADIUS * 0.9,
       );
       dummy.rotation.set(0, heading, 0);
       dummy.scale.setScalar(wedgeScale);
       dummy.updateMatrix();
       dummy.scale.setScalar(1);
       wedgeMesh.setMatrixAt(i, dummy.matrix);
+      wedgeMesh.setColorAt(i, col.setHex(SIDE_COLOR[s.side]));
 
       i++;
     }
@@ -373,6 +646,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     discMesh.instanceMatrix.needsUpdate = true;
     wedgeMesh.instanceMatrix.needsUpdate = true;
     if (discMesh.instanceColor) discMesh.instanceColor.needsUpdate = true;
+    if (wedgeMesh.instanceColor) wedgeMesh.instanceColor.needsUpdate = true;
 
     // ── 敵 ── 実体ではなく world picture の接触情報を描く(仕様 §5)。
     // 位置は最終目撃位置であって現在位置ではない。確度が下がるほど薄く、
@@ -411,11 +685,196 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       k++;
     }
     contactMesh.count = k;
-    errorRingMesh.count = k;
+    errorRingMesh.count = opts.debug.showContactRings ? k : 0;
     contactMesh.instanceMatrix.needsUpdate = true;
     errorRingMesh.instanceMatrix.needsUpdate = true;
     if (contactMesh.instanceColor) contactMesh.instanceColor.needsUpdate = true;
     if (errorRingMesh.instanceColor) errorRingMesh.instanceColor.needsUpdate = true;
+
+    // ── 操作中 / 選択ユニットのハイライト(指摘: いまどの階層・代表ユニットか) ──
+    const ctl = opts.controlledId != null ? interp(opts.controlledId) : null;
+    if (ctl) {
+      controlRing.position.set(ctl.x, 0.07, ctl.z);
+      controlRing.rotation.z += 0.05; // ゆっくり回して目を引く
+      controlRing.visible = true;
+    } else {
+      controlRing.visible = false;
+    }
+    const sel = opts.selectedId != null ? world.soldierById.get(opts.selectedId) : undefined;
+    const selIp = opts.selectedId != null ? interp(opts.selectedId) : null;
+    if (selIp) {
+      selectRing.position.set(selIp.x, 0.07, selIp.z);
+      selectRing.visible = true;
+    } else {
+      selectRing.visible = false;
+    }
+
+    // ── 移動命令の可視化(指摘: 移動命令が出せているか分からない) ──
+    const obj = opts.debug.showOrders ? controlObjective() : null;
+    if (obj && ctl) {
+      orderMarker.position.set(obj.x, 0.04, obj.z);
+      orderMarker.rotation.z += 0.03;
+      orderMarker.visible = true;
+      setPolyline(orderLine, [{ x: ctl.x, z: ctl.z }, obj], 0.08);
+    } else {
+      orderMarker.visible = false;
+      orderLine.visible = false;
+    }
+    // 操作中ユニットの計画経路
+    const ctlSoldier = opts.controlledId != null ? world.soldierById.get(opts.controlledId) : undefined;
+    if (opts.debug.showOrders && ctlSoldier && ctlSoldier.path.length >= 2 && ctl) {
+      setPolyline(
+        controlPathLine,
+        [{ x: ctl.x, z: ctl.z }, ...ctlSoldier.path.slice(ctlSoldier.pathIdx)],
+        0.07,
+      );
+    } else {
+      controlPathLine.visible = false;
+    }
+    // 選択ユニットの計画経路(デバッグ)
+    if (opts.debug.showPaths && sel && sel.path.length >= 2 && selIp) {
+      setPolyline(selectPathLine, [{ x: selIp.x, z: selIp.z }, ...sel.path.slice(sel.pathIdx)], 0.07);
+    } else {
+      selectPathLine.visible = false;
+    }
+
+    // ── 発砲線 / 擲弾の着弾円(指摘: 撃った線 / 榴弾を可視化) ──
+    if (world.tick !== lastFxTick) {
+      for (const f of world.fx) {
+        if (f.kind === "shot") {
+          if (tracers.length < MAX_TRACERS)
+            tracers.push({ fx: f.from.x, fz: f.from.z, tx: f.to.x, tz: f.to.z, hit: f.hit, life: TRACER_LIFE });
+        } else if (blasts.length < MAX_BLASTS) {
+          blasts.push({ x: f.at.x, z: f.at.z, radius: f.radius, side: f.side, life: BLAST_LIFE });
+        }
+      }
+      lastFxTick = world.tick;
+    }
+    for (const t of tracers) t.life -= dt;
+    for (const b of blasts) b.life -= dt;
+    tracers = tracers.filter((t) => t.life > 0);
+    blasts = blasts.filter((b) => b.life > 0);
+
+    const nT = Math.min(tracers.length, MAX_TRACERS);
+    for (let j = 0; j < nT; j++) {
+      const t = tracers[j]!;
+      const fade = Math.max(0, t.life / TRACER_LIFE);
+      tracerPos.setXYZ(2 * j, t.fx, 0.5, t.fz);
+      tracerPos.setXYZ(2 * j + 1, t.tx, 0.5, t.tz);
+      col.setHex(t.hit ? TRACER_HIT_COLOR : TRACER_MISS_COLOR).multiplyScalar(0.35 + 0.65 * fade);
+      tracerColArr.setXYZ(2 * j, col.r, col.g, col.b);
+      tracerColArr.setXYZ(2 * j + 1, col.r, col.g, col.b);
+    }
+    tracerGeo.setDrawRange(0, nT * 2);
+    tracerPos.needsUpdate = true;
+    tracerColArr.needsUpdate = true;
+    tracerMesh.visible = opts.debug.showShotLines && nT > 0;
+
+    for (let j = 0; j < MAX_BLASTS; j++) {
+      const slot = blastPool[j]!;
+      const b = j < blasts.length ? blasts[j]! : null;
+      if (!b) {
+        slot.fill.visible = false;
+        slot.ring.visible = false;
+        continue;
+      }
+      const frac = 1 - Math.max(0, b.life / BLAST_LIFE); // 0(着弾)→1(消滅)
+      const fillR = b.radius * (0.35 + 0.65 * frac);
+      const ringR = b.radius * (0.45 + 0.95 * frac);
+      slot.fill.position.set(b.x, 0.05, b.z);
+      slot.ring.position.set(b.x, 0.06, b.z);
+      slot.fill.scale.set(fillR, 1, fillR);
+      slot.ring.scale.set(ringR, 1, ringR);
+      (slot.fill.material as THREE.MeshBasicMaterial).color.setHex(0xffb648);
+      (slot.ring.material as THREE.MeshBasicMaterial).color.setHex(0xffd27a);
+      (slot.fill.material as THREE.MeshBasicMaterial).opacity = 0.42 * (1 - frac);
+      (slot.ring.material as THREE.MeshBasicMaterial).opacity = 0.85 * (1 - frac);
+      slot.fill.visible = true;
+      slot.ring.visible = true;
+    }
+
+    // ── デバッグ: 視界扇形(FOV) ──
+    if (world.tuning.fovHalfRad !== coneHalf || world.tuning.detectRange !== coneRange) {
+      coneHalf = world.tuning.fovHalfRad;
+      coneRange = world.tuning.detectRange;
+      const ng = buildConeGeo(coneHalf, coneRange);
+      coneGeo.dispose();
+      coneGeo = ng;
+      fovMesh.geometry = ng;
+    }
+    let fc = 0;
+    if (opts.debug.fov !== "off") {
+      const fovSet: Soldier[] =
+        opts.debug.fov === "selected"
+          ? sel && sel.status === "ok"
+            ? [sel]
+            : []
+          : opts.debug.fov === "side"
+            ? view.friendly
+            : view.friendly.concat(view.enemiesTruth);
+      for (const s of fovSet) {
+        if (fc >= MAX_SOLDIERS) break;
+        if (s.status !== "ok") continue;
+        const ip = interp(s.id);
+        if (!ip) continue;
+        dummy.position.set(ip.x, 0.02, ip.z);
+        dummy.rotation.set(0, ip.heading, 0);
+        dummy.scale.setScalar(1);
+        dummy.updateMatrix();
+        fovMesh.setMatrixAt(fc, dummy.matrix);
+        fovMesh.setColorAt(fc, col.setHex(SIDE_COLOR[s.side]));
+        fc++;
+      }
+    }
+    fovMesh.count = fc;
+    fovMesh.instanceMatrix.needsUpdate = true;
+    if (fovMesh.instanceColor) fovMesh.instanceColor.needsUpdate = true;
+
+    // ── デバッグ: 隠蔽率カラーグリッド(選択ユニット視点の視認可否 × 地形カバー) ──
+    if (opts.debug.showConcealment && sel && selIp) {
+      // 選択・向き・tuning・数ティックごとにだけ組み直す(LOSレイキャストが重いため)
+      const key = `${sel.id}|${world.tick >> 2}|${coneHalf.toFixed(3)}|${coneRange}`;
+      if (key !== gridKey) {
+        gridKey = key;
+        const cos = Math.cos(coneHalf);
+        const eyeX = sel.eye.x;
+        const eyeZ = sel.eye.z;
+        const fdx = Math.sin(selIp.heading);
+        const fdz = Math.cos(selIp.heading);
+        let g = 0;
+        for (let gx = world.bounds.minX + GRID_CELL / 2; gx < world.bounds.maxX; gx += GRID_CELL) {
+          for (let gz = world.bounds.minZ + GRID_CELL / 2; gz < world.bounds.maxZ; gz += GRID_CELL) {
+            if (g >= MAX_GRID_CELLS) break;
+            if (collidesWall(world.walls, gx, gz, 0.1)) continue;
+            const dx = gx - eyeX;
+            const dz = gz - eyeZ;
+            const d = Math.hypot(dx, dz) || 1e-6;
+            const visible =
+              d <= coneRange &&
+              (fdx * dx + fdz * dz) / d >= cos &&
+              hasLineOfSight(world.walls, eyeX, eyeZ, gx, gz);
+            const cover = coverBonus(world.walls, gx, gz) / 2.4; // 0..1
+            // 露出(赤)↔ 隠蔽(緑)。壁際は LOS が通っていても緑側へ寄せる。
+            if (visible) col.setRGB(0.95, 0.3, 0.22);
+            else col.setRGB(0.2, 0.78, 0.4);
+            col.lerp(col2.setRGB(0.15, 0.6, 0.35), cover * 0.55);
+            dummy.position.set(gx, 0.012, gz);
+            dummy.rotation.set(0, 0, 0);
+            dummy.scale.setScalar(1);
+            dummy.updateMatrix();
+            gridMesh.setMatrixAt(g, dummy.matrix);
+            gridMesh.setColorAt(g, col);
+            g++;
+          }
+        }
+        gridMesh.count = g;
+        gridMesh.instanceMatrix.needsUpdate = true;
+        if (gridMesh.instanceColor) gridMesh.instanceColor.needsUpdate = true;
+      }
+    } else if (gridMesh.count !== 0) {
+      gridMesh.count = 0;
+      gridKey = "";
+    }
 
     renderer.render(scene, camera);
   }
@@ -480,6 +939,22 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       wedgeGeo.dispose();
       discMesh.dispose();
       wedgeMesh.dispose();
+      controlRing.geometry.dispose();
+      selectRing.geometry.dispose();
+      orderMarkerGeo.dispose();
+      orderLine.geometry.dispose();
+      controlPathLine.geometry.dispose();
+      selectPathLine.geometry.dispose();
+      tracerGeo.dispose();
+      (tracerMesh.material as THREE.Material).dispose();
+      for (const b of blastPool) {
+        b.fill.geometry.dispose();
+        b.ring.geometry.dispose();
+      }
+      coneGeo.dispose();
+      fovMesh.dispose();
+      cellGeo.dispose();
+      gridMesh.dispose();
       renderer.dispose();
     },
   };

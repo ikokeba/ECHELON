@@ -22,6 +22,9 @@ import { radioSystem } from "./radio.ts";
 import type { World } from "./world.ts";
 
 export function stepWorld(world: World): void {
+  // 0. 前ティックの描画用エフェクトを捨てる(`[v6.1]`)。ここに溜まるのはこのティックに
+  //    起きた発砲・擲弾着弾だけで、シムの判断には一切使わない。
+  world.fx.length = 0;
   // 1. 索敵 — 各兵士がいま自分の目で何を見ているか(仕様 §5)
   perceptionSystem(world);
   // 2. 無線 — 報告の到達、各階層 belief の更新と確度減衰、定時報告の送信(仕様 §5)。
