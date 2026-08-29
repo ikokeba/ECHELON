@@ -63,15 +63,20 @@ export function controlledSoldierId(world: World): number | null {
 
   if (c.echelon === "soldier" || c.echelon === "fireteam") return c.unitId;
 
+  // 分隊長以上の身体は「いま指揮を執っている者」= commanderId で決まる(仕様 §12)。
+  // 肩書きで探すと、指揮官が倒れて次席者が継承したあとに身体を見失う。
   if (c.echelon === "squad") {
-    const sl = world.soldiers.find(
-      (s) => s.side === c.side && s.squadId === c.unitId && s.isSquadLeader,
-    );
-    return sl?.id ?? null;
+    const sq = world.squads.find((s) => s.side === c.side && s.squadId === c.unitId);
+    return sq?.commanderId ?? null;
   }
-
-  // 小隊長・中隊長の身体は未実装(仕様 §2 の小隊本部・中隊本部が未編成のため)。
-  // 現状は俯瞰視点のみで、追従する身体を持たない。
+  if (c.echelon === "platoon") {
+    const pl = world.platoons.find((p) => p.side === c.side && p.platoonId === c.unitId);
+    return pl?.commanderId ?? null;
+  }
+  if (c.echelon === "company") {
+    const co = world.companies.find((x) => x.side === c.side && x.companyId === c.unitId);
+    return co?.commanderId ?? null;
+  }
   return null;
 }
 

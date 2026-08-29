@@ -10,12 +10,20 @@ import type { Scenario, Side } from "../src/sim/types.ts";
 
 const flip = (s: Side): Side => (s === "blue" ? "red" : "blue");
 
-/** 配置は一切変えずに陣営ラベルだけを入れ替える。 */
+/**
+ * 配置は一切変えずに陣営ラベルだけを入れ替える。
+ *
+ * **陣営に紐づくものは漏れなく入れ替える必要がある**。1つでも取り残すと、
+ * 「青軍が赤軍の指揮所と負傷者集合点を使う」ような歪んだ盤面になり、
+ * コードの対称性ではなくシナリオの不整合を測ってしまう。
+ */
 function swapSides(sc: Scenario): Scenario {
   for (const s of sc.soldiers) s.side = flip(s.side);
   for (const p of sc.fireteamPlans ?? []) p.side = flip(p.side);
   for (const p of sc.squadPlans ?? []) p.side = flip(p.side);
   for (const p of sc.platoonPlans ?? []) p.side = flip(p.side);
+  for (const p of sc.companyPlans ?? []) p.side = flip(p.side);
+  if (sc.ccp) sc.ccp = { blue: sc.ccp.red, red: sc.ccp.blue };
   return sc;
 }
 

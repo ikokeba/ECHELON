@@ -8,38 +8,70 @@ import { createRenderer, type Renderer } from "@render/renderer.ts";
 import { createSimClock, drainTicks, renderAlpha, requestSteps, setSpeed } from "@sim/loop.ts";
 import { stepWorld } from "@sim/step.ts";
 import { createWorld, type World } from "@sim/world.ts";
-import { platoonClashScenario } from "@sim/scenario.ts";
+import { SCENARIOS, type ScenarioKey } from "@sim/scenario.ts";
 import { resolveView, type ViewResult } from "@sim/viewpoint.ts";
 import { swapTo } from "@sim/control.ts";
 import { orderControlledTo } from "@sim/playerOrders.ts";
+import { isOffField } from "@sim/systems/litter.ts";
 import { SIM_DT } from "@sim/constants.ts";
+import { isDegraded } from "@sim/c2/succession.ts";
 import {
   currentSpeed,
   useSimStore,
   type HudSnapshot,
+  type RosterCompany,
   type RosterPlatoon,
 } from "./store.ts";
 
 /** 階層ツリー用の編成一覧を組み立てる。損耗を反映するため定期的に更新する。 */
-function rosterOf(world: World): RosterPlatoon[] {
-  const out: RosterPlatoon[] = [];
-  for (const pl of world.platoons) {
-    const squads = world.squads
-      .filter((s) => s.side === pl.side && s.platoonId === pl.platoonId)
-      .map((sq) => {
-        const men = world.soldiers.filter((s) => s.side === sq.side && s.squadId === sq.squadId);
+function rosterOf(world: World): RosterCompany[] {
+  const out: RosterCompany[] = [];
+  for (const co of world.companies) {
+    const platoons: RosterPlatoon[] = world.platoons
+      .filter((p) => p.side === co.side && p.companyId === co.companyId)
+      .map((pl) => {
+        const squads = world.squads
+          .filter((s) => s.side === pl.side && s.platoonId === pl.platoonId)
+          .map((sq) => {
+            const men = world.soldiers.filter(
+              (s) => s.side === sq.side && s.squadId === sq.squadId,
+            );
+            return {
+              squadId: sq.squadId,
+              effective: men.filter((s) => s.status === "ok").length,
+              total: men.length,
+              degraded: isDegraded(sq),
+            };
+          });
+        // 小隊本部も戦力として数える(仕様 §2)
+        const hq = world.soldiers.filter(
+          (s) => s.side === pl.side && s.platoonId === pl.platoonId && s.hqRole !== null,
+        );
         return {
-          squadId: sq.squadId,
-          effective: men.filter((s) => s.status === "ok").length,
-          total: men.length,
+          side: pl.side,
+          platoonId: pl.platoonId,
+          effective:
+            squads.reduce((a, s) => a + s.effective, 0) +
+            hq.filter((s) => s.status === "ok").length,
+          total: squads.reduce((a, s) => a + s.total, 0) + hq.length,
+          degraded: isDegraded(pl),
+          squads,
         };
       });
+    const coHq = world.soldiers.filter(
+      (s) => s.side === co.side && s.companyId === co.companyId && s.platoonId < 0,
+    );
     out.push({
-      side: pl.side,
-      platoonId: pl.platoonId,
-      effective: squads.reduce((a, s) => a + s.effective, 0),
-      total: squads.reduce((a, s) => a + s.total, 0),
-      squads,
+      side: co.side,
+      companyId: co.companyId,
+      effective:
+        platoons.reduce((a, p) => a + p.effective, 0) +
+        coHq.filter((s) => s.status === "ok").length,
+      total: platoons.reduce((a, p) => a + p.total, 0) + coHq.length,
+      degraded: isDegraded(co),
+      assetsBusy: co.assets.filter((a) => a.arriveTick !== null).length,
+      assetsTotal: co.assets.length,
+      platoons,
     });
   }
   return out;
@@ -57,7 +89,7 @@ function hudOf(world: World, view: ViewResult): HudSnapshot {
   for (const s of world.soldiers) {
     const alive = s.status !== "kia";
     const effective = s.status === "ok";
-    const evacuated = s.evac === "evacuated";
+    const evacuated = isOffField(s);
     // 後送を待っている = 倒れていて、まだCCPへ届いていない(仕様 §9)
     const awaiting = s.status === "wia" && !evacuated;
     if (s.side === "blue") {
@@ -88,8 +120,8 @@ function hudOf(world: World, view: ViewResult): HudSnapshot {
   };
 }
 
-export function startRuntime(canvas: HTMLCanvasElement): () => void {
-  const world = createWorld(platoonClashScenario());
+export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey): () => void {
+  const world = createWorld(SCENARIOS[scenarioKey].make());
   const renderer: Renderer = createRenderer(canvas, world);
   const clock = createSimClock(currentSpeed(useSimStore.getState()));
 
@@ -140,6 +172,7 @@ export function startRuntime(canvas: HTMLCanvasElement): () => void {
       side: ui.viewSide,
       echelon: ui.viewEchelon,
       squadId: ui.viewSquadId,
+      platoonId: ui.viewPlatoonId,
     });
     renderer.render(world, view, renderAlpha(clock));
 
@@ -162,6 +195,7 @@ export function startRuntime(canvas: HTMLCanvasElement): () => void {
           side: initialUi.viewSide,
           echelon: initialUi.viewEchelon,
           squadId: initialUi.viewSquadId,
+          platoonId: initialUi.viewPlatoonId,
         }),
       ),
     );

@@ -15,11 +15,15 @@
 
 import { SIM_HZ } from "../constants.ts";
 import { aiSuppressed } from "../control.ts";
+import { commandFactor } from "./succession.ts";
 import type { Contact, MovementTechnique, PlatoonState, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
 /** 小隊長の意思決定周期。分隊長(0.3秒)より遅く、階層が上がるほど判断は粗く遅くなる。 */
 const DECIDE_EVERY_TICKS = Math.round(2.0 * SIM_HZ);
+
+/** 小隊本部が分隊列の重心から後退している距離 m。前線には出ない(仕様 §3②)。 */
+const PLATOON_HQ_TRAIL = 14;
 
 /**
  * 移動技術の選択しきい値(仕様 §6)。
@@ -62,14 +66,54 @@ function selectTechnique(pl: PlatoonState, from: Vec2): MovementTechnique {
   return "traveling";
 }
 
+/**
+ * 小隊本部の位置取り(仕様 §2/§3②)。
+ *
+ * 小隊長は担当区域全体を見渡せる位置に構えるが、前線には出ない。分隊列の重心から
+ * 脅威と反対方向へ下がった位置を持ち場とし、無線手はその隣に付く。
+ * 身体を持つことで §12 の指揮官排除が成立する。
+ */
+function postPlatoonHq(world: World, pl: PlatoonState, anchor: Vec2, forward: Vec2): void {
+  const hq = world.soldiers.filter(
+    (s) =>
+      s.side === pl.side &&
+      s.platoonId === pl.platoonId &&
+      (s.hqRole === "pl" || s.hqRole === "plRto") &&
+      s.status === "ok",
+  );
+  const right = { x: -forward.z, z: forward.x };
+  hq.forEach((s, i) => {
+    // 小隊長本人を人間が操作している間はAIの位置取りを止める(仕様 §4)
+    if (s.hqRole === "pl" && aiSuppressed(world, "soldier", s.side, s.id)) return;
+    const post = {
+      x: anchor.x - forward.x * PLATOON_HQ_TRAIL + right.x * (i * 1.8 - 0.9),
+      z: anchor.z - forward.z * PLATOON_HQ_TRAIL + right.z * (i * 1.8 - 0.9),
+    };
+    const arrived = dist(s.pos, post) < 1.5;
+    s.order = arrived
+      ? { kind: "hold", facing: { ...forward }, issuedTick: world.tick }
+      : { kind: "move", target: post, facing: { ...forward }, issuedTick: world.tick };
+    if (!arrived) {
+      const prev = s.order.target;
+      if (!prev || dist(prev, post) > 1.5) {
+        s.path = [];
+        s.pathIdx = 0;
+      }
+    }
+  });
+}
+
 export function platoonAI(world: World): void {
   for (const pl of world.platoons) {
     // 人間がこの小隊長を操作しているなら、AIの意思決定は行わない(仕様 §4)。
     // 配管(belief の更新・報告の送受信)はそのまま動き続ける — 人間は
     // 意思決定者を置き換えるだけで、情報の流れ方は変わらない。
     if (aiSuppressed(world, "platoon", pl.side, pl.platoonId)) continue;
-    if (world.tick - pl.lastDecisionTick < DECIDE_EVERY_TICKS) continue;
+    // 指揮継承直後は判断周期が伸びる(仕様 §12)。分隊より影響が長く続く
+    const factor = commandFactor(pl, world.tick, "platoon");
+    if (world.tick - pl.lastDecisionTick < Math.round(DECIDE_EVERY_TICKS / factor)) continue;
     pl.lastDecisionTick = world.tick;
+    if (pl.commanderId === null) continue; // 指揮を執れる者がいない
 
     const squads = world.squads.filter((s) => s.side === pl.side && s.platoonId === pl.platoonId);
     if (squads.length === 0) continue;
@@ -113,6 +157,8 @@ export function platoonAI(world: World): void {
     const d = Math.hypot(dx, dz) || 1;
     const forward = { x: dx / d, z: dz / d };
     const right = { x: -forward.z, z: forward.x };
+
+    postPlatoonHq(world, pl, anchor, forward);
 
     livingSquads.forEach((sq, i) => {
       const lateral = (i - (livingSquads.length - 1) / 2) * SQUAD_FRONTAGE;

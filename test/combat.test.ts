@@ -1,13 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { createRng } from "../src/sim/rng.ts";
-import { rollShot, isSuppressed } from "../src/sim/systems/combat.ts";
-import { canSee } from "../src/sim/systems/perception.ts";
+import { createRng, next, ratePerTick } from "../src/sim/rng.ts";
+import { combatSystem, rollShot, isSuppressed } from "../src/sim/systems/combat.ts";
+import { canSee, perceptionSystem } from "../src/sim/systems/perception.ts";
 import { createWorld } from "../src/sim/world.ts";
 import { runTicks } from "../src/sim/step.ts";
 import { demoCrossingScenario, makeSoldier, resetIds } from "../src/sim/scenario.ts";
 import {
   BLEED_OUT_SEC,
   DETECT_RANGE,
+  HIT_RATE_PER_SEC,
   KIA_ON_HIT_CHANCE,
   SIM_DT,
   SUPPRESSION_ACC_PENALTY,
@@ -142,29 +143,53 @@ describe("integrated combat", () => {
   });
 
   it("resolves shots simultaneously — no first-mover advantage", () => {
-    // Iterating soldiers blue-first and applying each hit immediately would let
-    // blue kill red before red ever rolls, in the same tick. Combat therefore
-    // rolls against start-of-tick state and applies afterwards, so a soldier
-    // killed this tick still gets its shot off (spec §2/§13 force symmetry).
-    // Assert it directly: a mutual point-blank engagement can end with BOTH
-    // sides hit on the same tick.
-    let sawMutual = false;
-    for (let seed = 1; seed <= 40 && !sawMutual; seed++) {
-      const w = createWorld(demoCrossingScenario(seed));
-      let prevBlueOk = w.soldiers.filter((s) => s.side === "blue" && s.status === "ok").length;
-      let prevRedOk = w.soldiers.filter((s) => s.side === "red" && s.status === "ok").length;
-      for (let t = 0; t < 6000; t++) {
-        runTicks(w, 1);
-        const b = w.soldiers.filter((s) => s.side === "blue" && s.status === "ok").length;
-        const r = w.soldiers.filter((s) => s.side === "red" && s.status === "ok").length;
-        if (b < prevBlueOk && r < prevRedOk) {
-          sawMutual = true;
-          break;
-        }
-        prevBlueOk = b;
-        prevRedOk = r;
+    // 走査順に沿って命中を即時適用すると、先に見られる陣営が同一ティック内で
+    // 相手を倒し、相手は判定すら行えない。戦闘はティック開始時点の状態に対して
+    // 全員が判定し、そのあとで効果をまとめて適用する(仕様 §2/§13 戦力対称性)。
+    //
+    // これは戦闘解決の**構造**の性質なので、実戦の中で「両軍が同時に倒れる瞬間」を
+    // 探すのではなく直接確かめる。1回の戦闘で損害が発生するティックは片軍あたり
+    // 数回しかないため、偶然の同時発生を待つ検証は本質的に不安定になる。
+    //
+    // 両陣営の乱数ストリームに「必ず命中する」状態を仕込み、点射距離で対峙させて
+    // 戦闘を1ティックだけ回す。両者とも倒れれば、判定が同時に行われた証拠になる。
+    const hitP = ratePerTick(HIT_RATE_PER_SEC, SIM_DT);
+    let hittingState = -1;
+    for (let s = 1; s < 100000; s++) {
+      if (next({ state: s }) < hitP) {
+        hittingState = s;
+        break;
       }
     }
-    expect(sawMutual).toBe(true);
-  }, 60000);
+    expect(hittingState).toBeGreaterThan(0);
+
+    const w = createWorld(demoCrossingScenario(1));
+    // 遮蔽は本件の関心事ではない。射線が通ることを保証するため取り除く
+    w.walls = [];
+    for (const s of w.soldiers) s.status = "kia";
+    const blue = w.soldiers.find((s) => s.side === "blue")!;
+    const red = w.soldiers.find((s) => s.side === "red")!;
+    blue.status = "ok";
+    red.status = "ok";
+    blue.pos = { x: 0, z: 0 };
+    blue.facing = { x: 0, z: 1 };
+    red.pos = { x: 0, z: 6 };
+    red.facing = { x: 0, z: -1 };
+    for (const s of [blue, red]) {
+      s.path = [];
+      s.pathIdx = 0;
+      s.suppressedUntilTick = 0;
+    }
+
+    perceptionSystem(w);
+    expect(blue.sees).toContain(red.id);
+    expect(red.sees).toContain(blue.id);
+
+    w.rngBySide.blue.state = hittingState;
+    w.rngBySide.red.state = hittingState;
+    combatSystem(w);
+
+    expect(blue.status).not.toBe("ok");
+    expect(red.status).not.toBe("ok");
+  });
 });

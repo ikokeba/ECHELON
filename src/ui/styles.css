@@ -307,8 +307,32 @@ body {
 }
 
 .et-child {
-  margin-left: 12px;
+  margin-left: 10px;
   background: #151c2b;
+}
+
+.et-grandchild {
+  margin-left: 20px;
+  background: #121826;
+}
+
+/* 後送アセットの稼働状況(仕様 §9)。ノードではなく中隊の付帯情報 */
+.et-assets {
+  margin-left: 10px;
+  font-size: 10px;
+  color: var(--muted);
+  padding: 1px 2px;
+}
+
+/* 指揮継承直後(仕様 §12)。味方ステータスはフォグオブウォーの対象外なので常に見せる */
+.et-degraded {
+  margin-left: 5px;
+  font-size: 9px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: #4a2020;
+  color: #ff9a8a;
+  vertical-align: 1px;
 }
 
 .et-on {

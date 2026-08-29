@@ -22,8 +22,30 @@ export function resetIds(): void {
   nextId = 1;
 }
 
+/** UIから選べるシナリオの一覧。規模の段階を上げていくと階層が1つずつ増える。 */
+export const SCENARIOS = {
+  squad: {
+    label: "分隊 vs 分隊",
+    detail: "各9名。分隊長〜FTリーダーの2階層",
+    make: (seed?: number) => demoCrossingScenario(seed),
+  },
+  platoon: {
+    label: "小隊 vs 小隊",
+    detail: "各29名。無線報告で捌く小隊長が加わる",
+    make: (seed?: number) => platoonClashScenario(seed),
+  },
+  company: {
+    label: "中隊 vs 中隊",
+    detail: "各91名。CP・CCP・後送アセットを含む5階層すべて",
+    make: (seed?: number) => companyClashScenario(seed),
+  },
+} as const;
+
+export type ScenarioKey = keyof typeof SCENARIOS;
+
 export interface SoldierSeed {
   side: Side;
+  companyId?: number;
   platoonId: number;
   squadId: number;
   fireteamId: number;
@@ -34,6 +56,7 @@ export interface SoldierSeed {
   moveTo?: Vec2;
   traits?: Partial<Soldier["traits"]>;
   role?: Soldier["role"];
+  hqRole?: Soldier["hqRole"];
   quals?: Partial<Soldier["quals"]>;
 }
 
@@ -42,6 +65,7 @@ export function makeSoldier(seed: SoldierSeed): Soldier {
   return {
     id: nextId++,
     side: seed.side,
+    companyId: seed.companyId ?? 0,
     platoonId: seed.platoonId,
     squadId: seed.squadId,
     fireteamId: seed.fireteamId,
@@ -60,6 +84,7 @@ export function makeSoldier(seed: SoldierSeed): Soldier {
     sees: [],
     suppressor: false,
     role: seed.role ?? "rifleman",
+    hqRole: seed.hqRole ?? null,
     quals: {
       medicalCrossTrained: seed.quals?.medicalCrossTrained ?? false,
       designatedMarksman: seed.quals?.designatedMarksman ?? false,
@@ -80,6 +105,84 @@ export function makeSoldier(seed: SoldierSeed): Soldier {
   };
 }
 
+/**
+ * 本部要員が持つ、分隊コントローラを持たないことを表す squadId(仕様 §2)。
+ * 負値であることに意味がある — world.ts の分隊/FT構築はここを見て弾く。
+ */
+export const HQ_SQUAD_ID = { platoon: -1, company: -2 } as const;
+
+/**
+ * 小隊本部(仕様 §2)。小隊長 + 無線手の2名編成 `[v6]`。
+ *
+ * 身体を持たせる目的は §12 の指揮官排除を成立させること。排除できない指揮官では、
+ * 「指揮系統の崩壊」が勝利への近道条件として機能しない。
+ */
+function makePlatoonHq(
+  side: Side,
+  companyId: number,
+  platoonId: number,
+  anchor: Vec2,
+  dir: Vec2,
+): Soldier[] {
+  const right = { x: -dir.z, z: dir.x };
+  return (["pl", "plRto"] as const).map((hqRole, i) =>
+    makeSoldier({
+      side,
+      companyId,
+      platoonId,
+      squadId: HQ_SQUAD_ID.platoon,
+      fireteamId: -1,
+      pos: {
+        x: anchor.x + right.x * (i * 1.6 - 0.8),
+        z: anchor.z + right.z * (i * 1.6 - 0.8),
+      },
+      facing: dir,
+      hqRole,
+    }),
+  );
+}
+
+/**
+ * 中隊本部(仕様 §2: XO/1SG/RTO は役割ごとに固定配置、直接操作は不可)。
+ *
+ * 中隊長・XO・RTOは指揮所(CP)に、1SGは負傷者集合点(CCP)に常駐する。
+ * 1SGがCCPにいるのは「中隊トレインを運営する」現実の役割に対応させたもの(仕様 §2)。
+ */
+function makeCompanyHq(
+  side: Side,
+  companyId: number,
+  cp: Vec2,
+  ccp: Vec2,
+  dir: Vec2,
+): Soldier[] {
+  const right = { x: -dir.z, z: dir.x };
+  const atCp = (["co", "xo", "coRto"] as const).map((hqRole, i) =>
+    makeSoldier({
+      side,
+      companyId,
+      platoonId: -1,
+      squadId: HQ_SQUAD_ID.company,
+      fireteamId: -1,
+      pos: { x: cp.x + right.x * (i - 1) * 1.8, z: cp.z + right.z * (i - 1) * 1.8 },
+      facing: dir,
+      hqRole,
+    }),
+  );
+  const firstSergeant = makeSoldier({
+    side,
+    companyId,
+    platoonId: -1,
+    squadId: HQ_SQUAD_ID.company,
+    fireteamId: -1,
+    pos: { x: ccp.x, z: ccp.z },
+    facing: dir,
+    hqRole: "firstSergeant",
+    // 1SGはCCP常駐で衛生実務を回すため、衛生要員兼任として扱う(仕様 §2 の中隊トレイン)
+    quals: { medicalCrossTrained: true },
+  });
+  return [...atCp, firstSergeant];
+}
+
 /** 9名の分隊: 分隊長1 + 4名FT×2。`dir` 方向を向いて横並びに配置する(仕様 §2)。 */
 function makeSquad(
   side: Side,
@@ -87,6 +190,7 @@ function makeSquad(
   squadId: number,
   anchor: Vec2,
   dir: Vec2,
+  companyId = 0,
 ): Soldier[] {
   const right = { x: -dir.z, z: dir.x };
   const soldiers: Soldier[] = [];
@@ -94,6 +198,7 @@ function makeSquad(
   soldiers.push(
     makeSoldier({
       side,
+      companyId,
       platoonId,
       squadId,
       fireteamId: -1,
@@ -114,6 +219,7 @@ function makeSquad(
       soldiers.push(
         makeSoldier({
           side,
+          companyId,
           platoonId,
           squadId,
           fireteamId: ft,
@@ -183,6 +289,7 @@ function plansFor(
   objective: Vec2,
   advanceDir: Vec2,
   rallyPoint: Vec2,
+  companyId = 0,
 ): { fireteamPlans: FireteamPlan[]; squadPlans: SquadPlan[]; platoonPlans: PlatoonPlan[] } {
   return {
     fireteamPlans: squadIds.flatMap((squadId) =>
@@ -207,6 +314,7 @@ function plansFor(
       {
         side,
         platoonId,
+        companyId,
         objective: { ...objective },
         advanceDir: { ...advanceDir },
         rallyPoint: { ...rallyPoint },
@@ -263,6 +371,7 @@ function buildPlatoon(
   center: Vec2,
   dir: Vec2,
   objective: Vec2,
+  companyId = 0,
 ): {
   soldiers: Soldier[];
   plans: ReturnType<typeof plansFor>;
@@ -278,12 +387,23 @@ function buildPlatoon(
         squadId,
         { x: center.x + right.x * lateral, z: center.z + right.z * lateral },
         dir,
+        companyId,
       ),
     );
   });
+  // 小隊本部は分隊列の後方に置く(仕様 §2/§3②: 小隊長は担当区域全体を見渡す位置)
+  soldiers.push(
+    ...makePlatoonHq(
+      side,
+      companyId,
+      platoonId,
+      { x: center.x - dir.x * 10, z: center.z - dir.z * 10 },
+      dir,
+    ),
+  );
   return {
     soldiers,
-    plans: plansFor(side, platoonId, squadIds, objective, dir, center),
+    plans: plansFor(side, platoonId, squadIds, objective, dir, center, companyId),
   };
 }
 
@@ -294,8 +414,8 @@ function buildPlatoon(
  * 分隊は横に離して配置するので、各分隊長の視界は互いに重ならず、小隊長のもとには
  * 断片的な報告だけが遅れて届く。
  *
- * 仕様上の小隊は3個ライフル分隊+火器分隊+小隊本部の約40名(§2)だが、
- * 火器分隊と小隊本部は未実装のため現状は3個ライフル分隊のみ。
+ * 仕様上の小隊は3個ライフル分隊+火器分隊+小隊本部の約40名(§2)。
+ * `[v6]` で小隊本部(小隊長+無線手)を追加したため現状29名。火器分隊は未実装。
  */
 export function platoonClashScenario(seed = 1): Scenario {
   resetIds();
@@ -319,17 +439,18 @@ export function platoonClashScenario(seed = 1): Scenario {
 }
 
 /**
- * 1個中隊 vs 1個中隊(各3個小隊 × 3個分隊 = 81名、両軍162名)。
+ * 1個中隊 vs 1個中隊(各3個小隊 × (3個分隊+小隊本部) + 中隊本部 = 91名、両軍182名)。
  *
- * 仕様 §2 が想定する規模(中隊 = 3〜4個小隊)の下限。火器分隊・小隊本部・中隊本部が
- * 未実装のため、仕様上の約130名/中隊には届いていない。
+ * 仕様 §2 が想定する規模(中隊 = 3〜4個小隊)の下限。火器分隊が未実装のため、
+ * 仕様上の約130名/中隊にはまだ届いていない。
  *
- * 中隊長のC2はまだ存在しないため、3個小隊はそれぞれ独立に動く。この状態でも
- * 規模のパフォーマンス特性(design OQ-5)は測れる。
+ * `[v6]` 中隊長のC2・小隊本部・中隊本部・CP・CCPを追加し、5階層すべてが揃った。
  */
 export function companyClashScenario(seed = 1): Scenario {
   resetIds();
-  const bounds: Bounds = { minX: -110, maxX: 110, minZ: -70, maxZ: 70 };
+  // CP(z=±70)とCCP(z=±78)を盤内に収める必要がある。ナビグリッドは bounds から
+  // 作られるので、CCPが外に出ると担架班が永久にたどり着けない(実際に描画で発見した)。
+  const bounds: Bounds = { minX: -110, maxX: 110, minZ: -85, maxZ: 85 };
   const objective = { x: 0, z: 0 };
 
   /** 小隊の初期展開間隔(m)。分隊3個分の正面幅より広く取る */
@@ -340,6 +461,13 @@ export function companyClashScenario(seed = 1): Scenario {
   const squadPlans: SquadPlan[] = [];
   const platoonPlans: PlatoonPlan[] = [];
 
+  // 指揮所(CP)と負傷者集合点(CCP)は中隊の後方に置く(仕様 §11)。
+  // 点対称を保つため両陣営で符号を反転させる。
+  const blueCcp = { x: 0, z: -78 };
+  const redCcp = { x: 0, z: 78 };
+  const blueCp = { x: 0, z: -70 };
+  const redCp = { x: 0, z: 70 };
+
   for (let p = 0; p < 3; p++) {
     const lateral = (p - 1) * PLATOON_SPACING * 0.5;
     const blue = buildPlatoon(
@@ -349,6 +477,7 @@ export function companyClashScenario(seed = 1): Scenario {
       { x: lateral, z: -58 },
       { x: 0, z: 1 },
       objective,
+      0,
     );
     // 点対称になるよう座標も向きも反転させる
     const red = buildPlatoon(
@@ -358,12 +487,18 @@ export function companyClashScenario(seed = 1): Scenario {
       { x: -lateral, z: 58 },
       { x: 0, z: -1 },
       objective,
+      1,
     );
     soldiers.push(...blue.soldiers, ...red.soldiers);
     fireteamPlans.push(...blue.plans.fireteamPlans, ...red.plans.fireteamPlans);
     squadPlans.push(...blue.plans.squadPlans, ...red.plans.squadPlans);
     platoonPlans.push(...blue.plans.platoonPlans, ...red.plans.platoonPlans);
   }
+
+  soldiers.push(
+    ...makeCompanyHq("blue", 0, blueCp, blueCcp, { x: 0, z: 1 }),
+    ...makeCompanyHq("red", 1, redCp, redCcp, { x: 0, z: -1 }),
+  );
 
   return {
     name: "company-clash",
@@ -374,6 +509,25 @@ export function companyClashScenario(seed = 1): Scenario {
     fireteamPlans,
     squadPlans,
     platoonPlans,
+    companyPlans: [
+      {
+        side: "blue",
+        companyId: 0,
+        objective: { ...objective },
+        advanceDir: { x: 0, z: 1 },
+        rallyPoint: { ...blueCp },
+        cp: { ...blueCp },
+      },
+      {
+        side: "red",
+        companyId: 1,
+        objective: { ...objective },
+        advanceDir: { x: 0, z: -1 },
+        rallyPoint: { ...redCp },
+        cp: { ...redCp },
+      },
+    ],
+    ccp: { blue: { ...blueCcp }, red: { ...redCcp } },
     controlMeasures: [{ kind: "OBJ", label: "OBJ FALCON", points: [{ ...objective }] }],
   };
 }

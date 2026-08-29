@@ -14,6 +14,7 @@
 import { hasLineOfSight } from "../geometry.ts";
 import { DETECT_RANGE, FOV_HALF_RAD } from "../constants.ts";
 import { clearHash, createSpatialHash, forEachNear, insert } from "../spatial.ts";
+import { isOffField } from "./litter.ts";
 import type { World } from "../world.ts";
 import type { Soldier } from "../types.ts";
 
@@ -38,11 +39,12 @@ export function perceptionSystem(world: World): void {
   clearHash(hash);
   for (const s of world.soldiers) {
     if (s.status === "kia") continue; // 遺体は視認対象にならない(仕様 §9)
+    if (isOffField(s)) continue; // 後送済みは戦場を離脱している(仕様 §9)
     insert(hash, s.pos, s);
   }
 
   for (const s of world.soldiers) {
-    if (s.status === "kia") {
+    if (s.status === "kia" || isOffField(s)) {
       if (s.sees.length) s.sees = [];
       continue;
     }

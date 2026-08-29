@@ -14,6 +14,7 @@
 import { LITTER, SIM_HZ } from "../constants.ts";
 import { aiSuppressed } from "../control.ts";
 import { bearersNeeded, isCommittedToLitter } from "../systems/litter.ts";
+import { commandFactor } from "./succession.ts";
 import type { Contact, Soldier, SquadState, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
@@ -162,23 +163,38 @@ function decideCasevac(world: World, sq: SquadState): void {
 }
 
 export function squadAI(world: World): void {
-  if (world.tick % DECIDE_EVERY_TICKS !== 0) return;
+  const decidedThisTick = new Set<number>();
 
   for (const sq of world.squads) {
     // 人間が操作している分隊長のAIは止める(仕様 §4)
     if (aiSuppressed(world, "squad", sq.side, sq.squadId)) continue;
+    // 指揮継承直後は判断周期が伸びる(仕様 §12: 命令解釈の冗長化・新規戦術判断不可)
+    const factor = commandFactor(sq, world.tick, "squad");
+    if (world.tick - sq.lastDecisionTick < Math.round(DECIDE_EVERY_TICKS / factor)) continue;
+    sq.lastDecisionTick = world.tick;
+    decidedThisTick.add(sq.squadId);
+
     directFireteams(world, sq);
     decideCasevac(world, sq);
   }
 
   // ── 分隊長自身の位置取り ──
-  for (const sl of world.soldiers) {
-    if (!sl.isSquadLeader || sl.status !== "ok") continue;
+  // 「分隊長」は肩書きではなく §12 の継承で決まる。分隊長が倒れれば次席のFTリーダーが
+  // その役を引き継ぐので、位置取りの主体も commanderId を見て決める。
+  for (const sq of world.squads) {
+    if (!decidedThisTick.has(sq.squadId)) continue;
+    if (sq.commanderId === null) continue;
+    const sl = world.soldierById.get(sq.commanderId);
+    if (!sl || sl.status !== "ok") continue;
     if (aiSuppressed(world, "squad", sl.side, sl.squadId)) continue;
     // 分隊長本人が一兵卒として直接操作されている場合も、AIの位置取りは止める
     if (aiSuppressed(world, "soldier", sl.side, sl.id)) continue;
     // 分隊長自身が担架要員に選ばれている間は、位置取りより搬送が優先される(仕様 §9)
     if (isCommittedToLitter(sl)) continue;
+    // 指揮を継承したのがFTリーダーの場合、彼は自分のFTを率いたまま分隊も見る。
+    // 隊列から引き剥がして後方へ下げると、FT側の隊形と射線が崩れるうえ、
+    // fireteamAI が同じティックで命令を上書きし合って挙動が振動する。
+    if (sl.fireteamId >= 0) continue;
 
     const squad = world.soldiers.filter(
       (s) =>
@@ -186,8 +202,7 @@ export function squadAI(world: World): void {
     );
     if (squad.length === 0) continue;
 
-    const sq = world.squads.find((s) => s.side === sl.side && s.squadId === sl.squadId);
-    const threat = sq ? primaryThreat(sq.belief) : null;
+    const threat = primaryThreat(sq.belief);
 
     const mc = centroid(squad);
     const forward = threat ? dirTo(mc, threat.pos) : { ...sl.facing };

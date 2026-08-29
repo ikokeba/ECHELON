@@ -17,8 +17,10 @@
  */
 
 import { decayedConfidence } from "./belief.ts";
+import { isDegraded } from "./c2/succession.ts";
 import {
   CONFIDENCE_CUTOFF,
+  DEGRADED_RADIO_LATENCY_MUL,
   POS_ERROR_GROWTH,
   POS_ERROR_MAX,
   RADIO_LATENCY_SEC,
@@ -121,8 +123,10 @@ export function radioSystem(world: World): void {
       if (r.fromEchelon === "squad") {
         const pl = world.platoons.find((p) => p.side === r.side && p.platoonId === r.toUnitId);
         if (pl) for (const c of r.contacts) mergeContact(pl.belief, c);
+      } else if (r.fromEchelon === "platoon") {
+        const co = world.companies.find((c) => c.side === r.side && c.companyId === r.toUnitId);
+        if (co) for (const c of r.contacts) mergeContact(co.belief, c);
       }
-      // 中隊層は次スライス。company宛の報告はここで受け取り手が現れる。
     }
     world.reports = stillInFlight;
   }
@@ -139,9 +143,12 @@ export function radioSystem(world: World): void {
     decayBelief(sq.belief, world.tick);
   }
 
-  // ── 3. 小隊長のbeliefを減衰させる(中身は無線経由でしか増えない) ──
+  // ── 3. 小隊長・中隊長のbeliefを減衰させる(中身は無線経由でしか増えない) ──
   for (const pl of world.platoons) {
     decayBelief(pl.belief, world.tick);
+  }
+  for (const co of world.companies) {
+    decayBelief(co.belief, world.tick);
   }
 
   // ── 4. 定時報告の生成: 分隊長 → 小隊長 ──
@@ -161,6 +168,40 @@ export function radioSystem(world: World): void {
       sentTick: world.tick,
       deliverTick: world.tick + RADIO_LATENCY_TICKS,
       contacts: selectContactsForReport(sq.belief),
+      ownStatus: {
+        effective: effective.length,
+        total: members.length,
+        posCentroid: centroidOf(effective.map((s) => s.pos)),
+      },
+    });
+  }
+
+  // ── 5. 定時報告の生成: 小隊長 → 中隊長 ──
+  //    ここで2ホップ目の遅延と粒度低下が乗る。中隊長が持つのは
+  //    「分隊長が見たものを、小隊長が受け取って、さらに転送したもの」であり、
+  //    仕様 §5 の「さらに遅延・粒度が粗くなる」が構造的に成立する。
+  for (const pl of world.platoons) {
+    if (world.tick - pl.lastReportTick < REPORT_INTERVAL_TICKS) continue;
+    pl.lastReportTick = world.tick;
+
+    const members = world.soldiers.filter(
+      (s) => s.side === pl.side && s.platoonId === pl.platoonId,
+    );
+    const effective = members.filter((s) => s.status === "ok");
+    if (effective.length === 0) continue;
+
+    // 中隊長が無力化されている間は報告が遅延する(仕様 §11「報告遅延…C2の一時的な混乱」)
+    const co = world.companies.find((c) => c.side === pl.side && c.companyId === pl.companyId);
+    const latencyMul = co && isDegraded(co) ? DEGRADED_RADIO_LATENCY_MUL : 1;
+
+    world.reports.push({
+      fromEchelon: "platoon",
+      fromUnitId: pl.platoonId,
+      toUnitId: pl.companyId,
+      side: pl.side,
+      sentTick: world.tick,
+      deliverTick: world.tick + RADIO_LATENCY_TICKS * latencyMul,
+      contacts: selectContactsForReport(pl.belief),
       ownStatus: {
         effective: effective.length,
         total: members.length,

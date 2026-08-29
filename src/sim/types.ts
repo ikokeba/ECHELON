@@ -59,18 +59,32 @@ export type SoldierStatus = "ok" | "wia" | "kia";
  * 後送(担架搬送)の進行状態(仕様 §9)。
  *
  * `none` → 分隊長の後送命令で `requested` → 担架班が収容して `carrying`
- * → CCP到達で `evacuated`(以後戦場から離脱、生存者としてカウント)。
+ * → CCP到達で `evacuated`(以後戦場から離脱、生存者としてカウント)
+ * → 後送アセットが収容して `collected`(同じMOSの補充兵1名が分隊へ合流、仕様 §9)。
  *
  * 応急手当が命令不要の自律トリガーであるのに対し、**担架搬送は明示的な命令を要する**
  * (仕様 §9)。この差が「止血はするが後送は指揮判断」という戦術的トレードオフを作る。
  */
-export type EvacStage = "none" | "requested" | "carrying" | "evacuated";
+export type EvacStage = "none" | "requested" | "carrying" | "evacuated" | "collected";
 
 /**
  * FT内の役割(仕様 §14 のMOS)。mos-balance-simulator が検証した4名編成に対応する。
  * 戦闘性能に効くのは SAW(制圧効果) と 擲弾手(遮蔽無視) のみで、それ以外は同一。
  */
 export type SoldierRole = "leader" | "saw" | "grenadier" | "rifleman";
+
+/**
+ * 本部要員の職(仕様 §2)。ライフル分隊の外側にいる、指揮系統そのものを担う人員。
+ *
+ * 仕様 §2 は中隊本部を「役割ごとに固定配置。いずれも直接操作は不可(NPC的に待機)」と
+ * 定めている。ただし**中隊長本人は §3① のプレイ対象**なので、直接操作の可否は
+ * `hqRole` ごとに分かれる(`co` と `pl` のみ操作可能)。
+ *
+ * 小隊本部は仕様 §2 の編成表にあるが人員構成の明示がないため、小隊長+無線手の
+ * 2名編成とした(`[v6]`)。身体を持たせる目的は §12 の指揮官排除を成立させること —
+ * 排除できない指揮官では「指揮系統の崩壊」が近道条件として機能しない。
+ */
+export type HqRole = "co" | "xo" | "coRto" | "firstSergeant" | "pl" | "plRto";
 
 /**
  * 資格の離散フラグ(仕様 §14「MOSごとの基礎検定を離散フラグとして持たせ、その上に
@@ -105,9 +119,14 @@ export interface SoldierOrder {
 export interface Soldier {
   id: number;
   side: Side;
-  /** 所属小隊のID */
+  /** 所属中隊のID */
+  companyId: number;
+  /** 所属小隊のID。中隊本部要員は -1 */
   platoonId: number;
-  /** 所属分隊のID */
+  /**
+   * 所属分隊のID。**本部要員は負値**(小隊本部 -1 / 中隊本部 -2)で、
+   * 分隊コントローラを持たないことを表す。
+   */
   squadId: number;
   /** 分隊内のファイアチームID(0 または 1。分隊長枠は -1) */
   fireteamId: number;
@@ -123,6 +142,8 @@ export interface Soldier {
 
   /** FT内の役割(仕様 §14) */
   role: SoldierRole;
+  /** 本部要員ならその職(仕様 §2)。分隊の隊員は null */
+  hqRole: HqRole | null;
   /** 資格の離散フラグ(仕様 §14) */
   quals: SoldierQualifications;
 
@@ -278,12 +299,19 @@ export interface SquadState {
 
   /** 上位(小隊)へ最後に定時報告を送ったティック */
   lastReportTick: number;
+  /** 最後に意思決定を行ったティック。指揮継承による判断周期の劣化を反映するため */
+  lastDecisionTick: number;
 
   /**
    * 分隊長が後送を命じた負傷者のID(仕様 §9: 担架搬送は明示的な命令発行を要する)。
    * 応急手当と違い自律トリガーではないので、ここに載って初めて担架班が編成される。
    */
   casevacOrders: number[];
+
+  /** 現在この分隊の指揮を執っている兵士のID(仕様 §12 の指揮継承) */
+  commanderId: number | null;
+  /** 指揮継承が起きたティック(null = 継承していない) */
+  degradedSinceTick: number | null;
 }
 
 /**
@@ -297,6 +325,7 @@ export interface PlatoonState {
   id: number;
   side: Side;
   platoonId: number;
+  companyId: number;
 
   /** 小隊長の world picture(無線報告のみ、遅延と確度減衰を伴う) */
   belief: Map<string, Contact>;
@@ -312,6 +341,72 @@ export interface PlatoonState {
 
   lastReportTick: number;
   lastDecisionTick: number;
+
+  /** 現在この小隊の指揮を執っている兵士のID(仕様 §12 の指揮継承) */
+  commanderId: number | null;
+  /** 指揮継承が起きたティック(null = 継承していない)。判断の質低下の起点 */
+  degradedSinceTick: number | null;
+}
+
+/**
+ * 中隊長コントローラの状態(仕様 §3 ①、§11)。
+ *
+ * 情報上の立ち位置: 各小隊長からの報告の**集約**で、小隊長より**さらに遅延し
+ * 粒度も粗い**(仕様 §5)。無線を2ホップ経ているため位置誤差も2ホップ分乗る。
+ *
+ * やること(仕様 §3 ①):
+ *   - 小隊への任務(WHAT)割り当て
+ *   - 予備戦力の投入判断
+ *   - CASEVAC(後送)アセットの配分判断 = トリアージ(仕様 §9)
+ *
+ * 中隊長は指揮所(CP)を拠点とし、前線には出ない(仕様 §11)。
+ */
+export interface CompanyState {
+  id: number;
+  side: Side;
+  companyId: number;
+
+  /** 中隊長の world picture(小隊長からの報告の集約のみ) */
+  belief: Map<string, Contact>;
+
+  /** 指揮所(CP)の位置(仕様 §11)。中隊長・XO・RTOが常駐する */
+  cp: Vec2;
+
+  /** 麾下小隊へ割り当てた任務目標 */
+  platoonObjectives: Map<number, Vec2>;
+
+  objective: Vec2;
+  advanceDir: Vec2;
+  rallyPoint: Vec2;
+
+  lastDecisionTick: number;
+
+  /** 後送アセット(仕様 §9)。中隊長が限られた台数を配分する */
+  assets: CasevacAsset[];
+
+  commanderId: number | null;
+  degradedSinceTick: number | null;
+}
+
+/**
+ * 後送アセット1台(仕様 §9: 車両/ヘリ)。
+ * 中隊長の資源であり、CCPへの到着まで時間がかかる(いわゆるゴールデンアワー)。
+ */
+export interface CasevacAsset {
+  id: number;
+  /** null = 待機中。値があればそのティックにCCPへ到着する */
+  arriveTick: number | null;
+}
+
+/** 1個中隊に対するシナリオ側の意図。 */
+export interface CompanyPlan {
+  side: Side;
+  companyId: number;
+  objective: Vec2;
+  advanceDir: Vec2;
+  rallyPoint: Vec2;
+  /** 指揮所(CP)。未指定なら初期配置の後方に自動配置する */
+  cp?: Vec2;
 }
 
 /** 1個分隊に対するシナリオ側の意図。 */
@@ -328,6 +423,7 @@ export interface SquadPlan {
 export interface PlatoonPlan {
   side: Side;
   platoonId: number;
+  companyId?: number;
   objective: Vec2;
   advanceDir: Vec2;
   rallyPoint: Vec2;
@@ -395,6 +491,8 @@ export interface Scenario {
   squadPlans?: SquadPlan[];
   /** 小隊ごとの任務目標 */
   platoonPlans?: PlatoonPlan[];
+  /** 中隊ごとの任務目標 */
+  companyPlans?: CompanyPlan[];
   /** 参照・描画用の統制手段(仕様 §6): チェックポイント・フェーズライン・目標 */
   controlMeasures?: ControlMeasure[];
   /**

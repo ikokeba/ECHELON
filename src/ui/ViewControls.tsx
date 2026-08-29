@@ -1,12 +1,15 @@
+import { SCENARIOS, type ScenarioKey } from "@sim/scenario.ts";
 import { useSimStore, type ViewEchelon } from "./store.ts";
 
 const ECHELON_LABEL: Record<ViewEchelon, string> = {
+  company: "中隊長",
   platoon: "小隊長",
   squad: "分隊長",
   truth: "神視点",
 };
 
 const ECHELON_HINT: Record<ViewEchelon, string> = {
+  company: "小隊長からの報告の集約。無線2ホップ分、さらに古く粗い(仕様 §5)",
   platoon: "無線報告のみ。遅延と確度減衰あり(仕様 §5)",
   squad: "麾下2FTの視界の合算。生の視界はここまで",
   truth: "デバッグ表示。実際の敵位置",
@@ -23,12 +26,29 @@ export function ViewControls() {
   const setViewSide = useSimStore((s) => s.setViewSide);
   const known = useSimStore((s) => s.knownContacts);
   const stale = useSimStore((s) => s.staleContacts);
+  const scenarioKey = useSimStore((s) => s.scenarioKey);
+  const setScenario = useSimStore((s) => s.setScenario);
 
   return (
     <div className="view-controls">
       <div className="vc-row">
+        <span className="vc-label">規模</span>
+        {(Object.keys(SCENARIOS) as ScenarioKey[]).map((k) => (
+          <button
+            key={k}
+            type="button"
+            className={k === scenarioKey ? "vc-btn vc-on" : "vc-btn"}
+            onClick={() => setScenario(k)}
+            title={SCENARIOS[k].detail}
+          >
+            {SCENARIOS[k].label}
+          </button>
+        ))}
+      </div>
+
+      <div className="vc-row">
         <span className="vc-label">視点</span>
-        {(["platoon", "squad", "truth"] as ViewEchelon[]).map((e) => (
+        {(["company", "platoon", "squad", "truth"] as ViewEchelon[]).map((e) => (
           <button
             key={e}
             type="button"

@@ -10,7 +10,10 @@ describe("情報の階層化(仕様 §5)", () => {
     expect(w.platoons.length).toBe(2); // 両陣営に1個小隊
     expect(w.squads.length).toBe(6); // 各小隊3個分隊
     expect(w.fireteams.length).toBe(12); // 各分隊2個FT
-    expect(w.soldiers.length).toBe(54); // 各分隊9名
+    // 各小隊 = 3個分隊9名 + 小隊本部(小隊長+無線手)2名 = 29名
+    expect(w.soldiers.length).toBe(58);
+    // 小隊本部は分隊コントローラを持たない(仕様 §2)
+    expect(w.soldiers.filter((s) => s.hqRole === "pl").length).toBe(2);
   });
 
   it("小隊長のbeliefは無線報告が届くまで空のまま", () => {
@@ -129,12 +132,20 @@ describe("小隊規模の戦闘", () => {
 });
 
 describe("中隊規模(仕様 §2 の想定規模)", () => {
-  it("3個小隊 × 3個分隊が組み上がり、決定論的に動く", async () => {
+  it("5階層すべてが組み上がり、決定論的に動く", async () => {
     const { companyClashScenario } = await import("../src/sim/scenario.ts");
     const w = createWorld(companyClashScenario(1));
+    expect(w.companies.length).toBe(2); // 各陣営1個中隊
     expect(w.platoons.length).toBe(6); // 各陣営3個小隊
     expect(w.squads.length).toBe(18);
-    expect(w.soldiers.length).toBe(162);
+    // 1個中隊 = 3個小隊 ×(3個分隊9名 + 小隊本部2名)+ 中隊本部4名 = 91名
+    expect(w.soldiers.length).toBe(182);
+    // 本部要員は分隊コントローラを持たない(仕様 §2)
+    expect(w.soldiers.filter((s) => s.hqRole !== null).length).toBe(2 * (3 * 2 + 4));
+    // 中隊長・小隊長・分隊長すべてに指揮官が着任している(仕様 §12)
+    expect(w.companies.every((c) => c.commanderId !== null)).toBe(true);
+    expect(w.platoons.every((p) => p.commanderId !== null)).toBe(true);
+    expect(w.squads.every((s) => s.commanderId !== null)).toBe(true);
 
     const snap = (seed: number) => {
       const a = createWorld(companyClashScenario(seed));

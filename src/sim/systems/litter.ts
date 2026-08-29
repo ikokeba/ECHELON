@@ -33,6 +33,15 @@ export function isCommittedToLitter(s: Soldier): boolean {
   return s.bearing !== null;
 }
 
+/**
+ * CCPへ到達済みで、もう戦場にいない兵士か(仕様 §9)。
+ * `evacuated` は後送アセット待ち、`collected` はアセットに収容済み。
+ * どちらも生存者としてカウントされるが、描画・索敵・戦闘の対象からは外れる。
+ */
+export function isOffField(s: Soldier): boolean {
+  return s.evac === "evacuated" || s.evac === "collected";
+}
+
 /** この負傷者の後送に必要な担架要員数(仕様 §9: 50m超は4名編成を要する)。 */
 export function bearersNeeded(patient: Soldier, ccp: Vec2): number {
   const d = Math.hypot(patient.pos.x - ccp.x, patient.pos.z - ccp.z);
@@ -79,6 +88,8 @@ function isAvailableBearer(cand: Soldier, patient: Soldier): boolean {
   return (
     cand.side === patient.side &&
     cand.squadId === patient.squadId &&
+    // 本部要員(squadIdが負値)は小隊も一致していないと同じ部隊とは言えない
+    cand.platoonId === patient.platoonId &&
     cand.status === "ok" &&
     cand.bearing === null &&
     cand.treating === null &&

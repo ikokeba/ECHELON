@@ -8,16 +8,19 @@
  * 直接舐めてしまうと、プレイヤーは常に全知になり、階層構造の意味が消える。
  */
 
+import { isOffField } from "./systems/litter.ts";
 import type { Contact, Side, Soldier, Vec2 } from "./types.ts";
 import type { World } from "./world.ts";
 
-export type ViewEchelon = "platoon" | "squad" | "truth";
+export type ViewEchelon = "company" | "platoon" | "squad" | "truth";
 
 export interface ViewSpec {
   side: Side;
   echelon: ViewEchelon;
   /** echelon === "squad" のとき、どの分隊の視点か */
   squadId?: number | null;
+  /** echelon === "platoon" のとき、どの小隊の視点か */
+  platoonId?: number | null;
 }
 
 /** 描画用にまとめた「この視点から見える敵」。 */
@@ -57,8 +60,15 @@ export function beliefFor(world: World, spec: ViewSpec): Map<string, Contact> {
     return sq?.belief ?? new Map();
   }
   if (spec.echelon === "platoon") {
-    const pl = world.platoons.find((p) => p.side === spec.side);
+    const pl =
+      spec.platoonId != null
+        ? world.platoons.find((p) => p.side === spec.side && p.platoonId === spec.platoonId)
+        : world.platoons.find((p) => p.side === spec.side);
     return pl?.belief ?? new Map();
+  }
+  if (spec.echelon === "company") {
+    const co = world.companies.find((c) => c.side === spec.side);
+    return co?.belief ?? new Map();
   }
   return new Map();
 }
@@ -66,7 +76,7 @@ export function beliefFor(world: World, spec: ViewSpec): Map<string, Contact> {
 export function resolveView(world: World, spec: ViewSpec): ViewResult {
   // 後送済みの兵士は戦場を離脱しているので描画しない(仕様 §9)。
   // 生存者としてはカウントされるため、HUDの集計とは別扱いになる。
-  const friendly = world.soldiers.filter((s) => s.side === spec.side && s.evac !== "evacuated");
+  const friendly = world.soldiers.filter((s) => s.side === spec.side && !isOffField(s));
   const enemySide: Side = spec.side === "blue" ? "red" : "blue";
 
   if (spec.echelon === "truth") {

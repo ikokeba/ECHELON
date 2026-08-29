@@ -7,6 +7,7 @@
 
 import { create } from "zustand";
 import { SPEED_STEPS } from "@sim/constants.ts";
+import type { ScenarioKey } from "@sim/scenario.ts";
 import type { Side } from "@sim/types.ts";
 import type { ControlState } from "@sim/control.ts";
 
@@ -15,6 +16,8 @@ export interface RosterSquad {
   squadId: number;
   effective: number;
   total: number;
+  /** 指揮継承直後で判断が鈍っている(仕様 §12) */
+  degraded: boolean;
 }
 
 export interface RosterPlatoon {
@@ -22,7 +25,21 @@ export interface RosterPlatoon {
   platoonId: number;
   effective: number;
   total: number;
+  /** 指揮継承直後で判断が鈍っている(仕様 §12) */
+  degraded: boolean;
   squads: RosterSquad[];
+}
+
+export interface RosterCompany {
+  side: Side;
+  companyId: number;
+  effective: number;
+  total: number;
+  degraded: boolean;
+  /** 出払っている後送アセットの台数 / 総数(仕様 §9) */
+  assetsBusy: number;
+  assetsTotal: number;
+  platoons: RosterPlatoon[];
 }
 
 /**
@@ -31,7 +48,7 @@ export interface RosterPlatoon {
  * 仕様 §5 の中核: 描画は選択した階層の world picture(belief)に基づいて行う。
  * 神視点(ground truth)は開発用のデバッグ表示としてのみ残す。
  */
-export type ViewEchelon = "platoon" | "squad" | "truth";
+export type ViewEchelon = "company" | "platoon" | "squad" | "truth";
 
 export interface HudSnapshot {
   tick: number;
@@ -66,11 +83,16 @@ interface UiState extends HudSnapshot {
   viewEchelon: ViewEchelon;
   /** viewEchelon === "squad" のときに覗く分隊 */
   viewSquadId: number | null;
+  /** viewEchelon === "platoon" のときに覗く小隊 */
+  viewPlatoonId: number | null;
+
+  /** 実行中のシナリオ。変えるとランタイムごと作り直される */
+  scenarioKey: ScenarioKey;
 
   /** 人間が操作中のノード(仕様 §4)。null なら観戦 */
   control: ControlState | null;
   /** 階層ツリー表示用の編成一覧 */
-  roster: RosterPlatoon[];
+  roster: RosterCompany[];
 
   togglePause: () => void;
   cycleSpeed: () => void;
@@ -79,9 +101,11 @@ interface UiState extends HudSnapshot {
   setViewSide: (side: Side) => void;
   setViewEchelon: (e: ViewEchelon) => void;
   setViewSquadId: (id: number | null) => void;
+  setViewPlatoonId: (id: number | null) => void;
+  setScenario: (k: ScenarioKey) => void;
   /** ホットスワップ要求。ランタイムが次フレームでシムへ反映する */
   requestSwap: (c: ControlState | null) => void;
-  setRoster: (r: RosterPlatoon[]) => void;
+  setRoster: (r: RosterCompany[]) => void;
   pushHud: (snap: HudSnapshot) => void;
 }
 
@@ -110,6 +134,8 @@ export const useSimStore = create<UiState>((set) => ({
   viewSide: "blue",
   viewEchelon: "platoon",
   viewSquadId: null,
+  viewPlatoonId: null,
+  scenarioKey: "platoon",
   control: null,
   roster: [],
 
@@ -120,6 +146,10 @@ export const useSimStore = create<UiState>((set) => ({
   setViewSide: (side) => set({ viewSide: side }),
   setViewEchelon: (e) => set({ viewEchelon: e }),
   setViewSquadId: (id) => set({ viewSquadId: id }),
+  setViewPlatoonId: (id) => set({ viewPlatoonId: id }),
+  /** シナリオを切り替える。世界を作り直すので操作対象と視点も初期化する */
+  setScenario: (k) =>
+    set({ scenarioKey: k, control: null, viewSquadId: null, viewPlatoonId: null }),
   /**
    * ホットスワップ。操作対象を変えると視点も自動でその階層へ合わせる —
    * 仕様 §5 のとおり、操作している階層が知り得る情報だけが見えるべきなので、
@@ -132,8 +162,14 @@ export const useSimStore = create<UiState>((set) => ({
         : {
             control: c,
             viewSide: c.side,
-            viewEchelon: c.echelon === "platoon" ? "platoon" : "squad",
+            viewEchelon:
+              c.echelon === "company"
+                ? "company"
+                : c.echelon === "platoon"
+                  ? "platoon"
+                  : "squad",
             viewSquadId: c.echelon === "squad" ? c.unitId : null,
+            viewPlatoonId: c.echelon === "platoon" ? c.unitId : null,
           },
     ),
   setRoster: (r) => set({ roster: r }),

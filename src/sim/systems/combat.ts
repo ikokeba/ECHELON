@@ -25,6 +25,7 @@ import {
   TURN_RATE,
 } from "../constants.ts";
 import { angleOf, dirFromAngle, turnToward } from "../geometry.ts";
+import { isOffField } from "./litter.ts";
 import type { World } from "../world.ts";
 import type { Soldier, Vec2 } from "../types.ts";
 
@@ -93,7 +94,7 @@ function nearestVisibleTarget(world: World, shooter: Soldier): Soldier | null {
   let downedD = Infinity;
   for (const id of shooter.sees) {
     const t = world.soldierById.get(id);
-    if (!t || t.status === "kia" || t.evac === "evacuated") continue;
+    if (!t || t.status === "kia" || isOffField(t)) continue;
     const d = Math.hypot(t.pos.x - shooter.pos.x, t.pos.z - shooter.pos.z);
     if (t.status === "ok") {
       if (d < bestD) {

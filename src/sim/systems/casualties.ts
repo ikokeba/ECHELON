@@ -101,7 +101,10 @@ export function casualtiesSystem(world: World): void {
     let best: Soldier | null = null;
     let bestD = Infinity;
     for (const cand of world.soldiers) {
-      if (cand.side !== patient.side || cand.squadId !== patient.squadId) continue;
+      // 本部要員は squadId が負値で全小隊に跨って一致してしまうため、
+      // 小隊も突き合わせて同じ部隊の中だけで担当を選ぶ(仕様 §2)
+      if (cand.side !== patient.side) continue;
+      if (cand.squadId !== patient.squadId || cand.platoonId !== patient.platoonId) continue;
       if (cand.status !== "ok" || cand.treating !== null) continue;
       // 担架搬送に就いている隊員は手当に回せない(仕様 §9: 搬送要員は搬送に専念)
       if (cand.bearing !== null) continue;
