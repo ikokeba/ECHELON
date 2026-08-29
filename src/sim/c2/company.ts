@@ -20,6 +20,7 @@
 
 import {
   CASEVAC_ARRIVAL_SEC,
+  GRENADE,
   CASEVAC_ASSET_CAPACITY,
   CASEVAC_ASSET_SPEED,
   CASEVAC_QUEUE_PENALTY_SEC,
@@ -89,6 +90,9 @@ function joinReplacement(world: World, casualty: Soldier): void {
     hqRole: null,
     quals: { ...casualty.quals },
     suppressedUntilTick: 0,
+    evadeUntilTick: 0,
+    grenades: casualty.role === "grenadier" ? GRENADE.CHARGES : 0,
+    routed: false,
     bleedOutTick: 0,
     assignedAider: null,
     treating: null,

@@ -21,7 +21,7 @@ describe("rollShot", () => {
     let hits = 0;
     let lethal = 0;
     for (let i = 0; i < 400000; i++) {
-      const r = rollShot(rng, { shooterSuppressed: false, shooterIsMarksman: false });
+      const r = rollShot(rng, { shooterSuppressed: false, shooterIsMarksman: false, shooterMoving: false, shooterIsSaw: false });
       if (r.hit) {
         hits++;
         if (r.lethal) lethal++;
@@ -38,7 +38,7 @@ describe("rollShot", () => {
       const rng = createRng(777);
       let hits = 0;
       for (let i = 0; i < n; i++) {
-        if (rollShot(rng, { shooterSuppressed: suppressed, shooterIsMarksman: false }).hit) hits++;
+        if (rollShot(rng, { shooterSuppressed: suppressed, shooterIsMarksman: false, shooterMoving: false, shooterIsSaw: false }).hit) hits++;
       }
       return hits;
     };
@@ -53,7 +53,16 @@ describe("rollShot", () => {
       const rng = createRng(31337);
       let hits = 0;
       for (let i = 0; i < n; i++) {
-        if (rollShot(rng, { shooterSuppressed: true, shooterIsMarksman: marksman }).hit) hits++;
+        if (
+          rollShot(rng, {
+            shooterSuppressed: true,
+            shooterIsMarksman: marksman,
+            shooterMoving: false,
+            shooterIsSaw: false,
+          }).hit
+        ) {
+          hits++;
+        }
       }
       return hits;
     };

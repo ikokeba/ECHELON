@@ -5,6 +5,7 @@
  * このファイルはプログラム的なフィクスチャとして残す。
  */
 
+import { GRENADE } from "./constants.ts";
 import { makeSimpleBuilding } from "./cqb.ts";
 import type {
   AABB,
@@ -81,6 +82,10 @@ export function makeSoldier(seed: SoldierSeed): Soldier {
     facing: { ...facing },
     status: "ok",
     suppressedUntilTick: 0,
+    evadeUntilTick: 0,
+    // 擲弾は擲弾手のみが携行する(仕様 §14: 3発/戦闘)
+    grenades: (seed.role ?? "rifleman") === "grenadier" ? GRENADE.CHARGES : 0,
+    routed: false,
     bleedOutTick: 0,
     order: seed.moveTo
       ? { kind: "move", target: { ...seed.moveTo }, issuedTick: 0 }

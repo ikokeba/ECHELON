@@ -14,13 +14,21 @@
 import { chance, ratePerTick, type Rng } from "../rng.ts";
 import {
   BLEED_OUT_SEC,
+  EVADE_SEC,
   FIRE_ALIGN_RAD,
+  GRENADE,
+  GRENADE_ATTEMPT_RATE_PER_SEC,
   HIT_RATE_PER_SEC,
   KIA_ON_HIT_CHANCE,
+  MOVING_ACC_PENALTY,
+  SAW_MOVING_ACC_MUL,
+  SAW_SUPPRESS_MUL,
   SIM_DT,
+  SIM_HZ,
   SUPPRESSION_ACC_PENALTY,
   SUPPRESSION_ACC_PENALTY_MARKSMAN,
   SUPPRESSION_GRACE_TICKS,
+  SUPPRESS_TRIGGER_RATE_PER_SEC,
   SOLDIER_RADIUS,
   TURN_RATE,
 } from "../constants.ts";
@@ -38,15 +46,31 @@ export interface ShotContext {
   shooterSuppressed: boolean;
   /** 射手が分隊の選抜射手である(制圧ペナルティが軽い) */
   shooterIsMarksman: boolean;
+  /** 射手が移動しながら撃っている(命中率が下がる) */
+  shooterMoving: boolean;
+  /** 射手が自動火器手である(移動時ペナルティが1.3倍に悪化。仕様 §14) */
+  shooterIsSaw: boolean;
 }
 
 export type ShotOutcome = { hit: false } | { hit: true; lethal: boolean };
 
-/** 有効かつLOSが通り正対済みの目標に対する、1ティック分の射撃判定(純粋関数)。 */
+/**
+ * 有効かつLOSが通り正対済みの目標に対する、1ティック分の射撃判定(純粋関数)。
+ *
+ * 命中率への修正はすべて**乗算**で重なる。仕様 §14 の「MOSはユニット固有の
+ * ステータス修正として扱い、命令の種類そのものは変更しない」という方針どおり、
+ * ここに MOS ごとの分岐は存在せず、係数だけが違う。
+ */
 export function rollShot(rng: Rng, ctx: ShotContext): ShotOutcome {
   let accMul = 1;
   if (ctx.shooterSuppressed) {
-    accMul = 1 - (ctx.shooterIsMarksman ? SUPPRESSION_ACC_PENALTY_MARKSMAN : SUPPRESSION_ACC_PENALTY);
+    accMul *=
+      1 - (ctx.shooterIsMarksman ? SUPPRESSION_ACC_PENALTY_MARKSMAN : SUPPRESSION_ACC_PENALTY);
+  }
+  if (ctx.shooterMoving) {
+    // SAW手は移動しながらの射撃が通常より苦手(仕様 §14: ペナルティが1.3倍)
+    const penalty = MOVING_ACC_PENALTY * (ctx.shooterIsSaw ? SAW_MOVING_ACC_MUL : 1);
+    accMul *= 1 - Math.min(0.95, penalty);
   }
   const hitP = ratePerTick(HIT_RATE_PER_SEC * accMul, SIM_DT);
   if (!chance(rng, hitP)) return { hit: false };
@@ -114,8 +138,59 @@ interface PendingShot {
   target: Soldier;
   outcome: ShotOutcome;
   suppressing: boolean;
+  /** このティックに回避行動を誘発したか(仕様 §14: SAWは誘発率1.5倍) */
+  triggersEvade: boolean;
   /** 判定時点で目標が既に行動不能だったか(仕様 §9 の即死ルール) */
   targetWasDowned: boolean;
+}
+
+/** 擲弾の着弾。遮蔽を無視して範囲で効く(仕様 §14) */
+interface PendingGrenade {
+  side: Soldier["side"];
+  impact: Vec2;
+  victims: Soldier[];
+}
+
+/**
+ * 擲弾手の行動(仕様 §14)。
+ *
+ * 「遮蔽物越しの範囲攻撃が可能(通常のLOS要件を無視、着弾半径2.0m)。使用回数上限3発」。
+ * LOS要件を無視する以上、**目標は自分の視界ではなくFTの world picture から採る**
+ * — 見えていない相手に投げられるのが擲弾の値打ちだが、それでも情報階層(仕様 §5)は
+ * 迂回させない。知らない敵には投げられない。
+ */
+function tryGrenade(
+  world: World,
+  shooter: Soldier,
+  aimPoints: readonly Vec2[],
+): PendingGrenade | null {
+  if (shooter.role !== "grenadier" || shooter.grenades <= 0) return null;
+  const rng = world.rngBySide[shooter.side];
+  if (!chance(rng, ratePerTick(GRENADE_ATTEMPT_RATE_PER_SEC, SIM_DT))) return null;
+
+  let aim: Vec2 | null = null;
+  let bestD = Infinity;
+  for (const p of aimPoints) {
+    const d = Math.hypot(p.x - shooter.pos.x, p.z - shooter.pos.z);
+    if (d < GRENADE.MIN_RANGE || d > GRENADE.MAX_RANGE) continue;
+    if (d < bestD) {
+      bestD = d;
+      aim = p;
+    }
+  }
+  if (!aim) return null;
+
+  shooter.grenades -= 1;
+  if (!chance(rng, GRENADE.SUCCESS_RATE)) return null;
+
+  const victims = world.soldiers.filter(
+    (t) =>
+      t.side !== shooter.side &&
+      t.status !== "kia" &&
+      !isOffField(t) &&
+      Math.hypot(t.pos.x - aim.x, t.pos.z - aim.z) <= GRENADE.BLAST_RADIUS,
+  );
+  return { side: shooter.side, impact: aim, victims };
 }
 
 /**
@@ -127,6 +202,17 @@ interface PendingShot {
 export function combatSystem(world: World): void {
   const maxTurn = TURN_RATE * SIM_DT;
   const pending: PendingShot[] = [];
+  const grenades: PendingGrenade[] = [];
+
+  // 擲弾手の照準点はFTの world picture から採る(LOS不要でも情報階層は迂回しない)
+  const aimPointsByFt = new Map<string, Vec2[]>();
+  for (const ft of world.fireteams) {
+    const pts: Vec2[] = [];
+    for (const c of ft.memory.values()) {
+      if (c.confidence > 0.5) pts.push(c.pos);
+    }
+    aimPointsByFt.set(`${ft.side}:${ft.squadId}:${ft.ftIndex}`, pts);
+  }
 
   for (const s of world.soldiers) {
     s.suppressor = s.order.kind === "suppress";
@@ -135,6 +221,13 @@ export function combatSystem(world: World): void {
     if (s.treating !== null && s.aidProgressTicks > 0) continue;
     // 担架搬送中は武器を使用できない(仕様 §9)
     if (s.bearing !== null) continue;
+    // 潰走中は自分からは撃たない(仕様 §12: 隊形崩壊、武装放棄もあり得る)。
+    // ただし**交戦対象にはなる** — 逃走中でも攻撃可能、と仕様が明記している
+    if (s.routed) continue;
+
+    // 擲弾(仕様 §14)。遮蔽越しに効くので通常射撃とは別枠で判定する
+    const g = tryGrenade(world, s, aimPointsByFt.get(`${s.side}:${s.squadId}:${s.fireteamId}`) ?? []);
+    if (g) grenades.push(g);
 
     const target = nearestVisibleTarget(world, s);
     if (!target) continue;
@@ -163,40 +256,79 @@ export function combatSystem(world: World): void {
       shooterSuppressed: isSuppressed(s, world.tick),
       // 選抜射手は制圧下でも命中率低下が軽い(仕様 §8.6 [v5], §14)
       shooterIsMarksman: s.quals.designatedMarksman,
+      shooterMoving: moving,
+      shooterIsSaw: s.role === "saw",
     });
+
+    // 制圧役は行動抑制(evade)も誘発する。SAW手はこの誘発率が1.5倍(仕様 §14)
+    let triggersEvade = false;
+    if (s.suppressor) {
+      const mul = s.role === "saw" ? SAW_SUPPRESS_MUL : 1;
+      triggersEvade = chance(
+        world.rngBySide[s.side],
+        ratePerTick(SUPPRESS_TRIGGER_RATE_PER_SEC * mul, SIM_DT),
+      );
+    }
+
     pending.push({
       shooter: s,
       target,
       outcome,
       suppressing: s.suppressor,
+      triggersEvade,
       targetWasDowned: target.status !== "ok",
     });
   }
 
   // ── 適用フェーズ ──
-  for (const { target, outcome, suppressing, targetWasDowned } of pending) {
+  /** 被弾の適用。行動不能中への追加被弾は即死(仕様 §9)。 */
+  const applyHit = (target: Soldier, wasDowned: boolean, lethal: boolean): void => {
+    if (wasDowned) {
+      target.status = "kia";
+      target.bleedOutTick = 0;
+      target.assignedAider = null;
+      return;
+    }
+    if (lethal) {
+      target.status = "kia";
+      target.path = [];
+      target.pathIdx = 0;
+      target.bleedOutTick = 0;
+      return;
+    }
+    if (target.status === "ok") {
+      target.status = "wia";
+      target.path = [];
+      target.pathIdx = 0;
+      target.bleedOutTick = world.tick + Math.round(BLEED_OUT_SEC / SIM_DT);
+    }
+  };
+
+  for (const { target, outcome, suppressing, triggersEvade, targetWasDowned } of pending) {
     if (outcome.hit) {
       // 即死ルール(仕様 §9): 行動不能中の兵士への追加被弾は、安定化・後送状況に
       // 関係なく即時戦死。倒れた味方を無防備に放置するリスクを明確化するための規則。
-      if (targetWasDowned) {
-        target.status = "kia";
-        target.bleedOutTick = 0;
-        target.assignedAider = null;
-      } else if (outcome.lethal) {
-        target.status = "kia";
-        target.path = [];
-        target.pathIdx = 0;
-        target.bleedOutTick = 0;
-      } else if (target.status === "ok") {
-        target.status = "wia";
-        target.path = [];
-        target.pathIdx = 0;
-        target.bleedOutTick = world.tick + Math.round(BLEED_OUT_SEC / SIM_DT);
-      }
+      applyHit(target, targetWasDowned, outcome.lethal);
     }
     // 制圧は、制圧役が目標へ発砲し続けている間だけ持続する(§8.6)
     if (suppressing && target.status === "ok") {
       target.suppressedUntilTick = world.tick + 1 + SUPPRESSION_GRACE_TICKS;
+      // 行動抑制(仕様 §14)。制圧そのものに余韻はない(§8.6)が、誘発された
+      // 回避行動には持続がある — 遮蔽へ飛び込む動作は途中では止まらない
+      if (triggersEvade) {
+        target.evadeUntilTick = Math.max(
+          target.evadeUntilTick,
+          world.tick + Math.round(EVADE_SEC * SIM_HZ),
+        );
+      }
+    }
+  }
+
+  // ── 擲弾の適用(仕様 §14: 遮蔽物越しの範囲攻撃)──
+  for (const g of grenades) {
+    for (const v of g.victims) {
+      const wasDowned = v.status !== "ok";
+      applyHit(v, wasDowned, chance(world.rngBySide[g.side], KIA_ON_HIT_CHANCE));
     }
   }
 }

@@ -55,7 +55,7 @@ export type SoldierOrderKind =
  * `CQB` は仕様 §7.3 が「室内クリアリング中は専用モードとして扱い、ADVANCE/CONTACT/
  * SEARCH/FALLBACK のいずれとも異なる」と明記しているため、5つ目の状態として持つ。
  */
-export type FireteamMode = "ADVANCE" | "CONTACT" | "SEARCH" | "FALLBACK" | "CQB";
+export type FireteamMode = "ADVANCE" | "CONTACT" | "SEARCH" | "FALLBACK" | "CQB" | "ROUT";
 
 /**
  * 突入待機命令の3段階(仕様 §7.3)。`CQB` モードの内部進行。
@@ -169,6 +169,20 @@ export interface Soldier {
 
   /** 制圧状態が解けるティック(0 = 非制圧) */
   suppressedUntilTick: number;
+  /**
+   * 制圧射撃に誘発された回避行動が終わるティック(0 = 回避中でない)。仕様 §14。
+   * SAW手の制圧はこの誘発率が1.5倍になる — SAWの戦術的な価値がここに出る。
+   */
+  evadeUntilTick: number;
+  /** 擲弾の残数(仕様 §14 — 3発/戦闘)。擲弾手以外は0 */
+  grenades: number;
+  /**
+   * 潰走中(仕様 §12)。所属FTが崩壊判定を受けている状態。
+   * 潰走中の兵士は交戦対象にはなるが、自分からは撃たない(武装放棄)。
+   * ただし**プレイヤーが直接操作している兵士は潰走を拒否できる**
+   * (仕様 §12:「人間の意志は命令より強い」)。
+   */
+  routed: boolean;
   /** WIAがKIAへ移行するティック(0 = 該当なし。止血済みなら0) */
   bleedOutTick: number;
 
@@ -532,6 +546,13 @@ export interface FireteamState {
   cqbCorner: Map<number, Vec2>;
   /** 突入順(スタック順)。単一ファイルでの流入間隔に使う */
   cqbEntryOrder: number[];
+
+  /**
+   * 潰走を開始したティック(null = 潰走していない)。仕様 §12 の補助条件。
+   * 判定単位はファイアチーム — 分隊・小隊レベルでの直接判定は行わず、
+   * 上位への波及は麾下FTの崩壊の集積として間接的に表現される。
+   */
+  routedSinceTick: number | null;
 }
 
 export interface Scenario {

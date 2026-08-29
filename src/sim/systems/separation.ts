@@ -30,10 +30,23 @@ const RELAX = 0.25;
 
 const hash = createSpatialHash<Soldier>(MIN_SEPARATION * 2);
 
+/**
+ * 分離の対象外にする兵士。
+ *
+ * 担架班(負傷者本人と担架要員)は litterSystem が**剛体として**位置を決めている。
+ * そこへソフト分離を掛けると、担架要員が自分の担いでいる負傷者を押し戻してしまう。
+ * 搬送速度(0.5倍 = 0.043m/tick)より押し出し量のほうが大きいため、実際に
+ * 扉の開口部で担架班が永久に動けなくなる不具合を起こした。
+ */
+function isRigidLitter(s: Soldier): boolean {
+  return s.bearing !== null || s.bearers.length > 0;
+}
+
 export function separationSystem(world: World): void {
   clearHash(hash);
   for (const s of world.soldiers) {
     if (s.status === "kia") continue; // 遺体は押し出しの対象外
+    if (isRigidLitter(s)) continue;
     insert(hash, s.pos, s);
   }
 
@@ -43,7 +56,7 @@ export function separationSystem(world: World): void {
   const pushZ = new Map<number, number>();
 
   for (const a of world.soldiers) {
-    if (a.status === "kia") continue;
+    if (a.status === "kia" || isRigidLitter(a)) continue;
     forEachNear(hash, a.pos, MIN_SEPARATION, (b) => {
       if (b.id <= a.id) return; // 各ペアを1回だけ処理する
       const dx = b.pos.x - a.pos.x;

@@ -19,6 +19,8 @@ import { CQB, ENTRY_SPEED_MUL, SIM_HZ } from "../constants.ts";
 import { cornerAssignments, doorById, insideBounds, nudgeInside, roomOfDoor } from "../cqb.ts";
 import { refreshBlockers, type World } from "../world.ts";
 import { stackPositions } from "../cqb.ts";
+import { isCommittedToAid } from "../systems/casualties.ts";
+import { isCommittedToLitter } from "../systems/litter.ts";
 import type { FireteamState, Soldier, Vec2 } from "../types.ts";
 
 const ENTRY_STAGGER_TICKS = Math.round(CQB.ENTRY_STAGGER_SEC * SIM_HZ);
@@ -59,15 +61,23 @@ export function runCqb(
     return;
   }
 
+  // 突入に参加できる隊員だけを数える。応急手当や担架搬送に就いている隊員は
+  // 命令系統の外側で拘束されていて(仕様 §9)、こちらから動かせない。
+  // 彼らを待つと、負傷者が1名出ただけでドリルが永久に完了しなくなる(実装で確認した)。
+  const available = living.filter(
+    (u) => !isCommittedToAid(world, u) && !isCommittedToLitter(u),
+  );
+  if (available.length === 0) return;
+
   // 突入順はスタック順に固定する(仕様 §7.3 の積み残し課題として明記済み)。
   // 一度決めたら段階をまたいで保持する — 途中で並び替えると流入間隔が壊れる。
   if (ft.cqbEntryOrder.length === 0) {
-    ft.cqbEntryOrder = living.map((u) => u.id);
+    ft.cqbEntryOrder = available.map((u) => u.id);
   }
   const ordered = ft.cqbEntryOrder
-    .map((id) => living.find((u) => u.id === id))
+    .map((id) => available.find((u) => u.id === id))
     .filter((u): u is Soldier => u !== undefined);
-  const team = ordered.length > 0 ? ordered : living;
+  const team = ordered.length > 0 ? ordered : available;
 
   // どの段階でも詰まったままにはしない。到達不能な扉に張り付いて分隊が
   // 丸ごと戦闘から消えるのが最悪の失敗なので、時間で必ず抜ける
@@ -147,7 +157,16 @@ export function runCqb(
 
     case "reorg": {
       // 再編成。次の部屋/建物への行動判断は分隊長の責務(仕様 §7.2)なので、
-      // FTはCQBモードを抜けて通常の命令系統へ戻る
+      // FTはCQBモードを抜けて通常の命令系統へ戻る。
+      //
+      // **掃討完了を分隊長へ明示的に伝える**のが要点。CQBモードを抜けたこと自体を
+      // 完了と見なすと、途中でFALLBACKに落ちて中断した場合まで「掃討済み」に
+      // なってしまい、二度とその部屋を攻略できなくなる(実装して確認した)。
+      const sq = world.squads.find((s) => s.side === ft.side && s.squadId === ft.squadId);
+      if (sq) {
+        if (!sq.clearedDoorIds.includes(door.id)) sq.clearedDoorIds.push(door.id);
+        if (sq.assaultDoorId === door.id) sq.assaultDoorId = null;
+      }
       exitCqb(ft);
       return;
     }

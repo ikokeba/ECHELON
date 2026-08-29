@@ -18,13 +18,20 @@ import { hasLineOfSight } from "../geometry.ts";
 import {
   bestCoverPoint,
   bestFlankPoint,
+  nearestCoverTowards,
   pickSupportedBoundTarget,
 } from "../cover.ts";
-import { CONFIDENCE_CUTOFF, POS_ERROR_GROWTH, POS_ERROR_MAX, SIM_HZ } from "../constants.ts";
+import {
+  CONFIDENCE_CUTOFF,
+  MORALE,
+  POS_ERROR_GROWTH,
+  POS_ERROR_MAX,
+  SIM_HZ,
+} from "../constants.ts";
 import { formationSlots } from "../formation.ts";
 import { aiSuppressed } from "../control.ts";
 import { isCommittedToAid } from "../systems/casualties.ts";
-import { isCommittedToLitter } from "../systems/litter.ts";
+import { isCommittedToLitter, isOffField } from "../systems/litter.ts";
 import { exitCqb, runCqb } from "./cqbDrill.ts";
 import { decayedConfidence } from "../belief.ts";
 import type { Contact, FireteamMode, FireteamState, Soldier, Vec2 } from "../types.ts";
@@ -47,6 +54,10 @@ const DEST_ARRIVE = 1.5;
 const FALLBACK_DEFICIT = 1;
 /** FTリーダーの意思決定周期。毎ティックではない */
 const DECIDE_EVERY_TICKS = Math.round(0.3 * SIM_HZ);
+/** 潰走の最短持続ティック(仕様 §12 `[v6]`) */
+const MIN_ROUT_TICKS = Math.round(MORALE.MIN_ROUT_SEC * SIM_HZ);
+/** 回避行動で下がる距離 m。遮蔽が見つからない場合はこの距離をそのまま下がる `[v6]` */
+const EVADE_DIST = 6;
 
 function centroid(units: readonly Soldier[]): Vec2 {
   if (units.length === 0) return { x: 0, z: 0 };
@@ -166,6 +177,30 @@ function updateMemory(world: World, ft: FireteamState, members: readonly Soldier
 }
 
 /**
+ * 崩壊/後退の判定(仕様 §12 補助条件: Morale Break)。
+ *
+ * 仕様が確定させているのは3点で、そのとおりに実装する:
+ *   - **判定単位はファイアチーム**。分隊・小隊レベルでの直接判定は行わない。
+ *     上位への波及は麾下FTの崩壊の集積として間接的に表現される
+ *   - **トリガーはチーム内の未処置負傷者が50%以上という単一条件**。
+ *     損耗率(戦死者の割合)や制圧射撃の蓄積は判定要因から切り離す
+ *   - 自軍・敵軍とも同一条件(仕様 §13)
+ *
+ * `[v6]` 分母は「まだ戦場にいる隊員(健常+負傷)」とする。戦死者まで分母に残すと、
+ * 半数が戦死した4名チームは残り2名がどうなろうと永久に潰走しなくなり、
+ * 「崩壊」という現象が起きなくなってしまう。
+ */
+function evaluateMorale(world: World, ft: FireteamState, onField: Soldier[]): boolean {
+  if (ft.routedSinceTick !== null) {
+    // 一度潰走したら最低時間は続ける。条件のふらつきで点滅させない
+    if (world.tick - ft.routedSinceTick < MIN_ROUT_TICKS) return true;
+  }
+  if (onField.length === 0) return false;
+  const untreated = onField.filter((s) => s.status === "wia" && !s.stabilized).length;
+  return untreated / onField.length >= MORALE.UNTREATED_RATIO;
+}
+
+/**
  * モード選択。
  *
  * 戦力比較では、このFT単独ではなく**分隊全体**の有効戦力を、当該FTが把握している
@@ -178,8 +213,11 @@ function selectMode(
   squadStrength: number,
   memberCount: number,
   contacts: Contact[],
+  routed: boolean,
 ): FireteamMode {
   const known = contacts.length;
+  // 潰走はあらゆる判断に優先する。指揮ではなく崩壊なので、命令系統の外側にある
+  if (routed) return "ROUT";
   if (memberCount > 0 && squadStrength < known - FALLBACK_DEFICIT) return "FALLBACK";
   // 突入命令を受けている間は室内専用モード。仕様 §7.3 は「室内クリアリング中は
   // 専用モードとして扱い、ADVANCE/CONTACT/SEARCH/FALLBACK のいずれとも異なる」と
@@ -409,10 +447,23 @@ export function fireteamAI(world: World): void {
     const squadStrength = world.soldiers.filter(
       (s) => s.side === ft.side && s.squadId === ft.squadId && s.status === "ok",
     ).length;
+    // 崩壊/後退の判定(仕様 §12)。戦死者を除いた「まだ戦場にいる隊員」で見る
+    const onField = members.filter((s) => s.status !== "kia" && !isOffField(s));
+    const routed = evaluateMorale(world, ft, onField);
+    if (routed && ft.routedSinceTick === null) ft.routedSinceTick = world.tick;
+    if (!routed) ft.routedSinceTick = null;
+    for (const u of members) {
+      // プレイヤーが直接操作している兵士は潰走を拒否できる(仕様 §12)。
+      // 「操作中の1人だけ踏みとどまり、周囲は崩れる」状況が起こり得る
+      u.routed = routed && !aiSuppressed(world, "soldier", u.side, u.id);
+    }
+
     const prevMode = ft.mode;
-    const next = selectMode(ft, squadStrength, living.length, contacts);
+    const next = selectMode(ft, squadStrength, living.length, contacts, routed);
     if (next !== ft.mode) {
-      if (next === "FALLBACK" || world.tick - ft.modeSince >= MODE_DWELL_TICKS) {
+      // 後退と潰走は最小滞留時間を無視する。どちらも「判断」ではなく、
+      // 崩れたという事実への反応なので、様子見の余地がない
+      if (next === "FALLBACK" || next === "ROUT" || world.tick - ft.modeSince >= MODE_DWELL_TICKS) {
         ft.mode = next;
         ft.modeSince = world.tick;
       }
@@ -438,7 +489,19 @@ export function fireteamAI(world: World): void {
     const bravo = living.filter((_, i) => i >= Math.ceil(living.length / 2));
     const mc = centroid(living);
 
-    if (ft.mode === "CQB") {
+    if (ft.mode === "ROUT") {
+      // 潰走(仕様 §12): 隊形も役割も崩れ、各自が集結地点へ走る。
+      // 潰走を拒否した(=操作中の)兵士だけは、この命令の対象から外れる
+      const freshest = contacts.reduce<Contact | null>(
+        (a, c) => (!a || c.lastSeenTick > a.lastSeenTick ? c : a),
+        null,
+      );
+      for (const u of living) {
+        if (!u.routed) continue;
+        const look = freshest ? dirTo(u.pos, freshest.pos) : ft.advanceDir;
+        issue(world, u, "retreat", ft.rallyPoint, look);
+      }
+    } else if (ft.mode === "CQB") {
       // 突入待機命令の3段階(仕様 §7.3)。命令発行はここと同じ issue を通すので、
       // 応急手当・担架搬送による拘束は室内でもそのまま尊重される
       runCqb(world, ft, living, (u, kind, target, look) => issue(world, u, kind, target, look));
@@ -571,6 +634,33 @@ export function fireteamAI(world: World): void {
     } else {
       // ADVANCE — 分隊長(ひいては小隊長)が指示した移動技術で任務目標へ向かう(仕様 §6)
       runAdvance(world, ft, alpha, bravo, dirTo(mc, ft.objective));
+    }
+
+    // 制圧が誘発した回避行動(仕様 §14)は、モードごとの命令より優先する。
+    // 遮蔽へ飛び込む動作は指揮判断ではなく反射なので、命令系統の外側に置く。
+    // SAW手の制圧はこの誘発率が1.5倍で、そこがSAWの戦術的な値打ちになる。
+    //
+    // ただし**室内クリアリング中は適用しない**(仕様 §7.3 は CQB を専用モードとして
+    // 他と切り分けている)。突入の最中に反射的に後退すると、扉の前で出たり入ったりして
+    // ドリルが永久に完了しなくなる。狭所では前へ抜けるのがドクトリンでもある。
+    if (ft.mode === "CQB") continue;
+
+    const threatPos = contacts.reduce<Contact | null>(
+      (a, c) => (!a || c.confidence > a.confidence ? c : a),
+      null,
+    )?.pos;
+    for (const u of living) {
+      if (u.evadeUntilTick <= world.tick) continue;
+      const away = threatPos
+        ? { x: u.pos.x - threatPos.x, z: u.pos.z - threatPos.z }
+        : { x: -ft.advanceDir.x, z: -ft.advanceDir.z };
+      const d = Math.hypot(away.x, away.z) || 1;
+      const dir = { x: away.x / d, z: away.z / d };
+      const dest =
+        nearestCoverTowards(world.walls, world.coverPoints, u.pos, dir, 1, EVADE_DIST) ??
+        { x: u.pos.x + dir.x * EVADE_DIST, z: u.pos.z + dir.z * EVADE_DIST };
+      const look = threatPos ? dirTo(u.pos, threatPos) : ft.advanceDir;
+      issue(world, u, "evade", dest, look);
     }
   }
 }

@@ -217,8 +217,9 @@ function directBuildingAssault(world: World, sq: SquadState): boolean {
       }
       return true;
     }
-    // 突入FTがCQBを抜けた = 掃討完了(または全滅)。同じ扉は二度と攻めない
-    sq.clearedDoorIds.push(sq.assaultDoorId);
+    // 突入FTがCQBを抜けた。掃討を完了した場合は cqbDrill 側が clearedDoorIds へ
+    // 記録済みなので、ここでは latch を外すだけにする。中断(FALLBACK・潰走・全滅)
+    // で抜けた場合はこの扉が未掃討のまま残り、態勢が整えばもう一度攻略できる。
     sq.assaultDoorId = null;
   }
 

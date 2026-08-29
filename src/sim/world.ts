@@ -149,6 +149,7 @@ function buildFireteams(scenario: Scenario, soldiers: Soldier[]): FireteamState[
       cqbStageSince: 0,
       cqbCorner: new Map(),
       cqbEntryOrder: [],
+      routedSinceTick: null,
     });
   }
   return [...seen.values()];
