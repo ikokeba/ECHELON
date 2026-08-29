@@ -15,7 +15,6 @@
 
 import { SIM_HZ } from "../constants.ts";
 import { aiSuppressed } from "../control.ts";
-import { postureFactors } from "../tuning.ts";
 import { commandFactor } from "./succession.ts";
 import { clampToObjective, heldObjectiveNear } from "./objectiveHold.ts";
 import type { Contact, MovementTechnique, PlatoonState, Vec2 } from "../types.ts";
@@ -149,7 +148,7 @@ export function platoonAI(world: World): void {
     anchor.x /= livingSquads.length;
     anchor.z /= livingSquads.length;
 
-    const technique = selectTechnique(pl, anchor, postureFactors(world.posture[pl.side]).techniqueRangeMul);
+    const technique = selectTechnique(pl, anchor, world.posture[pl.side].techniqueRangeMul);
     const threat = primaryThreat(pl.belief);
 
     // 目標軸に対して直交する方向へ分隊を並べ、担当区域を割り当てる。

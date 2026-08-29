@@ -18,6 +18,12 @@ import {
 } from "./constants.ts";
 import type { Posture, Side, Tuning } from "./types.ts";
 
+/** FTリーダーAIの後退判断で使う劣勢人数差の基準(fireteam.ts と同じ値)。 */
+const FALLBACK_DEFICIT_BASE = 1;
+
+/** 攻勢分遣の発動兵力比の既定(F-2)。 */
+export const OFFENSIVE_RATIO_DEFAULT = 1.3;
+
 /** 定数そのままの共通チューニング。 */
 export function defaultTuning(): Tuning {
   return {
@@ -29,36 +35,27 @@ export function defaultTuning(): Tuning {
   };
 }
 
-/** 両陣営とも中立(0.5)。この時点では下位係数がすべて現行定数と一致する。 */
-export function defaultPosture(): Record<Side, Posture> {
-  return {
-    blue: { riskTolerance: 0.5 },
-    red: { riskTolerance: 0.5 },
-  };
-}
-
 /**
- * リスク許容度 0..1 を、FTリーダーAIが使う各しきい値の乗数/加算へ写像する。
- * `riskTolerance === 0.5` で恒等(乗数1・加算0)になるよう線形に組む。
+ * リスク許容度 0..1 を各性格パラメータへ写像する。`rt === 0.5` で全 identity。
+ * マスタースライダーを動かしたとき、個別値をこの値へまとめて再設定する。
  */
-export interface PostureFactors {
-  /** 交戦距離帯(ENGAGE_MIN/MAX)への乗数。強気ほど小さい=詰める。0.5→1.0 */
-  engageRangeMul: number;
-  /** 前進歩幅(BOUND_MIN/MAX_ADV)への乗数。強気ほど大きい。0.5→1.0 */
-  boundStepMul: number;
-  /** 後退を判断する劣勢人数差への加算。強気ほど大きい=粘る。0.5→0 */
-  fallbackDeficitBonus: number;
-  /** 小隊長の移動技術しきい距離への乗数。強気ほど小さい=近づくまで警戒しない。0.5→1.0 */
-  techniqueRangeMul: number;
+export function postureFromRisk(rt: number): Omit<Posture, "riskTolerance"> {
+  // r: -1(最も慎重)‥0(中立)‥+1(最も強気)
+  const r = (rt - 0.5) * 2;
+  return {
+    engageMinMul: 1 - r * 0.4, // 強気ほど交戦距離を詰める
+    engageMaxMul: 1 - r * 0.4,
+    boundMinMul: 1 + r * 0.5, // 強気ほど躍進が大きい
+    boundMaxMul: 1 + r * 0.5,
+    fallbackDeficit: FALLBACK_DEFICIT_BASE + Math.round(r * 2), // 強気ほど粘る
+    techniqueRangeMul: 1 - r * 0.35, // 強気ほど近づくまで警戒しない
+    coverPref: 1 - r * 0.4, // 慎重ほど露出を嫌う
+    offensiveRatio: OFFENSIVE_RATIO_DEFAULT, // 兵力比しきい値は riskTolerance では動かさない
+  };
 }
 
-export function postureFactors(p: Posture): PostureFactors {
-  // r: -1(最も慎重)‥0(中立)‥+1(最も強気)
-  const r = (p.riskTolerance - 0.5) * 2;
-  return {
-    engageRangeMul: 1 - r * 0.4, // 0.1 の強気で交戦距離 -8%
-    boundStepMul: 1 + r * 0.5,
-    fallbackDeficitBonus: Math.round(r * 2), // ±2人まで
-    techniqueRangeMul: 1 - r * 0.35,
-  };
+/** 中立(0.5)= 全 identity。この時点で下位係数がすべて現行定数と一致する。 */
+export function defaultPosture(): Record<Side, Posture> {
+  const make = (): Posture => ({ riskTolerance: 0.5, ...postureFromRisk(0.5) });
+  return { blue: make(), red: make() };
 }

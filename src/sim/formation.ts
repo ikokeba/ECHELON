@@ -162,10 +162,12 @@ export function preferCover(
   coverPoints: readonly Vec2[],
   contacts: Iterable<Contact>,
   desired: Vec2,
+  /** 露出回避度(`[v6.1]` 陣営別 coverPref。1 = 現行、>1 でより早く遮蔽へ寄る) */
+  coverPref = 1,
 ): Vec2 {
   const cs = [...contacts];
   const base = exposureAt(walls, cs, desired);
-  if (base <= EXPOSURE_THRESHOLD) return desired;
+  if (base <= EXPOSURE_THRESHOLD / coverPref) return desired;
 
   let best: Vec2 | null = null;
   let bestExp = base;
@@ -200,7 +202,12 @@ export function formationSlots(
   leader: Vec2,
   dir: Vec2,
   count: number,
-  opts?: { contacts?: Iterable<Contact>; coverPoints?: readonly Vec2[] },
+  opts?: {
+    contacts?: Iterable<Contact>;
+    coverPoints?: readonly Vec2[];
+    /** 露出回避度(`[v6.1]` 陣営別 coverPref)。既定 1 で現行挙動 */
+    coverPref?: number;
+  },
 ): FormationSlot[] {
   const tier = decideTier(corridorWidth(walls, leader, dir));
   const offsets = TIER_OFFSETS[tier];
@@ -219,7 +226,13 @@ export function formationSlots(
     };
     p = clampToWalkable(walls, p, leader);
     if (opts?.contacts && opts.coverPoints) {
-      const preferred = preferCover(walls, opts.coverPoints, opts.contacts, p);
+      const preferred = preferCover(
+        walls,
+        opts.coverPoints,
+        opts.contacts,
+        p,
+        opts.coverPref ?? 1,
+      );
       p = clampToWalkable(walls, preferred, leader);
     }
     slots.push({ pos: p, tier, speedMul });

@@ -32,8 +32,8 @@ function syncTuning(world: World): void {
   world.tuning.fireAlignRad = (tuning.fireAlignDeg * Math.PI) / 180;
   world.tuning.moveSpeed = tuning.moveSpeed;
   world.tuning.turnRate = (tuning.turnRateDeg * Math.PI) / 180;
-  world.posture.blue.riskTolerance = posture.blue.riskTolerance;
-  world.posture.red.riskTolerance = posture.red.riskTolerance;
+  Object.assign(world.posture.blue, posture.blue);
+  Object.assign(world.posture.red, posture.red);
 }
 
 const FT_MODE_LABEL: Record<string, string> = {

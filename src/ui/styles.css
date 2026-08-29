@@ -605,6 +605,18 @@ span.obj-contested { background: none; flex: none; }
 .dbg-slider { display: flex; flex-direction: column; gap: 3px; }
 .dbg-slider-head { display: flex; justify-content: space-between; color: var(--muted); }
 .dbg-slider input[type="range"] { width: 100%; accent-color: #f5c451; }
+.dbg-posture { border: 1px solid var(--border); border-radius: 5px; padding: 5px 7px; }
+.dbg-posture > summary {
+  display: flex;
+  justify-content: space-between;
+  cursor: pointer;
+  list-style: none;
+  font-weight: 600;
+}
+.dbg-posture > summary::-webkit-details-marker { display: none; }
+.dbg-posture > input[type="range"] { width: 100%; accent-color: #f5c451; margin: 4px 0; }
+.dbg-slider-sub { margin-left: 8px; font-size: 11px; }
+.dbg-slider-sub input[type="range"] { accent-color: #7aa2d8; }
 .dbg-note, .dbg-legend div { font-size: 10px; color: var(--muted); line-height: 1.5; }
 .dbg-blue { color: var(--blue); }
 .dbg-red { color: var(--red); }

@@ -15,8 +15,9 @@ import {
   TURN_RATE,
 } from "@sim/constants.ts";
 import type { ScenarioKey } from "@sim/scenario.ts";
-import type { Echelon, Side, Vec2, VictoryState } from "@sim/types.ts";
+import type { Echelon, Posture, Side, Vec2, VictoryState } from "@sim/types.ts";
 import type { ControlState } from "@sim/control.ts";
+import { postureFromRisk } from "@sim/tuning.ts";
 
 const RAD2DEG = 180 / Math.PI;
 
@@ -187,7 +188,8 @@ interface UiState extends HudSnapshot {
   /** デバッグ用スライダー(共通チューニング) */
   tuning: TuningUi;
   /** デバッグ用スライダー(陣営別リスク許容度 0..1) */
-  posture: Record<Side, { riskTolerance: number }>;
+  /** デバッグ用スライダー(陣営別の性格パラメータ)。riskTolerance はマスター */
+  posture: Record<Side, Posture>;
 
   togglePause: () => void;
   cycleSpeed: () => void;
@@ -206,7 +208,10 @@ interface UiState extends HudSnapshot {
   pushThinking: (t: ThinkingSnapshot) => void;
   setDebug: (patch: Partial<DebugState>) => void;
   setTuning: (patch: Partial<TuningUi>) => void;
-  setPosture: (side: Side, riskTolerance: number) => void;
+  /** マスター(リスク許容度)。個別値もこの値から一括で再計算する */
+  setPostureRisk: (side: Side, riskTolerance: number) => void;
+  /** 個別の性格パラメータを上書きする */
+  setPostureKnob: (side: Side, patch: Partial<Posture>) => void;
   /** 共通チューニングとリスク許容度を仕様の既定値へ戻す */
   resetTuning: () => void;
 }
@@ -264,7 +269,10 @@ export const useSimStore = create<UiState>((set) => ({
     showContactRings: true,
   },
   tuning: { ...DEFAULT_TUNING_UI },
-  posture: { blue: { riskTolerance: 0.5 }, red: { riskTolerance: 0.5 } },
+  posture: {
+    blue: { riskTolerance: 0.5, ...postureFromRisk(0.5) },
+    red: { riskTolerance: 0.5, ...postureFromRisk(0.5) },
+  },
 
   togglePause: () => set((s) => ({ paused: !s.paused })),
   cycleSpeed: () => set((s) => ({ speedIdx: (s.speedIdx + 1) % RUN_SPEEDS.length })),
@@ -305,12 +313,24 @@ export const useSimStore = create<UiState>((set) => ({
   pushThinking: (t) => set({ thinking: t }),
   setDebug: (patch) => set((s) => ({ debug: { ...s.debug, ...patch } })),
   setTuning: (patch) => set((s) => ({ tuning: { ...s.tuning, ...patch } })),
-  setPosture: (side, riskTolerance) =>
-    set((s) => ({ posture: { ...s.posture, [side]: { riskTolerance } } })),
+  setPostureRisk: (side, riskTolerance) =>
+    set((s) => ({
+      posture: {
+        ...s.posture,
+        [side]: { riskTolerance, ...postureFromRisk(riskTolerance) },
+      },
+    })),
+  setPostureKnob: (side, patch) =>
+    set((s) => ({
+      posture: { ...s.posture, [side]: { ...s.posture[side], ...patch } },
+    })),
   resetTuning: () =>
     set({
       tuning: { ...DEFAULT_TUNING_UI },
-      posture: { blue: { riskTolerance: 0.5 }, red: { riskTolerance: 0.5 } },
+      posture: {
+        blue: { riskTolerance: 0.5, ...postureFromRisk(0.5) },
+        red: { riskTolerance: 0.5, ...postureFromRisk(0.5) },
+      },
     }),
 }));
 

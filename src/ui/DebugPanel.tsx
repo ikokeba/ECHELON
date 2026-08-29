@@ -1,5 +1,5 @@
 import { useSimStore, type DebugState, type TuningUi } from "./store.ts";
-import type { Side } from "@sim/types.ts";
+import type { Posture, Side } from "@sim/types.ts";
 
 /**
  * デバッグUI(初回テストプレイ指摘)。squad-12v12 モックの右サイドパネルを踏襲する:
@@ -35,13 +35,32 @@ const COMMON_SLIDERS: SliderDef[] = [
   { key: "turnRateDeg", label: "旋回速度 (度/秒)", min: 60, max: 720, step: 10 },
 ];
 
+/** 陣営別 性格パラメータの個別スライダー。すべて identity(乗数1 / 絶対値=定数)中心。 */
+const POSTURE_KNOBS: Array<{
+  key: Exclude<keyof Posture, "riskTolerance">;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+}> = [
+  { key: "engageMinMul", label: "最小交戦距離 ×", min: 0.5, max: 1.5, step: 0.05 },
+  { key: "engageMaxMul", label: "最大交戦距離 ×", min: 0.5, max: 1.5, step: 0.05 },
+  { key: "boundMinMul", label: "躍進歩幅・最小 ×", min: 0.5, max: 2, step: 0.05 },
+  { key: "boundMaxMul", label: "躍進歩幅・最大 ×", min: 0.5, max: 2, step: 0.05 },
+  { key: "fallbackDeficit", label: "劣勢許容(人数差)", min: -2, max: 4, step: 1 },
+  { key: "techniqueRangeMul", label: "警戒前進しきい ×", min: 0.5, max: 1.5, step: 0.05 },
+  { key: "coverPref", label: "露出回避度", min: 0.5, max: 2, step: 0.05 },
+  { key: "offensiveRatio", label: "攻勢分遣の兵力比", min: 1, max: 2.5, step: 0.1 },
+];
+
 export function DebugPanel() {
   const debug = useSimStore((s) => s.debug);
   const tuning = useSimStore((s) => s.tuning);
   const posture = useSimStore((s) => s.posture);
   const setDebug = useSimStore((s) => s.setDebug);
   const setTuning = useSimStore((s) => s.setTuning);
-  const setPosture = useSimStore((s) => s.setPosture);
+  const setPostureRisk = useSimStore((s) => s.setPostureRisk);
+  const setPostureKnob = useSimStore((s) => s.setPostureKnob);
   const resetTuning = useSimStore((s) => s.resetTuning);
 
   if (!debug.panelOpen) return null;
@@ -111,27 +130,44 @@ export function DebugPanel() {
       </div>
 
       <div className="dbg-sec">
-        <div className="dbg-sec-title">陣営固有パラメータ</div>
+        <div className="dbg-sec-title">陣営別 性格パラメータ</div>
         <div className="dbg-note">
-          リスク許容度: 高いほど交戦距離を詰め、前進歩幅が大きく、劣勢でも粘る。0.5 で既定。
+          リスク許容度はマスター(高いほど交戦距離を詰め、前進歩幅が大きく、劣勢でも粘り、
+          露出を厭わない)。動かすと下の個別値も一括で再計算。0.5 で全て既定。
         </div>
         {(["blue", "red"] as Side[]).map((side) => (
-          <div key={side} className="dbg-slider">
-            <div className="dbg-slider-head">
+          <details key={side} className="dbg-posture">
+            <summary>
               <span className={side === "blue" ? "dbg-blue" : "dbg-red"}>
                 {side.toUpperCase()} リスク許容度
               </span>
               <span className="mono">{posture[side].riskTolerance.toFixed(2)}</span>
-            </div>
+            </summary>
             <input
               type="range"
               min={0}
               max={1}
               step={0.05}
               value={posture[side].riskTolerance}
-              onChange={(e) => setPosture(side, Number(e.target.value))}
+              onChange={(e) => setPostureRisk(side, Number(e.target.value))}
             />
-          </div>
+            {POSTURE_KNOBS.map((k) => (
+              <div key={k.key} className="dbg-slider dbg-slider-sub">
+                <div className="dbg-slider-head">
+                  <span>{k.label}</span>
+                  <span className="mono">{posture[side][k.key].toFixed(2)}</span>
+                </div>
+                <input
+                  type="range"
+                  min={k.min}
+                  max={k.max}
+                  step={k.step}
+                  value={posture[side][k.key]}
+                  onChange={(e) => setPostureKnob(side, { [k.key]: Number(e.target.value) })}
+                />
+              </div>
+            ))}
+          </details>
         ))}
       </div>
 

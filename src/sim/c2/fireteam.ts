@@ -30,7 +30,6 @@ import {
 } from "../constants.ts";
 import { formationSlots } from "../formation.ts";
 import { aiSuppressed } from "../control.ts";
-import { postureFactors } from "../tuning.ts";
 import { isCommittedToAid } from "../systems/casualties.ts";
 import { isCommittedToLitter, isOffField } from "../systems/litter.ts";
 import { exitCqb, runCqb } from "./cqbDrill.ts";
@@ -51,8 +50,6 @@ const DEST_HOLD_TICKS = Math.round(1.5 * SIM_HZ);
 /** 躍進レグ/目的地の「到達」とみなす距離(モック: 1.8 / 1.5m) */
 const BOUND_ARRIVE = 1.8;
 const DEST_ARRIVE = 1.5;
-/** 何人差の劣勢で後退を判断するか(モック: fallbackDeficit) */
-const FALLBACK_DEFICIT = 1;
 /** FTリーダーの意思決定周期。毎ティックではない */
 const DECIDE_EVERY_TICKS = Math.round(0.3 * SIM_HZ);
 /** 潰走の最短持続ティック(仕様 §12 `[v6]`) */
@@ -271,13 +268,14 @@ function runBoundingOverwatch(
   alpha: Soldier[],
   bravo: Soldier[],
   forward: Vec2,
-  /** 躍進歩幅の乗数(`[v6.1]` リスク許容度。既定 1 で現行値) */
-  boundStepMul = 1,
+  /** 躍進歩幅・最小/最大への乗数(`[v6.1]` 陣営別性格。既定 1 で現行値) */
+  boundMinMul = 1,
+  boundMaxMul = 1,
 ): void {
   const members = [...alpha, ...bravo];
   if (members.length === 0) return;
-  const boundMin = BOUND_MIN_ADV * boundStepMul;
-  const boundMax = BOUND_MAX_ADV * boundStepMul;
+  const boundMin = BOUND_MIN_ADV * boundMinMul;
+  const boundMax = BOUND_MAX_ADV * boundMaxMul;
 
   // 片方のペアが全滅した場合は2組運用が成立しない。硬直させず、生存者全員を1集団として動かす。
   if (alpha.length === 0 || bravo.length === 0) {
@@ -364,6 +362,7 @@ function moveInFormation(
   const slots = formationSlots(world.walls, leader.pos, forward, members.length, {
     contacts: ft.memory.values(),
     coverPoints: world.coverPoints,
+    coverPref: world.posture[ft.side].coverPref,
   });
   // 隊形Tierによる速度差(仕様 §6: 縦隊が最速、横隊が最遅)は隊全体に掛ける。
   // リーダーだけ速いと隊列が伸びきってしまう。
@@ -427,8 +426,9 @@ function runAdvance(
   alpha: Soldier[],
   bravo: Soldier[],
   forward: Vec2,
-  /** 躍進歩幅の乗数(`[v6.1]` リスク許容度。既定 1 で現行値) */
-  boundStepMul = 1,
+  /** 躍進歩幅・最小/最大への乗数(`[v6.1]` 陣営別性格。既定 1 で現行値) */
+  boundMinMul = 1,
+  boundMaxMul = 1,
 ): void {
   switch (ft.technique) {
     case "traveling":
@@ -438,7 +438,7 @@ function runAdvance(
       runTravelingOverwatch(world, ft, alpha, bravo, forward);
       return;
     case "bounding_overwatch":
-      runBoundingOverwatch(world, ft, alpha, bravo, forward, boundStepMul);
+      runBoundingOverwatch(world, ft, alpha, bravo, forward, boundMinMul, boundMaxMul);
       return;
   }
 }
@@ -482,11 +482,11 @@ export function fireteamAI(world: World): void {
 
     if (world.tick % DECIDE_EVERY_TICKS !== 0) continue;
 
-    // リスク許容度(`[v6.1]`)。既定(0.5)では乗数1・加算0で現行の定数と厳密一致する。
-    const pf = postureFactors(world.posture[ft.side]);
-    const engageMin = ENGAGE_MIN * pf.engageRangeMul;
-    const engageMax = ENGAGE_MAX * pf.engageRangeMul;
-    const fallbackDeficit = FALLBACK_DEFICIT + pf.fallbackDeficitBonus;
+    // 陣営別の性格パラメータ(`[v6.1]`)。既定では乗数1・絶対値は定数と一致する。
+    const pos = world.posture[ft.side];
+    const engageMin = ENGAGE_MIN * pos.engageMinMul;
+    const engageMax = ENGAGE_MAX * pos.engageMaxMul;
+    const fallbackDeficit = pos.fallbackDeficit;
 
     const contacts = [...ft.memory.values()];
     const squadStrength = world.soldiers.filter(
@@ -598,7 +598,7 @@ export function fireteamAI(world: World): void {
         }
       }
       if (!primary) {
-        runAdvance(world, ft, alpha, bravo, dirTo(mc, ft.objective), pf.boundStepMul);
+        runAdvance(world, ft, alpha, bravo, dirTo(mc, ft.objective), pos.boundMinMul, pos.boundMaxMul);
         continue;
       }
       const enemy = primary.pos;
@@ -718,10 +718,10 @@ export function fireteamAI(world: World): void {
         ft.searchPoint = null;
         ft.memory.clear();
       }
-      runBoundingOverwatch(world, ft, alpha, bravo, dirTo(mc, aim), pf.boundStepMul);
+      runBoundingOverwatch(world, ft, alpha, bravo, dirTo(mc, aim), pos.boundMinMul, pos.boundMaxMul);
     } else {
       // ADVANCE — 分隊長(ひいては小隊長)が指示した移動技術で任務目標へ向かう(仕様 §6)
-      runAdvance(world, ft, alpha, bravo, dirTo(mc, ft.objective), pf.boundStepMul);
+      runAdvance(world, ft, alpha, bravo, dirTo(mc, ft.objective), pos.boundMinMul, pos.boundMaxMul);
     }
 
     // 制圧が誘発した回避行動(仕様 §14)は、モードごとの命令より優先する。
