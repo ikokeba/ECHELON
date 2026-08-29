@@ -11,12 +11,12 @@
  * 毎秒200万回の判定になり破綻するため。
  */
 
-import { hasLineOfSight } from "../geometry.ts";
-import { DETECT_RANGE, FOV_HALF_RAD } from "../constants.ts";
+import { castRay, collidesWall, hasLineOfSight } from "../geometry.ts";
+import { DETECT_RANGE, FOV_HALF_RAD, PEEK } from "../constants.ts";
 import { clearHash, createSpatialHash, forEachNear, insert } from "../spatial.ts";
 import { isOffField } from "./litter.ts";
 import type { World } from "../world.ts";
-import type { Soldier } from "../types.ts";
+import type { Soldier, Vec2 } from "../types.ts";
 
 const COS_FOV = Math.cos(FOV_HALF_RAD);
 const DETECT_RANGE_SQ = DETECT_RANGE * DETECT_RANGE;
@@ -25,17 +25,70 @@ const DETECT_RANGE_SQ = DETECT_RANGE * DETECT_RANGE;
 const hash = createSpatialHash<Soldier>(DETECT_RANGE / 2);
 
 export function canSee(walls: World["walls"], viewer: Soldier, target: Soldier): boolean {
-  const dx = target.pos.x - viewer.pos.x;
-  const dz = target.pos.z - viewer.pos.z;
+  const dx = target.eye.x - viewer.eye.x;
+  const dz = target.eye.z - viewer.eye.z;
   const d2 = dx * dx + dz * dz;
   if (d2 > DETECT_RANGE_SQ || d2 < 1e-6) return false;
   const inv = 1 / Math.sqrt(d2);
   // 視線方向と目標方向の内積を cos(半角) と比較する
   if (viewer.facing.x * dx * inv + viewer.facing.z * dz * inv < COS_FOV) return false;
-  return hasLineOfSight(walls, viewer.pos.x, viewer.pos.z, target.pos.x, target.pos.z);
+  return hasLineOfSight(walls, viewer.eye.x, viewer.eye.z, target.eye.x, target.eye.z);
+}
+
+/**
+ * ビハインドカメラ(コーナー視認、仕様 §7.5)。
+ *
+ * 壁角の近くで静止している隊員は、体を残したまま視線だけを横へ出して覗ける
+ * (スライス・ザ・パイ)。仕様の原則をそのまま実装する:
+ *
+ *   - **プレイヤー/AI平等**: 操作の有無を一切見ない。同じ関数を全員が通る
+ *   - **相互リスク**: ずらした原点は「見る側の目」であると同時に
+ *     「見られる側の露出点」でもある(canSee が両端に eye を使う)。
+ *     覗けば見えるが、同時に覗かれる
+ *   - **アクション分離**: 覗くのは索敵であって交戦ではない。移動中は覗かない
+ */
+function updateEyes(world: World): void {
+  const right = (v: Vec2): Vec2 => ({ x: -v.z, z: v.x });
+
+  for (const s of world.soldiers) {
+    // `s.pos` を参照で持たせないこと。移動システムは pos を新しいオブジェクトへ
+    // 差し替えるので、参照を持つと eye が前ティックの位置を指したまま取り残される。
+    s.eye = { x: s.pos.x, z: s.pos.z };
+    s.peeking = false;
+    if (s.status !== "ok") continue;
+    // 移動中は覗かない(仕様 §7.5「覗く(索敵)」と「出て撃つ(交戦)」の分離)
+    if (s.pathIdx < s.path.length) continue;
+
+    // 正面が壁で塞がれているときだけ意味がある
+    const ahead = castRay(world.walls, s.pos.x, s.pos.z, s.facing.x, s.facing.z, DETECT_RANGE);
+    if (ahead > PEEK.WALL_DIST) continue;
+
+    const r = right(s.facing);
+    let bestGain = 0;
+    let bestEye: Vec2 | null = null;
+    for (const sign of [1, -1]) {
+      const e = { x: s.pos.x + r.x * sign * PEEK.OFFSET, z: s.pos.z + r.z * sign * PEEK.OFFSET };
+      // 体はその場にあるので、覗く先が壁の中では意味がない
+      if (collidesWall(world.walls, e.x, e.z, 0.2)) continue;
+      const reach = castRay(world.walls, e.x, e.z, s.facing.x, s.facing.z, DETECT_RANGE);
+      const gain = reach - ahead;
+      if (gain > bestGain) {
+        bestGain = gain;
+        bestEye = e;
+      }
+    }
+    // わずかな改善で毎ティック覗いたり戻ったりしないよう、意味のある差だけ採る
+    if (bestEye && bestGain > 1.0) {
+      s.eye = bestEye;
+      s.peeking = true;
+    }
+  }
 }
 
 export function perceptionSystem(world: World): void {
+  // 視線原点(覗き)を先に確定させる。索敵はこの原点だけを見る
+  updateEyes(world);
+
   clearHash(hash);
   for (const s of world.soldiers) {
     if (s.status === "kia") continue; // 遺体は視認対象にならない(仕様 §9)

@@ -14,8 +14,10 @@
 import { LITTER, SIM_HZ } from "../constants.ts";
 import { aiSuppressed } from "../control.ts";
 import { bearersNeeded, isCommittedToLitter } from "../systems/litter.ts";
+import { doorById, selectAssaultDoor } from "../cqb.ts";
 import { commandFactor } from "./succession.ts";
-import type { Contact, Soldier, SquadState, Vec2 } from "../types.ts";
+import { exitCqb } from "./cqbDrill.ts";
+import type { Contact, Door, Soldier, SquadState, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
 /** 分隊の先端から分隊長が後方に位置する距離 m。 */
@@ -162,6 +164,113 @@ function decideCasevac(world: World, sq: SquadState): void {
   }
 }
 
+/**
+ * 建物単位のバトルドリル(仕様 §7.2 Battle Drill 6)。
+ *
+ * 仕様の要点:「**建物単位では小隊長を介さず分隊長が孤立化から再編成まで一貫して
+ * 担当する**」。ここで分隊長がやるのは最初の3段階:
+ *
+ *   孤立化   : 支援FTを扉の射線が通る位置へ置き、退路を押さえる
+ *   支援射撃 : 支援FTに `assignedRole: "base"` を与える
+ *   突撃     : 突入FTに扉を指定する(以降の実行は c2/cqbDrill.ts)
+ *
+ * 分隊長自身が突入するかは状況次第(仕様 §7.2)。現状は入口付近で指揮に専念する。
+ * 個体差パラメータ(積極性・大胆さ)による分岐は OQ-6 の解決後に入れる。
+ *
+ * @returns 突入を指示したら true(通常の火力/機動の割り当てを上書きする)
+ */
+function directBuildingAssault(world: World, sq: SquadState): boolean {
+  if (world.buildings.length === 0) return false;
+
+  const fireteams = world.fireteams.filter(
+    (f) => f.side === sq.side && f.squadId === sq.squadId,
+  );
+  if (fireteams.length === 0) return false;
+
+  const members = world.soldiers.filter(
+    (s) => s.side === sq.side && s.squadId === sq.squadId && s.status === "ok",
+  );
+  if (members.length === 0) return false;
+  const from = centroid(members);
+
+  const alive = fireteams.filter((ft) =>
+    world.soldiers.some(
+      (s) =>
+        s.side === ft.side &&
+        s.squadId === ft.squadId &&
+        s.fireteamId === ft.ftIndex &&
+        s.status === "ok",
+    ),
+  );
+  if (alive.length === 0) return false;
+
+  // ── すでに攻略中なら、それを最後までやり切る(仕様 §7.2) ──
+  if (sq.assaultDoorId !== null) {
+    const running = alive.find((ft) => ft.cqbDoorId === sq.assaultDoorId);
+    if (running) {
+      for (const ft of alive) {
+        if (ft === running) continue;
+        if (ft.cqbDoorId !== null) exitCqb(ft);
+        ft.assignedRole = "base";
+        const d = doorById(world.buildings, sq.assaultDoorId);
+        if (d) ft.objective = { ...d.pos };
+      }
+      return true;
+    }
+    // 突入FTがCQBを抜けた = 掃討完了(または全滅)。同じ扉は二度と攻めない
+    sq.clearedDoorIds.push(sq.assaultDoorId);
+    sq.assaultDoorId = null;
+  }
+
+  // 突入対象は「任務目標が建物の中にある」か「把握している脅威が建物の中にいる」か。
+  // どちらも分隊長の world picture 経由で、実際の敵位置は覗かない(仕様 §5)
+  const threat = primaryThreat(sq.belief);
+  const aims = [sq.objective, ...(threat ? [threat.pos] : [])];
+  let door: Door | null = null;
+  for (const aim of aims) {
+    const d = selectAssaultDoor(world.buildings, from, aim);
+    if (d && !sq.clearedDoorIds.includes(d.id)) {
+      door = d;
+      break;
+    }
+  }
+  if (!door) {
+    for (const ft of fireteams) if (ft.cqbDoorId !== null) exitCqb(ft);
+    return false;
+  }
+
+  // 扉に近い側が突撃、遠い側が支援射撃。近い側のほうがスタックを早く組める
+  const target = door;
+  const withDist = alive.map((ft) => {
+    const men = world.soldiers.filter(
+      (s) =>
+        s.side === ft.side &&
+        s.squadId === ft.squadId &&
+        s.fireteamId === ft.ftIndex &&
+        s.status === "ok",
+    );
+    const c = centroid(men);
+    return { ft, d: Math.hypot(c.x - target.pos.x, c.z - target.pos.z) };
+  });
+  withDist.sort((a, b) => a.d - b.d || a.ft.ftIndex - b.ft.ftIndex);
+  const assault = withDist[0]!.ft;
+  assault.cqbDoorId = target.id;
+  assault.cqbStage = "stack";
+  assault.cqbStageSince = world.tick;
+  assault.cqbCorner.clear();
+  assault.cqbEntryOrder = [];
+  sq.assaultDoorId = target.id;
+
+  for (const ft of alive) {
+    if (ft === assault) continue;
+    // 孤立化 + 支援射撃。扉の外側へ火力を指向し、退路と増援経路を押さえる
+    if (ft.cqbDoorId !== null) exitCqb(ft);
+    ft.assignedRole = "base";
+    ft.objective = { ...target.pos };
+  }
+  return true;
+}
+
 export function squadAI(world: World): void {
   const decidedThisTick = new Set<number>();
 
@@ -175,6 +284,9 @@ export function squadAI(world: World): void {
     decidedThisTick.add(sq.squadId);
 
     directFireteams(world, sq);
+    // 建物のバトルドリル(仕様 §7.2)は通常の火力/機動の割り当てより優先する。
+    // 建物へ突入する局面では、屋外の側面攻撃ではなく突入と支援の分担が正しい
+    directBuildingAssault(world, sq);
     decideCasevac(world, sq);
   }
 

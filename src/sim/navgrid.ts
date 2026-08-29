@@ -13,7 +13,7 @@
  */
 
 import { edgeIsClear, collidesWall } from "./geometry.ts";
-import type { AABB, Bounds, Vec2 } from "./types.ts";
+import type { AABB, Bounds, Building, Vec2 } from "./types.ts";
 
 export interface NavNode {
   x: number;
@@ -68,11 +68,17 @@ function tieJitter(gx: number, gz: number): number {
   return (h / 4294967296) * TIE_EPS;
 }
 
+function inBounds(b: Bounds, x: number, z: number): boolean {
+  return x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ;
+}
+
 export function buildNavGrid(
   walls: readonly AABB[],
   bounds: Bounds,
   step: number,
   margin: number,
+  /** この領域の内側のセルは作らない。屋外の粗いグリッドから建物内部を除くために使う */
+  exclude: readonly Bounds[] = [],
 ): NavGrid {
   const cols = Math.round((bounds.maxX - bounds.minX) / step) + 1;
   const rows = Math.round((bounds.maxZ - bounds.minZ) / step) + 1;
@@ -84,6 +90,7 @@ export function buildNavGrid(
       const x = bounds.minX + gx * step;
       const z = bounds.minZ + gz * step;
       if (collidesWall(walls, x, z, margin)) continue;
+      if (exclude.some((b) => inBounds(b, x, z))) continue;
       idxMap[gz * cols + gx] = nodes.length;
       nodes.push({ x, z, gx, gz });
     }
@@ -196,12 +203,25 @@ export function findPath(
   tx: number,
   tz: number,
 ): Vec2[] | null {
-  const { nodes, adj } = grid;
   const startIdx = nearestNavNode(grid, sx, sz);
   const endIdx = nearestNavNode(grid, tx, tz);
   if (startIdx === -1 || endIdx === -1) return null;
   if (startIdx === endIdx) return [{ x: tx, z: tz }];
+  return astar(grid.nodes, grid.adj, startIdx, endIdx, tx, tz);
+}
 
+/**
+ * A* の本体。ノード列と隣接リストだけを見るので、単一グリッドでも
+ * 複数グリッドを束ねた NavSet でも同じ実装が使える。
+ */
+function astar(
+  nodes: readonly NavNode[],
+  adj: readonly [number, number][][],
+  startIdx: number,
+  endIdx: number,
+  tx: number,
+  tz: number,
+): Vec2[] | null {
   const n = nodes.length;
   const gScore = new Float64Array(n).fill(Infinity);
   const fScore = new Float64Array(n).fill(Infinity);
@@ -245,4 +265,155 @@ export function findPath(
   path.reverse();
   path.push({ x: tx, z: tz });
   return path;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 複合ナビゲーション(design §4.2: 屋外1.0m + 建物ごと0.3m、継ぎ目で接続)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 解像度の異なるグリッドを1つの探索空間へ束ねたもの。
+ *
+ * 屋外を0.3mで敷き詰めると中隊規模のマップでノードが百万単位になる。一方で扉幅
+ * 1.2mを安全に通すには0.3mが要る(仕様 §7.3 で検証済み)。そこで**建物のまわりだけ
+ * 細かくし、継ぎ目で縫い合わせる**。探索そのものは束ねた1つのグラフの上で行うので、
+ * 「街路を進んでそのまま建物へ突入する」連続的な経路が1回のA*で出る(仕様 §7.1)。
+ */
+export interface NavSet {
+  /** 束ねたノード列。grids の順に連結されている */
+  nodes: NavNode[];
+  /** 束ねた隣接リスト(各グリッドの辺 + 継ぎ目の辺) */
+  adj: [number, number][][];
+  /** [0] = 屋外の粗いグリッド、[1..] = 建物ごとの細グリッド */
+  grids: NavGrid[];
+  /** grids[i] のノードが束ねた空間で始まるindex */
+  offsets: number[];
+  /** grids[i+1] が担当する領域(建物 + 進入余裕)。屋外グリッドには対応しない */
+  regions: Bounds[];
+}
+
+/** 細グリッドが建物の外側へ張り出す余裕 m。スタック位置(扉から1.5m)を含める。 */
+const FINE_PAD = 2.5;
+
+function pad(b: Bounds, m: number): Bounds {
+  return { minX: b.minX - m, maxX: b.maxX + m, minZ: b.minZ - m, maxZ: b.maxZ + m };
+}
+
+/** 束ねた空間でのノードindex(grid内index → 全体index)。 */
+function globalIdx(set: { offsets: number[] }, gridIdx: number, localIdx: number): number {
+  return set.offsets[gridIdx]! + localIdx;
+}
+
+/**
+ * 屋外グリッドと建物ごとの細グリッドを作り、継ぎ目で接続した NavSet を返す。
+ * 建物がなければ屋外グリッド1枚だけの NavSet になる(既存の挙動と完全に同じ)。
+ */
+export function buildNavSet(
+  walls: readonly AABB[],
+  bounds: Bounds,
+  outdoorStep: number,
+  outdoorMargin: number,
+  buildings: readonly Building[],
+  fineStep: number,
+  fineMargin: number,
+): NavSet {
+  const regions = buildings.map((b) => pad(b.bounds, FINE_PAD));
+  // 屋外グリッドからは建物の内部だけを除く。外周の余裕(FINE_PAD)まで除くと、
+  // 建物の周囲に屋外ノードが無くなって継ぎ目を張れなくなる
+  const outdoor = buildNavGrid(
+    walls,
+    bounds,
+    outdoorStep,
+    outdoorMargin,
+    buildings.map((b) => b.bounds),
+  );
+  const fine = regions.map((r) =>
+    buildNavGrid(walls, clampBounds(r, bounds), fineStep, fineMargin),
+  );
+
+  const grids = [outdoor, ...fine];
+  const offsets: number[] = [];
+  let total = 0;
+  for (const g of grids) {
+    offsets.push(total);
+    total += g.nodes.length;
+  }
+
+  const nodes: NavNode[] = [];
+  const adj: [number, number][][] = [];
+  grids.forEach((g, gi) => {
+    for (const n of g.nodes) nodes.push(n);
+    for (const list of g.adj) {
+      adj.push(list.map(([j, c]) => [globalIdx({ offsets }, gi, j), c] as [number, number]));
+    }
+  });
+
+  // ── 継ぎ目の接続 ──
+  // 細グリッドの外縁ノードから、直近の屋外ノードへ双方向の辺を張る。扉を「だけ」
+  // 繋ぐより頑健で、建物の周囲どこからでも出入りできる(仕様 §7.1 のシームレス性)。
+  const SEAM = fineStep * 1.5;
+  fine.forEach((g, i) => {
+    const region = regions[i]!;
+    const gi = i + 1;
+    g.nodes.forEach((n, li) => {
+      const nearEdge =
+        n.x - region.minX < SEAM ||
+        region.maxX - n.x < SEAM ||
+        n.z - region.minZ < SEAM ||
+        region.maxZ - n.z < SEAM;
+      if (!nearEdge) return;
+      const oi = nearestNavNode(outdoor, n.x, n.z);
+      if (oi === -1) return;
+      const o = outdoor.nodes[oi]!;
+      const d = Math.hypot(o.x - n.x, o.z - n.z);
+      if (d > outdoorStep * 2) return;
+      if (!edgeIsClear(walls, n.x, n.z, o.x, o.z, fineMargin * 0.6)) return;
+      const a = globalIdx({ offsets }, gi, li);
+      const b = globalIdx({ offsets }, 0, oi);
+      adj[a]!.push([b, d]);
+      adj[b]!.push([a, d]);
+    });
+  });
+
+  return { nodes, adj, grids, offsets, regions };
+}
+
+function clampBounds(b: Bounds, outer: Bounds): Bounds {
+  return {
+    minX: Math.max(b.minX, outer.minX),
+    maxX: Math.min(b.maxX, outer.maxX),
+    minZ: Math.max(b.minZ, outer.minZ),
+    maxZ: Math.min(b.maxZ, outer.maxZ),
+  };
+}
+
+/**
+ * 束ねた空間で (x,z) に最も近いノード。建物の担当領域に入っていればその細グリッドを、
+ * それ以外は屋外グリッドを使う。細かいほうを優先するのは、扉まわりの解像度を
+ * 落とさないため。
+ */
+export function nearestNodeIn(set: NavSet, x: number, z: number): number {
+  for (let i = 0; i < set.regions.length; i++) {
+    if (!inBounds(set.regions[i]!, x, z)) continue;
+    const g = set.grids[i + 1]!;
+    const li = nearestNavNode(g, x, z);
+    if (li !== -1) return globalIdx(set, i + 1, li);
+  }
+  const oi = nearestNavNode(set.grids[0]!, x, z);
+  return oi === -1 ? -1 : globalIdx(set, 0, oi);
+}
+
+/** NavSet 上のA*。単一グリッドの findPath と同じ意味論(末尾は厳密な目標点)。 */
+export function findPathSet(
+  set: NavSet,
+  sx: number,
+  sz: number,
+  tx: number,
+  tz: number,
+): Vec2[] | null {
+  const startIdx = nearestNodeIn(set, sx, sz);
+  const endIdx = nearestNodeIn(set, tx, tz);
+  if (startIdx === -1 || endIdx === -1) return null;
+  if (startIdx === endIdx) return [{ x: tx, z: tz }];
+  return astar(set.nodes, set.adj, startIdx, endIdx, tx, tz);
 }

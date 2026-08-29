@@ -20,6 +20,12 @@ const KIA_COLOR = 0x39414f;
 const WIA_COLOR = 0xf0c000;
 const GROUND_COLOR = 0x0f1420;
 const WALL_COLOR = 0x39435a;
+/** 建物の床。屋外と区別がつく程度に明るくする(仕様 §7.1) */
+const ROOM_FLOOR_COLOR = 0x1a2233;
+/** 閉じた扉 — 視線も移動も遮っている(仕様 §7.6) */
+const DOOR_CLOSED_COLOR = 0xc98a3a;
+/** 開いた扉 — この瞬間から室内が見える(仕様 §7.6) */
+const DOOR_OPEN_COLOR = 0x3f6b52;
 /** 確度が尽きた最終目撃情報(ゴースト)の色。仕様 §5 `[v6]` */
 const GHOST_COLOR = 0x6b7280;
 /** 止血済みWIA。出血は止まったが行動不能で後送待ち(仕様 §9) */
@@ -98,13 +104,44 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   border.position.copy(ground.position);
   scene.add(border);
 
-  // 壁 — 数が少ないので個別メッシュで足りる
+  // 建物の床(仕様 §7.1: 屋外と屋内はシームレスな1つのマップ)。
+  // 壁より先に描いて、部屋の広がりが分かるようにする
+  for (const b of world.buildings) {
+    for (const r of b.rooms) {
+      const floor = new THREE.Mesh(
+        new THREE.PlaneGeometry(r.bounds.maxX - r.bounds.minX, r.bounds.maxZ - r.bounds.minZ),
+        new THREE.MeshBasicMaterial({ color: ROOM_FLOOR_COLOR }),
+      );
+      floor.rotation.x = -Math.PI / 2;
+      floor.position.set(
+        (r.bounds.minX + r.bounds.maxX) / 2,
+        0.005,
+        (r.bounds.minZ + r.bounds.maxZ) / 2,
+      );
+      scene.add(floor);
+    }
+  }
+
+  // 壁 — 数が少ないので個別メッシュで足りる。
+  // world.walls は扉の開閉で変化するので、**構造物の壁だけ**を描く
   const wallMat = new THREE.MeshBasicMaterial({ color: WALL_COLOR });
-  for (const w of world.walls) {
+  for (const w of world.structuralWalls) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w.hw * 2, 2, w.hd * 2), wallMat);
     m.position.set(w.cx, 1, w.cz);
     scene.add(m);
   }
+
+  // 扉(仕様 §7.6): 開閉が視界の境界線になるので、状態が一目で分かるようにする
+  const doorMeshes = world.doors.map((d) => {
+    const alongX = Math.abs(d.normal.x) > Math.abs(d.normal.z);
+    const m = new THREE.Mesh(
+      new THREE.BoxGeometry(alongX ? 0.35 : d.width, 1.8, alongX ? d.width : 0.35),
+      new THREE.MeshBasicMaterial({ color: DOOR_CLOSED_COLOR }),
+    );
+    m.position.set(d.pos.x, 0.9, d.pos.z);
+    scene.add(m);
+    return m;
+  });
 
   // 統制手段(目標リングなど)
   for (const cm of world.controlMeasures) {
@@ -226,6 +263,15 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   }
 
   function render(world: World, view: ViewResult, alpha: number): void {
+    // 扉の開閉を反映する。開いた扉は薄くして「通り抜けられる」ことを示す
+    world.doors.forEach((d, i) => {
+      const m = doorMeshes[i];
+      if (!m) return;
+      const mat = m.material as THREE.MeshBasicMaterial;
+      mat.color.setHex(d.open ? DOOR_OPEN_COLOR : DOOR_CLOSED_COLOR);
+      m.scale.y = d.open ? 0.12 : 1;
+    });
+
     if (world.tick !== lastTick) {
       prev = cur;
       cur = snapshot(world);

@@ -103,6 +103,8 @@ function joinReplacement(world: World, casualty: Soldier): void {
     pathIdx: 0,
     sees: [],
     suppressor: false,
+    eye: { x: ccp.x, z: ccp.z },
+    peeking: false,
     traits: {
       aggressiveness: next(rng),
       boldness: next(rng),

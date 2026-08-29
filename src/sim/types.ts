@@ -49,8 +49,22 @@ export type SoldierOrderKind =
    */
   | "follow";
 
-/** FTリーダーのステートマシンのモード(仕様 §1 [v5] — これ自体が「命令システム」)。 */
-export type FireteamMode = "ADVANCE" | "CONTACT" | "SEARCH" | "FALLBACK";
+/**
+ * FTリーダーのステートマシンのモード(仕様 §1 [v5] — これ自体が「命令システム」)。
+ *
+ * `CQB` は仕様 §7.3 が「室内クリアリング中は専用モードとして扱い、ADVANCE/CONTACT/
+ * SEARCH/FALLBACK のいずれとも異なる」と明記しているため、5つ目の状態として持つ。
+ */
+export type FireteamMode = "ADVANCE" | "CONTACT" | "SEARCH" | "FALLBACK" | "CQB";
+
+/**
+ * 突入待機命令の3段階(仕様 §7.3)。`CQB` モードの内部進行。
+ *   stack   : 指定扉から1.5m以内に集合、壁沿いに縦列で待機
+ *   breach  : ドクトリン準拠の順序で室内へ進入開始(単一ファイル、0.6秒間隔)
+ *   clear   : 先頭2名が近傍コーナーを制圧、後続が危険地帯を索敵
+ *   reorg   : 再編成(次の部屋/建物への行動判断は分隊長、仕様 §7.2)
+ */
+export type CqbStage = "stack" | "breach" | "clear" | "reorg";
 
 /** 分隊長/小隊長が選択する屋外の移動技術(仕様 §6)。 */
 export type MovementTechnique = "traveling" | "traveling_overwatch" | "bounding_overwatch";
@@ -200,6 +214,18 @@ export interface Soldier {
   /** 「制圧役」状態(仕様 §8.6)。命令またはAIの自律判断で立つ */
   suppressor: boolean;
 
+  /**
+   * 視線の原点(仕様 §7.5 ビハインドカメラ)。通常は `pos` と同じだが、壁角で
+   * 「覗いて」いる間は横へずれる。
+   *
+   * **見る側と見られる側の両方でこの点を使う**のが要点。覗けば見えるが、同時に
+   * 覗かれてもいる — 仕様が要求する「一方的な有利を与えない」を、片方だけ有利に
+   * なりようのない形で実装している。プレイヤーもAIも同じ計算を通る。
+   */
+  eye: Vec2;
+  /** いま覗いている(視線原点が体からずれている)か。描画とデバッグ用 */
+  peeking: boolean;
+
   /** 個体差パラメータ(仕様 §14)。各 0..1 */
   traits: SoldierTraits;
 }
@@ -318,6 +344,18 @@ export interface SquadState {
   commanderId: number | null;
   /** 指揮継承が起きたティック(null = 継承していない) */
   degradedSinceTick: number | null;
+
+  /**
+   * いま攻略中の扉ID(仕様 §7.2)。**一度決めたら掃討が終わるまで手放さない**。
+   *
+   * 建物単位の一連の流れ(孤立化→支援射撃→突撃→突入→掃討→再編成)は分隊長が
+   * 一貫して担当する、という仕様の要求は「途中で気を変えない」ことを含む。
+   * 毎周期に判断し直すと、屋外で接敵情報が入るたびに任務目標がそちらへ引っ張られ、
+   * スタックを組んでは解散するのを繰り返して永久に突入できない(実装して確認した)。
+   */
+  assaultDoorId: number | null;
+  /** 掃討済みの扉ID。同じ部屋を何度も攻略し直さないため */
+  clearedDoorIds: number[];
 }
 
 /**
@@ -482,6 +520,18 @@ export interface FireteamState {
    * null は未割り当て(接敵していない、または分隊長が健在でない)。
    */
   assignedRole: "base" | "maneuver" | null;
+
+  // ── CQB(仕様 §7.3)──
+  /** 突入待機命令の対象扉ID(null = CQB中ではない) */
+  cqbDoorId: number | null;
+  /** 突入待機命令の進行段階 */
+  cqbStage: CqbStage;
+  /** 現在の段階に入ったティック(流入間隔・タイムアウトの基準) */
+  cqbStageSince: number;
+  /** 兵士IDごとの担当コーナー(進入後の索敵扇形の中心)。仕様 §7.3 ③ */
+  cqbCorner: Map<number, Vec2>;
+  /** 突入順(スタック順)。単一ファイルでの流入間隔に使う */
+  cqbEntryOrder: number[];
 }
 
 export interface Scenario {
@@ -506,6 +556,49 @@ export interface Scenario {
    * 未指定なら各陣営の初期位置の重心を使う。
    */
   ccp?: Record<Side, Vec2>;
+  /** 建物(仕様 §7)。屋外と屋内はシームレスな1つのマップとして扱う */
+  buildings?: Building[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 市街地戦・屋内戦闘(仕様 §7)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 扉(仕様 §7.3「壁の一部に幅1.0m程度の開口部。位置・向き(法線方向)を持つ」)。
+ *
+ * 閉じている間は**視線も移動も遮る**。仕様 §7.6 の「ドアが開いた瞬間だけ部屋の中が
+ * 見える」Door Kicker式の視界ルールは、この1点だけで成立する。
+ */
+export interface Door {
+  id: number;
+  buildingId: number;
+  roomId: number;
+  /** 開口部の中心 */
+  pos: Vec2;
+  /** 法線。**室内へ向かう**単位ベクトル(スタック位置は逆方向に取る) */
+  normal: Vec2;
+  /** 開口幅 m */
+  width: number;
+  /** 開いているか。ブリーチで開く */
+  open: boolean;
+}
+
+/** 壁で囲まれた閉領域1つ(仕様 §7.3「室内領域」)。初期リリースは単層のみ(§7.1)。 */
+export interface Room {
+  id: number;
+  buildingId: number;
+  /** 室内の床面。壁の内側 */
+  bounds: Bounds;
+}
+
+/** 建物1棟。屋外と屋内はシームレスな1つのマップとして扱う(仕様 §7.1)。 */
+export interface Building {
+  id: number;
+  /** 外周(壁を含む) */
+  bounds: Bounds;
+  rooms: Room[];
+  doors: Door[];
 }
 
 export interface ControlMeasure {

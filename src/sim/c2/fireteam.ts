@@ -25,6 +25,7 @@ import { formationSlots } from "../formation.ts";
 import { aiSuppressed } from "../control.ts";
 import { isCommittedToAid } from "../systems/casualties.ts";
 import { isCommittedToLitter } from "../systems/litter.ts";
+import { exitCqb, runCqb } from "./cqbDrill.ts";
 import { decayedConfidence } from "../belief.ts";
 import type { Contact, FireteamMode, FireteamState, Soldier, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
@@ -180,6 +181,10 @@ function selectMode(
 ): FireteamMode {
   const known = contacts.length;
   if (memberCount > 0 && squadStrength < known - FALLBACK_DEFICIT) return "FALLBACK";
+  // 突入命令を受けている間は室内専用モード。仕様 §7.3 は「室内クリアリング中は
+  // 専用モードとして扱い、ADVANCE/CONTACT/SEARCH/FALLBACK のいずれとも異なる」と
+  // 明記している。ただし後退判断だけは上位に置く — 崩れているのに突入はしない。
+  if (ft.cqbDoorId !== null) return "CQB";
   if (contacts.some((c) => c.confidence > 0.85)) return "CONTACT";
   if (ft.memory.size > 0 || ft.searchPoint) return "SEARCH";
   return "ADVANCE";
@@ -416,6 +421,9 @@ export function fireteamAI(world: World): void {
       ft.boundTarget = null;
       ft.unitDest.clear();
       ft.unitDestSince.clear();
+      if (ft.mode === "CQB") ft.cqbStageSince = world.tick;
+      // CQBから抜けたら突入状態も畳む(FALLBACKへ落ちた場合など)
+      if (prevMode === "CQB") exitCqb(ft);
       if (ft.mode === "SEARCH") {
         const freshest = contacts.reduce<Contact | null>(
           (a, c) => (!a || c.lastSeenTick > a.lastSeenTick ? c : a),
@@ -430,7 +438,11 @@ export function fireteamAI(world: World): void {
     const bravo = living.filter((_, i) => i >= Math.ceil(living.length / 2));
     const mc = centroid(living);
 
-    if (ft.mode === "CONTACT") {
+    if (ft.mode === "CQB") {
+      // 突入待機命令の3段階(仕様 §7.3)。命令発行はここと同じ issue を通すので、
+      // 応急手当・担架搬送による拘束は室内でもそのまま尊重される
+      runCqb(world, ft, living, (u, kind, target, look) => issue(world, u, kind, target, look));
+    } else if (ft.mode === "CONTACT") {
       let primary = contacts[0];
       for (const c of contacts) {
         if (!primary) primary = c;

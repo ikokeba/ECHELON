@@ -23,7 +23,7 @@
 
 import { LITTER, MOVE_SPEED, SIM_DT, SOLDIER_RADIUS } from "../constants.ts";
 import { collidesWall } from "../geometry.ts";
-import { findPath } from "../navgrid.ts";
+import { findPathSet } from "../navgrid.ts";
 import { advanceAlongPath } from "../pathfollow.ts";
 import type { Side, Soldier, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
@@ -201,7 +201,7 @@ export function litterSystem(world: World): void {
     }
 
     if (patient.pathIdx >= patient.path.length) {
-      const p = findPath(world.navOutdoor, patient.pos.x, patient.pos.z, ccp.x, ccp.z);
+      const p = findPathSet(world.nav, patient.pos.x, patient.pos.z, ccp.x, ccp.z);
       if (p) {
         patient.path = p;
         patient.pathIdx = 0;

@@ -5,7 +5,7 @@
  * リプレイやヘッドレステストからスナップショットを取れる。
  */
 
-import { buildNavGrid, type NavGrid } from "./navgrid.ts";
+import { buildNavSet, type NavSet } from "./navgrid.ts";
 import { buildCoverPoints } from "./cover.ts";
 import { successionSystem } from "./c2/succession.ts";
 import { clamp } from "./geometry.ts";
@@ -15,14 +15,18 @@ import {
   CASEVAC_ASSETS_PER_COMPANY,
   CP_BOUNDS_MARGIN,
   CP_TRAIL_DIST,
+  CQB,
+  DOOR_THICKNESS,
   NAV_MARGIN_OUTDOOR,
   NAV_STEP_OUTDOOR,
 } from "./constants.ts";
 import type {
   AABB,
   Bounds,
+  Building,
   CompanyState,
   ControlMeasure,
+  Door,
   FireteamState,
   PlatoonState,
   Report,
@@ -36,9 +40,22 @@ import type {
 export interface World {
   tick: number;
   bounds: Bounds;
+  /**
+   * 視線と移動を遮るもの。構造物の壁に加え、**閉じている扉**の板も含む(仕様 §7.6)。
+   * 扉が開くとそのAABBはここから取り除かれ、視線も移動も通るようになる。
+   */
   walls: AABB[];
-  /** 屋外の粗いナビグリッド。建物ごとの細グリッドは後のスライスで追加(design §4.2) */
-  navOutdoor: NavGrid;
+  /** 構造物の壁だけ。扉は常に開いているものとしてナビグリッドを作るために使う */
+  structuralWalls: AABB[];
+  /** 建物(仕様 §7)。屋外と屋内はシームレスな1つのマップ */
+  buildings: Building[];
+  /** 扉。開閉が視界の境界線になる(仕様 §7.6) */
+  doors: Door[];
+  /**
+   * 屋外1.0m + 建物ごと0.3m を束ねた探索空間(design §4.2)。
+   * 街路から建物内部まで1回のA*で経路が出る。
+   */
+  nav: NavSet;
   /** C2層が躍進先・射撃位置・側面攻撃位置を選ぶための遮蔽候補点の格子 */
   coverPoints: Vec2[];
   /** どちらの陣営にも帰属しない事象のための汎用ストリーム */
@@ -127,6 +144,11 @@ function buildFireteams(scenario: Scenario, soldiers: Soldier[]): FireteamState[
       rallyPoint: { ...rallyPoint },
       technique: "traveling",
       assignedRole: null,
+      cqbDoorId: null,
+      cqbStage: "stack",
+      cqbStageSince: 0,
+      cqbCorner: new Map(),
+      cqbEntryOrder: [],
     });
   }
   return [...seen.values()];
@@ -156,6 +178,8 @@ function buildSquads(scenario: Scenario, soldiers: Soldier[]): SquadState[] {
       casevacOrders: [],
       commanderId: null,
       degradedSinceTick: null,
+      assaultDoorId: null,
+      clearedDoorIds: [],
     });
   }
   return [...seen.values()];
@@ -282,10 +306,54 @@ export function createWorld(scenario: Scenario): World {
   return world;
 }
 
+/**
+ * 閉じている扉が占める板のAABB(仕様 §7.6)。開口部を法線方向に薄く塞ぐ。
+ * 開いた扉はこのリストから外れるので、視線も移動もその瞬間から通る。
+ */
+export function doorBlocker(d: Door): AABB {
+  // 法線がX方向寄りなら板はZ方向に伸びる(その逆も同様)
+  const alongX = Math.abs(d.normal.x) > Math.abs(d.normal.z);
+  return {
+    cx: d.pos.x,
+    cz: d.pos.z,
+    hw: alongX ? DOOR_THICKNESS : d.width / 2,
+    hd: alongX ? d.width / 2 : DOOR_THICKNESS,
+  };
+}
+
+/** 構造物の壁 + 閉じている扉。視線・移動の判定はこれを使う。 */
+function blockersOf(structural: readonly AABB[], doors: readonly Door[]): AABB[] {
+  return [...structural, ...doors.filter((d) => !d.open).map(doorBlocker)];
+}
+
+/** 扉の開閉が変わったあとに呼ぶ。視線・移動の判定対象を組み直す。 */
+export function refreshBlockers(world: World): void {
+  world.walls = blockersOf(world.structuralWalls, world.doors);
+}
+
 function buildWorld(scenario: Scenario): World {
-  const walls = scenario.walls.map((w) => ({ ...w }));
-  const navOutdoor = buildNavGrid(walls, scenario.bounds, NAV_STEP_OUTDOOR, NAV_MARGIN_OUTDOOR);
-  const coverPoints = buildCoverPoints(walls, scenario.bounds);
+  const structuralWalls = scenario.walls.map((w) => ({ ...w }));
+  const buildings = (scenario.buildings ?? []).map((b) => ({
+    ...b,
+    bounds: { ...b.bounds },
+    rooms: b.rooms.map((r) => ({ ...r, bounds: { ...r.bounds } })),
+    doors: b.doors.map((d) => ({ ...d, pos: { ...d.pos }, normal: { ...d.normal } })),
+  }));
+  const doors = buildings.flatMap((b) => b.doors);
+  const walls = blockersOf(structuralWalls, doors);
+
+  // ナビグリッドは**扉を通れるもの**として作る。閉じた扉は移動を阻むが、それは
+  // 経路の有無ではなく通過の可否の問題で、ブリーチすれば通れるようになるため。
+  const nav = buildNavSet(
+    structuralWalls,
+    scenario.bounds,
+    NAV_STEP_OUTDOOR,
+    NAV_MARGIN_OUTDOOR,
+    buildings,
+    CQB.NAV_STEP,
+    CQB.NAV_MARGIN,
+  );
+  const coverPoints = buildCoverPoints(structuralWalls, scenario.bounds);
   const soldiers = scenario.soldiers.map(cloneSoldier);
   const soldierById = new Map(soldiers.map((s) => [s.id, s]));
 
@@ -293,7 +361,10 @@ function buildWorld(scenario: Scenario): World {
     tick: 0,
     bounds: { ...scenario.bounds },
     walls,
-    navOutdoor,
+    structuralWalls,
+    buildings,
+    doors,
+    nav,
     coverPoints,
     rng: createRng(scenario.seed),
     rngBySide: { blue: createRng(scenario.seed), red: createRng(scenario.seed) },

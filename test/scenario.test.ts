@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createWorld } from "../src/sim/world.ts";
 import { SCENARIOS, type ScenarioKey } from "../src/sim/scenario.ts";
-import { findPath } from "../src/sim/navgrid.ts";
+import { findPathSet } from "../src/sim/navgrid.ts";
 import type { Side } from "../src/sim/types.ts";
 
 /**
@@ -34,7 +34,7 @@ describe("シナリオの健全性", () => {
         const w = createWorld(SCENARIOS[key].make(1));
         for (const s of w.soldiers) {
           const ccp = w.ccp[s.side];
-          const path = findPath(w.navOutdoor, s.pos.x, s.pos.z, ccp.x, ccp.z);
+          const path = findPathSet(w.nav, s.pos.x, s.pos.z, ccp.x, ccp.z);
           expect(path, `soldier ${s.id} (${s.side}) はCCPへ到達できない`).not.toBeNull();
         }
       });

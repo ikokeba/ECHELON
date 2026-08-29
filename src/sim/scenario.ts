@@ -5,6 +5,7 @@
  * このファイルはプログラム的なフィクスチャとして残す。
  */
 
+import { makeSimpleBuilding } from "./cqb.ts";
 import type {
   AABB,
   Bounds,
@@ -38,6 +39,11 @@ export const SCENARIOS = {
     label: "中隊 vs 中隊",
     detail: "各91名。CP・CCP・後送アセットを含む5階層すべて",
     make: (seed?: number) => companyClashScenario(seed),
+  },
+  urban: {
+    label: "市街地(CQB)",
+    detail: "建物の争奪。スタック→ブリーチ→室内掃討(仕様 §7)",
+    make: (seed?: number) => urbanAssaultScenario(seed),
   },
 } as const;
 
@@ -83,6 +89,8 @@ export function makeSoldier(seed: SoldierSeed): Soldier {
     pathIdx: 0,
     sees: [],
     suppressor: false,
+    eye: { ...seed.pos },
+    peeking: false,
     role: seed.role ?? "rifleman",
     hqRole: seed.hqRole ?? null,
     quals: {
@@ -529,5 +537,65 @@ export function companyClashScenario(seed = 1): Scenario {
     ],
     ccp: { blue: { ...blueCcp }, red: { ...redCcp } },
     controlMeasures: [{ kind: "OBJ", label: "OBJ FALCON", points: [{ ...objective }] }],
+  };
+}
+
+/**
+ * 市街地戦(CQB)シナリオ。1個分隊 vs 1個分隊で、中央の建物を争奪する(仕様 §7)。
+ *
+ * 屋外と屋内はシームレスな1つのマップ(仕様 §7.1)。両分隊とも建物内部を任務目標と
+ * するため、必ず「街路を進む → 扉にスタック → ブリーチ → 室内掃討」の流れになる。
+ * 建物は原点まわりに点対称な位置へ2棟置き、扉を互いに反対側へ向けて公平を保つ
+ * (仕様 §2/§13)。
+ */
+export function urbanAssaultScenario(seed = 1): Scenario {
+  resetIds();
+  const bounds: Bounds = { minX: -40, maxX: 40, minZ: -34, maxZ: 34 };
+
+  // 建物2棟。180°回転で互いに重なる位置・向きに置く
+  const north = makeSimpleBuilding(1, { minX: -7, maxX: 3, minZ: 4, maxZ: 12 }, "south");
+  const south = makeSimpleBuilding(2, { minX: -3, maxX: 7, minZ: -12, maxZ: -4 }, "north");
+
+  // 遮蔽としての街路構造。これも点対称に置く
+  const streetWalls: AABB[] = [];
+  for (const [cx, cz, hw, hd] of [
+    [16, 8, 3, 0.4],
+    [24, -2, 0.4, 3],
+    [12, -14, 2.5, 0.4],
+    [30, 6, 0.4, 2.5],
+  ] as const) {
+    streetWalls.push({ cx, cz, hw, hd });
+    streetWalls.push({ cx: -cx, cz: -cz, hw, hd });
+  }
+
+  const blueStart = { x: 0, z: -26 };
+  const redStart = { x: 0, z: 26 };
+  // 各分隊の任務目標は「敵側の建物の中」。必ず突入が発生する
+  const blueObjective = { x: -2, z: 8 };
+  const redObjective = { x: 2, z: -8 };
+
+  const soldiers = [
+    ...makeSquad("blue", 0, 0, blueStart, { x: 0, z: 1 }),
+    ...makeSquad("red", 1, 1, redStart, { x: 0, z: -1 }),
+  ];
+
+  const blue = plansFor("blue", 0, [0], blueObjective, { x: 0, z: 1 }, blueStart);
+  const red = plansFor("red", 1, [1], redObjective, { x: 0, z: -1 }, redStart);
+
+  return {
+    name: "urban-assault",
+    seed,
+    bounds,
+    walls: [...north.walls, ...south.walls, ...streetWalls],
+    buildings: [north.building, south.building],
+    soldiers,
+    fireteamPlans: [...blue.fireteamPlans, ...red.fireteamPlans],
+    squadPlans: [...blue.squadPlans, ...red.squadPlans],
+    platoonPlans: [...blue.platoonPlans, ...red.platoonPlans],
+    ccp: { blue: { x: 0, z: -30 }, red: { x: 0, z: 30 } },
+    controlMeasures: [
+      { kind: "OBJ", label: "OBJ NORTH", points: [{ ...blueObjective }] },
+      { kind: "OBJ", label: "OBJ SOUTH", points: [{ ...redObjective }] },
+    ],
   };
 }

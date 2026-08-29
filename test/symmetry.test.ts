@@ -5,6 +5,7 @@ import {
   demoCrossingScenario,
   platoonClashScenario,
   companyClashScenario,
+  urbanAssaultScenario,
 } from "../src/sim/scenario.ts";
 import type { Scenario, Side } from "../src/sim/types.ts";
 
@@ -52,6 +53,9 @@ describe("戦力対称性(仕様 §2/§13)", () => {
     ["分隊規模", demoCrossingScenario, 9000],
     ["小隊規模", platoonClashScenario, 9000],
     ["中隊規模", companyClashScenario, 1500],
+    // 市街地は屋内戦闘(仕様 §7)まで含めて反転するかを見る。扉の開閉・スタック位置の
+    // 選び方・コーナー割り当てのどれかが陣営を見ていたら、ここで露見する
+    ["市街地CQB", urbanAssaultScenario, 5400],
   ] as const;
 
   for (const [name, mk, ticks] of cases) {

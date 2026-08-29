@@ -11,7 +11,7 @@
  * 規模が大きくなったらスロット単位の予算制に置き換える。
  */
 
-import { findPath } from "../navgrid.ts";
+import { findPathSet } from "../navgrid.ts";
 import { SIM_HZ } from "../constants.ts";
 import type { World } from "../world.ts";
 
@@ -37,7 +37,7 @@ export function pathingSystem(world: World): void {
 
     if (world.tick % PATH_RECHECK_TICKS !== 0) continue;
 
-    const path = findPath(world.navOutdoor, s.pos.x, s.pos.z, goal.x, goal.z);
+    const path = findPathSet(world.nav, s.pos.x, s.pos.z, goal.x, goal.z);
     if (path && path.length > 0) {
       s.path = path;
       s.pathIdx = 0;
