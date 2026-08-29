@@ -25,6 +25,9 @@ export function pathingSystem(world: World): void {
     if (s.status === "kia" || s.status === "wia") continue;
     // 移動の要否は命令の種類ではなく目的地の有無で決まる(movement.ts と同じ規則)。
     // `suppress` も「この射撃位置へ移動して制圧しろ」という意味を持ちうる。
+    // 集合・追従(仕様 §6.5)は経路探索を通さない。目標が毎ティック動くため、
+    // 経路を張っても即座に陳腐化する。移動システムが直接近づける。
+    if (s.order.kind === "follow") continue;
     const goal = s.order.target;
     if (!goal) continue;
     if (s.pathIdx < s.path.length) continue; // すでに経路を追従中

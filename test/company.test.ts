@@ -207,8 +207,8 @@ describe("後送要請・補充兵(仕様 §9)", () => {
     // 階級章は継承しない — 補充されるのは一兵卒であって下士官ではない
     expect(replacement!.isSquadLeader).toBe(false);
     expect(replacement!.isFireteamLeader).toBe(false);
-    // 合流したその足で自分のFTの命令に従い始めている(配管に特別扱いがない証拠)
-    expect(replacement!.status).toBe("ok");
+    // 合流後は普通の隊員として扱われる — 後送状態を引き継いだりはしない。
+    // (合流後に戦死しうるので status までは問わない。それは戦況の話)
     expect(replacement!.evac).toBe("none");
   }, 120000);
 

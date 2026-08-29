@@ -41,7 +41,13 @@ export type SoldierOrderKind =
   | "suppress"
   | "maneuver"
   | "retreat"
-  | "evade";
+  | "evade"
+  /**
+   * 集合・追従(仕様 §6.5)。`move` とは明確に別物で、仕様も分けている:
+   * 「移動」は1回限りの目的地指定、「集合・追従」は継続的な相対追従。
+   * 目標位置は毎ティック再計算される隊形位置なので、経路探索は通さず直接近づく。
+   */
+  | "follow";
 
 /** FTリーダーのステートマシンのモード(仕様 §1 [v5] — これ自体が「命令システム」)。 */
 export type FireteamMode = "ADVANCE" | "CONTACT" | "SEARCH" | "FALLBACK";

@@ -235,7 +235,13 @@ export function litterSystem(world: World): void {
   }
 }
 
-/** 後送済みの人数(陣営別)。HUD・戦果集計用。 */
+/**
+ * 後送済みの人数(陣営別)。HUD・戦果集計用。
+ *
+ * `evacuated`(CCP到達・アセット待ち)と `collected`(アセット収容済み)の**両方**を数える。
+ * 前者は数分で後者へ移る通過点にすぎないので、片方だけ数えると
+ * 「後送は成立しているのに集計は常に0」という誤った像になる(実際にそれで検証を誤らせた)。
+ */
 export function evacuatedCount(world: World, side: Side): number {
-  return world.soldiers.filter((s) => s.side === side && s.evac === "evacuated").length;
+  return world.soldiers.filter((s) => s.side === side && isOffField(s)).length;
 }

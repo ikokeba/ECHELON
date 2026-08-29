@@ -21,6 +21,7 @@ import {
   pickSupportedBoundTarget,
 } from "../cover.ts";
 import { CONFIDENCE_CUTOFF, POS_ERROR_GROWTH, POS_ERROR_MAX, SIM_HZ } from "../constants.ts";
+import { formationSlots } from "../formation.ts";
 import { aiSuppressed } from "../control.ts";
 import { isCommittedToAid } from "../systems/casualties.ts";
 import { isCommittedToLitter } from "../systems/litter.ts";
@@ -95,6 +96,11 @@ function issue(
   // 担架搬送に就いている隊員も同様。こちらは分隊長の後送命令で拘束されているので、
   // FTリーダーの命令より上位の拘束になる(仕様 §9: 後送は明示的な命令)。
   if (isCommittedToLitter(u)) return;
+
+  // 速度変調は命令を出し直すたびに素の値へ戻す。変調をかけたい呼び出し側は
+  // issue のあとに設定する(担架搬送のように命令系統の外で拘束している場合は、
+  // 上のガードでここへ来ないので変調が保たれる)。
+  u.speedMul = 1;
 
   const prev = u.order;
   const movingKind = kind === "move" || kind === "maneuver" || kind === "retreat" || kind === "evade";
@@ -253,28 +259,53 @@ function runBoundingOverwatch(
 }
 
 /**
+ * 隊列を組んで進む(仕様 §6 の隊形 + §6.5 の集合・追従)。
+ *
+ * 先頭の1名だけが経路探索で `dest` へ向かい、残りは**リーダーの現在の向きを基準に
+ * 毎ティック再計算される隊形位置へ追従する**。隊形Tierは通路幅から自動選択される
+ * ので、路地に入れば縦隊に、広場に出れば横隊に、指示なしで切り替わる。
+ *
+ * 全員へ別々の固定座標を配ると、狭い通路で横に並ぼうとして壁に張り付く。
+ * 追従方式なら「リーダーがどこを歩いているか」に隊形が追随する。
+ */
+function moveInFormation(
+  world: World,
+  ft: FireteamState,
+  members: Soldier[],
+  forward: Vec2,
+  dest: Vec2,
+): void {
+  if (members.length === 0) return;
+  const leader = members[0]!;
+  const followers = members.slice(1);
+
+  issue(world, leader, "move", dest, forward);
+
+  const slots = formationSlots(world.walls, leader.pos, forward, members.length, {
+    contacts: ft.memory.values(),
+    coverPoints: world.coverPoints,
+  });
+  // 隊形Tierによる速度差(仕様 §6: 縦隊が最速、横隊が最遅)は隊全体に掛ける。
+  // リーダーだけ速いと隊列が伸びきってしまう。
+  const speedMul = slots[0]?.speedMul ?? 1;
+  leader.speedMul = speedMul;
+
+  followers.forEach((u, i) => {
+    const slot = slots[i + 1];
+    if (!slot) return;
+    // 監視方向は隊形内の位置で分担する(仕様 §6「視界カバー範囲は定性的なルールベース」)
+    const look = rotate(forward, (((i % 2 === 0 ? -35 : 35) + (i >= 2 ? 90 : 0)) * Math.PI) / 180);
+    issue(world, u, "follow", slot.pos, look);
+    u.speedMul = speedMul;
+  });
+}
+
+/**
  * 前進(Traveling、仕様 §6): 接敵の可能性が低く速度優先。
  * 隊列を保ったまま全員が連続移動する。警戒要員を割かないぶん最も速い。
  */
 function runTraveling(world: World, ft: FireteamState, members: Soldier[], forward: Vec2): void {
-  if (members.length === 0) return;
-  const mc = centroid(members);
-  // 目標そのものへ向かう(遮蔽を経由しないので躍進前進より直線的で速い)
-  const dest = ft.objective;
-  members.forEach((u, i) => {
-    const off = offsetPerp(i, members.length, 1.5, forward);
-    // 縦隊寄りに、前後へ少しずらして隊列を作る
-    const trail = -i * 1.2;
-    const look = rotate(forward, ((i % 2 === 0 ? -20 : 20) * Math.PI) / 180);
-    issue(
-      world,
-      u,
-      "move",
-      { x: dest.x + off.x + forward.x * trail, z: dest.z + off.z + forward.z * trail },
-      look,
-    );
-  });
-  void mc;
+  moveInFormation(world, ft, members, forward, ft.objective);
 }
 
 /**
@@ -300,25 +331,12 @@ function runTravelingOverwatch(
   /** 先頭組と後続組の間隔(m)。相互支援が届く範囲に収める */
   const TRAIL_GAP = 8;
 
-  alpha.forEach((u, i) => {
-    const off = offsetPerp(i, alpha.length, 1.6, forward);
-    const look = rotate(forward, ((i === 0 ? -25 : 25) * Math.PI) / 180);
-    issue(world, u, "move", { x: dest.x + off.x, z: dest.z + off.z }, look);
-  });
-
-  bravo.forEach((u, i) => {
-    const off = offsetPerp(i, bravo.length, 1.6, forward);
-    const look = rotate(forward, ((i === 0 ? 0 : 120) * Math.PI) / 180);
-    issue(
-      world,
-      u,
-      "move",
-      {
-        x: dest.x + off.x - forward.x * TRAIL_GAP,
-        z: dest.z + off.z - forward.z * TRAIL_GAP,
-      },
-      look,
-    );
+  // 先頭組は隊形を組んで目標へ、後続組は一定距離を空けて同じ軸を進む。
+  // どちらの組も内部では通路幅に応じた隊形(仕様 §6)を保つ。
+  moveInFormation(world, ft, alpha, forward, dest);
+  moveInFormation(world, ft, bravo, forward, {
+    x: dest.x - forward.x * TRAIL_GAP,
+    z: dest.z - forward.z * TRAIL_GAP,
   });
 }
 

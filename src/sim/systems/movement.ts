@@ -36,7 +36,7 @@ function moveWithWallSlide(walls: World["walls"], from: Vec2, to: Vec2): Vec2 {
  * `hold` は常に目的地を持たないため、この規則だけで正しく静止する。
  */
 function wantsToMove(s: Soldier): boolean {
-  return s.order.target !== undefined;
+  return s.order.target !== undefined && s.order.kind !== "follow";
 }
 
 export function movementSystem(world: World): void {
@@ -46,9 +46,29 @@ export function movementSystem(world: World): void {
   for (const s of world.soldiers) {
     if (s.status === "kia" || s.status === "wia") continue;
 
-    // 速度の変調(担架搬送 0.5/0.85倍、室内進入 0.7倍 など)。
+    // 速度の変調(担架搬送 0.5/0.85倍、室内進入 0.7倍、隊形Tier など)。
     // 変調をかけたシステムが解除の責任を持つ(constants の speedMul を参照)。
     const maxStep = baseStep * s.speedMul;
+
+    // 集合・追従(仕様 §6.5)は経路探索を通さず、隊形位置へ直接近づく。
+    // 目標が毎ティック動くため、経路を張り直す方式では追従が破綻する
+    // (0.5秒ごとの再探索で断続的にしか進めなくなる)。距離も数メートルなので、
+    // 壁沿いのスライドだけで十分に自然な追従になる。
+    if (s.order.kind === "follow" && s.order.target) {
+      const t = s.order.target;
+      const dx = t.x - s.pos.x;
+      const dz = t.z - s.pos.z;
+      const d = Math.hypot(dx, dz);
+      if (d > 0.08) {
+        const step = Math.min(d, maxStep);
+        const to = { x: s.pos.x + (dx / d) * step, z: s.pos.z + (dz / d) * step };
+        s.pos = moveWithWallSlide(world.walls, s.pos, to);
+      }
+      // 向きは命令で指定された監視方向を優先し、なければ進行方向を向く
+      const look = s.order.facing ?? (d > 1e-6 ? { x: dx / d, z: dz / d } : s.facing);
+      faceAngle(s, turnToward(angleOf(s.facing), angleOf(look), maxTurn));
+      continue;
+    }
 
     if (wantsToMove(s) && s.pathIdx < s.path.length) {
       const step = advanceAlongPath(s.pos, s.path, s.pathIdx, maxStep);
