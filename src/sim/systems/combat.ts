@@ -19,6 +19,7 @@ import {
   GRENADE_ATTEMPT_RATE_PER_SEC,
   HIT_RATE_PER_SEC,
   KIA_ON_HIT_CHANCE,
+  MG,
   MOVING_ACC_PENALTY,
   SAW_MOVING_ACC_MUL,
   SAW_SUPPRESS_MUL,
@@ -48,6 +49,8 @@ export interface ShotContext {
   shooterMoving: boolean;
   /** 射手が自動火器手である(移動時ペナルティが1.3倍に悪化。仕様 §14) */
   shooterIsSaw: boolean;
+  /** 射手が火器分隊の機関銃射手である(移動時ペナルティがさらに悪化。`[v6.1]` §2) */
+  shooterIsMg?: boolean;
 }
 
 export type ShotOutcome = { hit: false } | { hit: true; lethal: boolean };
@@ -66,9 +69,9 @@ export function rollShot(rng: Rng, ctx: ShotContext): ShotOutcome {
       1 - (ctx.shooterIsMarksman ? SUPPRESSION_ACC_PENALTY_MARKSMAN : SUPPRESSION_ACC_PENALTY);
   }
   if (ctx.shooterMoving) {
-    // SAW手は移動しながらの射撃が通常より苦手(仕様 §14: ペナルティが1.3倍)
-    const penalty = MOVING_ACC_PENALTY * (ctx.shooterIsSaw ? SAW_MOVING_ACC_MUL : 1);
-    accMul *= 1 - Math.min(0.95, penalty);
+    // 重火器ほど移動しながらの射撃が苦手(SAW 1.3倍 / MG 1.7倍。仕様 §14 / `[v6.1]` §2)
+    const mul = ctx.shooterIsMg ? MG.MOVING_ACC_MUL : ctx.shooterIsSaw ? SAW_MOVING_ACC_MUL : 1;
+    accMul *= 1 - Math.min(0.95, MOVING_ACC_PENALTY * mul);
   }
   const hitP = ratePerTick(HIT_RATE_PER_SEC * accMul, SIM_DT);
   if (!chance(rng, hitP)) return { hit: false };
@@ -258,12 +261,13 @@ export function combatSystem(world: World): void {
       shooterIsMarksman: s.quals.designatedMarksman,
       shooterMoving: moving,
       shooterIsSaw: s.role === "saw",
+      shooterIsMg: s.role === "mg",
     });
 
-    // 制圧役は行動抑制(evade)も誘発する。SAW手はこの誘発率が1.5倍(仕様 §14)
+    // 制圧役は行動抑制(evade)も誘発する。SAW 1.5倍 / MG 2.0倍(仕様 §14 / `[v6.1]` §2)
     let triggersEvade = false;
     if (s.suppressor) {
-      const mul = s.role === "saw" ? SAW_SUPPRESS_MUL : 1;
+      const mul = s.role === "mg" ? MG.SUPPRESS_MUL : s.role === "saw" ? SAW_SUPPRESS_MUL : 1;
       triggersEvade = chance(
         world.rngBySide[s.side],
         ratePerTick(SUPPRESS_TRIGGER_RATE_PER_SEC * mul, SIM_DT),

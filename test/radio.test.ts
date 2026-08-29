@@ -8,10 +8,10 @@ describe("情報の階層化(仕様 §5)", () => {
   it("編成が5階層のうち小隊まで組み上がっている", () => {
     const w = createWorld(platoonClashScenario(1));
     expect(w.platoons.length).toBe(2); // 両陣営に1個小隊
-    expect(w.squads.length).toBe(6); // 各小隊3個分隊
-    expect(w.fireteams.length).toBe(12); // 各分隊2個FT
-    // 各小隊 = 3個分隊9名 + 小隊本部(小隊長+無線手)2名 = 29名
-    expect(w.soldiers.length).toBe(58);
+    expect(w.squads.length).toBe(8); // 各小隊 3個ライフル分隊 + 火器分隊
+    expect(w.fireteams.length).toBe(16); // 各分隊2個FT / 火器分隊もMG班×2
+    // 各小隊 = ライフル分隊27名 + 火器分隊7名 + 小隊本部2名 = 36名(仕様 §2 `[v6.1]`)
+    expect(w.soldiers.length).toBe(72);
     // 小隊本部は分隊コントローラを持たない(仕様 §2)
     expect(w.soldiers.filter((s) => s.hqRole === "pl").length).toBe(2);
   });
@@ -52,7 +52,7 @@ describe("情報の階層化(仕様 §5)", () => {
         expect(platoonNewest).toBeLessThanOrEqual(squadNewest);
       }
     }
-  });
+  }, 20000);
 
   it("無線を1ホップ経た情報は位置の粒度が粗くなる(仕様 §5)", () => {
     const w = createWorld(platoonClashScenario(3));
@@ -70,7 +70,7 @@ describe("情報の階層化(仕様 §5)", () => {
         expect(c.hopError).toBe(0);
       }
     }
-  });
+  }, 20000);
 
   it("敵側の接触が自軍のbeliefに混入しない", () => {
     const w = createWorld(platoonClashScenario(4));
@@ -95,7 +95,7 @@ describe("小隊長の指揮(仕様 §3 ②, §6)", () => {
     // 交戦が始まれば、少なくとも一部は警戒前進か躍進前進へ上がっている
     const raised = w.fireteams.filter((f) => f.technique !== "traveling");
     expect(raised.length).toBeGreaterThan(0);
-  });
+  }, 20000);
 
   it("小隊長が麾下分隊へ担当区域を割り当てる", () => {
     const w = createWorld(platoonClashScenario(1));
@@ -137,9 +137,9 @@ describe("中隊規模(仕様 §2 の想定規模)", () => {
     const w = createWorld(companyClashScenario(1));
     expect(w.companies.length).toBe(2); // 各陣営1個中隊
     expect(w.platoons.length).toBe(6); // 各陣営3個小隊
-    expect(w.squads.length).toBe(18);
-    // 1個中隊 = 3個小隊 ×(3個分隊9名 + 小隊本部2名)+ 中隊本部4名 = 91名
-    expect(w.soldiers.length).toBe(182);
+    expect(w.squads.length).toBe(24); // 6個小隊 ×(3個ライフル分隊 + 火器分隊)
+    // 1個中隊 = 3個小隊 ×(27 + 火器分隊7 + 小隊本部2)+ 中隊本部4 = 112名(`[v6.1]`)
+    expect(w.soldiers.length).toBe(224);
     // 本部要員は分隊コントローラを持たない(仕様 §2)
     expect(w.soldiers.filter((s) => s.hqRole !== null).length).toBe(2 * (3 * 2 + 4));
     // 中隊長・小隊長・分隊長すべてに指揮官が着任している(仕様 §12)

@@ -24,6 +24,7 @@ import {
 import {
   CONFIDENCE_CUTOFF,
   DM_DETECT_RANGE,
+  MG,
   MORALE,
   POS_ERROR_GROWTH,
   POS_ERROR_MAX,
@@ -649,8 +650,9 @@ export function fireteamAI(world: World): void {
         // 選抜射手(仕様 §10): 射線が通っていれば交戦距離帯の外からでもその場で撃つ。
         // FT AI に「距離を詰めろ」と言われて長射程の利を捨てないため。
         const dmEngageFromRange = u.quals.designatedMarksman && los && d <= DM_DETECT_RANGE;
-        const inPosition =
-          (los && d >= engageMin - 2 && d <= engageMax + 2) || dmEngageFromRange;
+        // 機関銃(`[v6.1]` §2): 交戦距離帯を広く取り、据えて長めの距離を制圧する。
+        const eMax = engageMax * (u.role === "mg" ? MG.ENGAGE_RANGE_MUL : 1);
+        const inPosition = (los && d >= engageMin - 2 && d <= eMax + 2) || dmEngageFromRange;
         if (inPosition) {
           ft.unitDest.delete(u.id);
           issue(world, u, "suppress", null, dirTo(u.pos, enemy));

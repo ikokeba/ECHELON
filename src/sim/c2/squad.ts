@@ -104,6 +104,17 @@ function directFireteams(world: World, sq: SquadState): void {
 
   if (!threat) return;
 
+  // 火器分隊(`[v6.1]` §2): 機関銃射手を含む分隊は側面機動には出さず、全FTを
+  // ベース・オブ・ファイアに固定する。据えて制圧するのが役割で、走り回るものではない。
+  // (mission型 OQ-3 が入れば support-by-fire 任務として明示的に扱う。それまでの暫定)
+  const isWeaponsSquad = world.soldiers.some(
+    (s) => s.side === sq.side && s.squadId === sq.squadId && s.role === "mg",
+  );
+  if (isWeaponsSquad) {
+    for (const ft of fireteams) ft.assignedRole = "base";
+    return;
+  }
+
   // 接敵時: 敵に近い側のFTをベース・オブ・ファイア、もう一方を機動役にする。
   // 近い側が既に射撃位置についている可能性が高く、遠い側のほうが回り込む余地があるため。
   const alive = fireteams.filter((ft) => (strength.get(ft.ftIndex) ?? 0) > 0);

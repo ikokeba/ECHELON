@@ -9,7 +9,7 @@
 
 import { advanceAlongPath } from "../pathfollow.ts";
 import { angleOf, collidesWall, dirFromAngle, turnToward } from "../geometry.ts";
-import { SIM_DT, SOLDIER_RADIUS } from "../constants.ts";
+import { MG, SIM_DT, SOLDIER_RADIUS } from "../constants.ts";
 import type { World } from "../world.ts";
 import type { Soldier, Vec2 } from "../types.ts";
 
@@ -49,7 +49,9 @@ export function movementSystem(world: World): void {
 
     // 速度の変調(担架搬送 0.5/0.85倍、室内進入 0.7倍、隊形Tier など)。
     // 変調をかけたシステムが解除の責任を持つ(constants の speedMul を参照)。
-    const maxStep = baseStep * s.speedMul;
+    // 機関銃射手は重火器のぶん恒常的に鈍い(`[v6.1]` §2)。
+    const roleMul = s.role === "mg" ? MG.MOVE_SPEED_MUL : 1;
+    const maxStep = baseStep * s.speedMul * roleMul;
 
     // 集合・追従(仕様 §6.5)は経路探索を通さず、隊形位置へ直接近づく。
     // 目標が毎ティック動くため、経路を張り直す方式では追従が破綻する

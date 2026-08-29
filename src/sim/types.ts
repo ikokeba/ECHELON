@@ -90,8 +90,11 @@ export type EvacStage = "none" | "requested" | "carrying" | "evacuated" | "colle
 /**
  * FT内の役割(仕様 §14 のMOS)。mos-balance-simulator が検証した4名編成に対応する。
  * 戦闘性能に効くのは SAW(制圧効果) と 擲弾手(遮蔽無視) のみで、それ以外は同一。
+ *
+ * `[v6.1]` `"mg"` は火器分隊(小隊直轄の機関銃班、M240系×2、仕様 §2)の射手。
+ * SAW をさらに強めた持続制圧火器: 制圧の行動抑制が強く、交戦距離が長く、移動射撃が苦手。
  */
-export type SoldierRole = "leader" | "saw" | "grenadier" | "rifleman";
+export type SoldierRole = "leader" | "saw" | "grenadier" | "rifleman" | "mg";
 
 /**
  * 本部要員の職(仕様 §2)。ライフル分隊の外側にいる、指揮系統そのものを担う人員。

@@ -147,6 +147,7 @@ const EMPTY_KILLS = (): Record<SoldierRole, number> => ({
   saw: 0,
   grenadier: 0,
   rifleman: 0,
+  mg: 0,
 });
 
 export interface BattleOptions {

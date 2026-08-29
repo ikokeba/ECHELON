@@ -257,6 +257,60 @@ function makeSquad(
   return soldiers;
 }
 
+/**
+ * 火器分隊(小隊直轄の機関銃班、仕様 §2「M240系×2、通常分隊と同格」)。`[v6.1]`
+ * 7名 = 分隊長1 + MG班2組(各: 機関銃射手1 + 副射手/弾薬手2)。
+ * 仕様に内部数値がないため7名編成とした(小隊本部の2名編成と同じ扱いの暫定)。
+ */
+function makeWeaponsSquad(
+  side: Side,
+  platoonId: number,
+  squadId: number,
+  anchor: Vec2,
+  dir: Vec2,
+  companyId = 0,
+): Soldier[] {
+  const right = { x: -dir.z, z: dir.x };
+  const soldiers: Soldier[] = [
+    makeSoldier({
+      side,
+      companyId,
+      platoonId,
+      squadId,
+      fireteamId: -1,
+      isSquadLeader: true,
+      pos: { x: anchor.x, z: anchor.z },
+      facing: dir,
+    }),
+  ];
+  // 各班: 射手(mg) + 副射手 + 弾薬手。1丁につき射手1名 = 分隊に機関銃2丁。
+  const ROLES: Soldier["role"][] = ["mg", "rifleman", "rifleman"];
+  for (let ft = 0; ft < 2; ft++) {
+    for (let m = 0; m < 3; m++) {
+      const lateral = (ft === 0 ? -1 : 1) * 3 + (m - 1) * 1.6;
+      const back = (m % 2) * -1.6;
+      soldiers.push(
+        makeSoldier({
+          side,
+          companyId,
+          platoonId,
+          squadId,
+          fireteamId: ft,
+          isFireteamLeader: m === 0,
+          pos: {
+            x: anchor.x + right.x * lateral + dir.x * back,
+            z: anchor.z + right.z * lateral + dir.z * back,
+          },
+          facing: dir,
+          role: ROLES[m],
+          quals: { medicalCrossTrained: m === 2, designatedMarksman: false },
+        }),
+      );
+    }
+  }
+  return soldiers;
+}
+
 /** 1象限分の壁リストを両軸に鏡像展開する。 */
 function mirror(base: AABB[]): AABB[] {
   const out: AABB[] = [];
@@ -391,6 +445,8 @@ function buildPlatoon(
   side: Side,
   platoonId: number,
   squadIds: number[],
+  /** 火器分隊(機関銃班)の squadId(`[v6.1]` 仕様 §2) */
+  weaponsSquadId: number,
   center: Vec2,
   dir: Vec2,
   objective: Vec2,
@@ -414,19 +470,38 @@ function buildPlatoon(
       ),
     );
   });
+  // 火器分隊はライフル分隊列の少し後方(縦深から支援射撃する位置)
+  soldiers.push(
+    ...makeWeaponsSquad(
+      side,
+      platoonId,
+      weaponsSquadId,
+      { x: center.x - dir.x * 7, z: center.z - dir.z * 7 },
+      dir,
+      companyId,
+    ),
+  );
   // 小隊本部は分隊列の後方に置く(仕様 §2/§3②: 小隊長は担当区域全体を見渡す位置)
   soldiers.push(
     ...makePlatoonHq(
       side,
       companyId,
       platoonId,
-      { x: center.x - dir.x * 10, z: center.z - dir.z * 10 },
+      { x: center.x - dir.x * 13, z: center.z - dir.z * 13 },
       dir,
     ),
   );
   return {
     soldiers,
-    plans: plansFor(side, platoonId, squadIds, objective, dir, center, companyId),
+    plans: plansFor(
+      side,
+      platoonId,
+      [...squadIds, weaponsSquadId],
+      objective,
+      dir,
+      center,
+      companyId,
+    ),
   };
 }
 
@@ -438,15 +513,16 @@ function buildPlatoon(
  * 断片的な報告だけが遅れて届く。
  *
  * 仕様上の小隊は3個ライフル分隊+火器分隊+小隊本部の約40名(§2)。
- * `[v6]` で小隊本部(小隊長+無線手)を追加したため現状29名。火器分隊は未実装。
+ * `[v6.1]` 火器分隊(7名)を追加し、3個ライフル分隊(27)+火器分隊(7)+小隊本部(2)= 36名。
  */
 export function platoonClashScenario(seed = 1): Scenario {
   resetIds();
-  const bounds: Bounds = { minX: -56, maxX: 56, minZ: -40, maxZ: 40 };
+  // `[v6.1]` 火器分隊+小隊本部が後方に伸びるぶん、縦深を広げて全員を盤内に収める。
+  const bounds: Bounds = { minX: -56, maxX: 56, minZ: -50, maxZ: 50 };
   const objective = { x: 0, z: 0 };
 
-  const blue = buildPlatoon("blue", 0, [0, 1, 2], { x: 0, z: -32 }, { x: 0, z: 1 }, objective);
-  const red = buildPlatoon("red", 1, [10, 11, 12], { x: 0, z: 32 }, { x: 0, z: -1 }, objective);
+  const blue = buildPlatoon("blue", 0, [0, 1, 2], 3, { x: 0, z: -32 }, { x: 0, z: 1 }, objective);
+  const red = buildPlatoon("red", 1, [10, 11, 12], 13, { x: 0, z: 32 }, { x: 0, z: -1 }, objective);
 
   return {
     name: "platoon-clash",
@@ -469,12 +545,13 @@ export function platoonClashScenario(seed = 1): Scenario {
 }
 
 /**
- * 1個中隊 vs 1個中隊(各3個小隊 × (3個分隊+小隊本部) + 中隊本部 = 91名、両軍182名)。
+ * 1個中隊 vs 1個中隊(各3個小隊 × (3個ライフル分隊+火器分隊+小隊本部) + 中隊本部
+ * = 112名、両軍224名)。
  *
- * 仕様 §2 が想定する規模(中隊 = 3〜4個小隊)の下限。火器分隊が未実装のため、
- * 仕様上の約130名/中隊にはまだ届いていない。
+ * 仕様 §2 が想定する規模(中隊 = 3〜4個小隊、約130名/中隊)にかなり近づいた。
  *
- * `[v6]` 中隊長のC2・小隊本部・中隊本部・CP・CCPを追加し、5階層すべてが揃った。
+ * `[v6]` 中隊長のC2・小隊本部・中隊本部・CP・CCPを追加し、5階層が揃った。
+ * `[v6.1]` 火器分隊(小隊ごと7名)を追加。
  */
 export function companyClashScenario(seed = 1): Scenario {
   resetIds();
@@ -504,6 +581,7 @@ export function companyClashScenario(seed = 1): Scenario {
       "blue",
       p,
       [p * 10, p * 10 + 1, p * 10 + 2],
+      p * 10 + 3,
       { x: lateral, z: -58 },
       { x: 0, z: 1 },
       objective,
@@ -514,6 +592,7 @@ export function companyClashScenario(seed = 1): Scenario {
       "red",
       100 + p,
       [1000 + p * 10, 1000 + p * 10 + 1, 1000 + p * 10 + 2],
+      1000 + p * 10 + 3,
       { x: -lateral, z: 58 },
       { x: 0, z: -1 },
       objective,
