@@ -5,7 +5,6 @@ import {
   demoCrossingScenario,
   platoonClashScenario,
   companyClashScenario,
-  urbanAssaultScenario,
 } from "../src/sim/scenario.ts";
 import type { Scenario, Side } from "../src/sim/types.ts";
 
@@ -49,13 +48,14 @@ function kiaBySide(sc: Scenario, ticks: number): Record<Side, number> {
  * (地形や開始位置に由来する有利不利があっても、それは陣営とは無関係だと分かる)。
  */
 describe("戦力対称性(仕様 §2/§13)", () => {
+  // 市街地マップ(`urbanAssaultScenario`)は `[v6.1]` で**非対称**な本番ミッション
+  // マップに置き換えたため、ラベル入替 → 厳密反転の対象から外した(点対称でないと
+  // 反転は成立しない)。屋内戦闘ロジックが陣営を見ていないことは、対称な squad/platoon/
+  // company の各スケールと、`test/cqb.test.ts` が引き続き担保する。
   const cases = [
     ["分隊規模", demoCrossingScenario, 9000],
     ["小隊規模", platoonClashScenario, 9000],
     ["中隊規模", companyClashScenario, 1500],
-    // 市街地は屋内戦闘(仕様 §7)まで含めて反転するかを見る。扉の開閉・スタック位置の
-    // 選び方・コーナー割り当てのどれかが陣営を見ていたら、ここで露見する
-    ["市街地CQB", urbanAssaultScenario, 5400],
   ] as const;
 
   for (const [name, mk, ticks] of cases) {

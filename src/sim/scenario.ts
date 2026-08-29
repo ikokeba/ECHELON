@@ -647,22 +647,17 @@ export function companyClashScenario(seed = 1): Scenario {
 }
 
 /**
- * 市街地戦(CQB)シナリオ。1個分隊 vs 1個分隊で、中央の建物を争奪する(仕様 §7)。
+ * CQB機構の単体テスト用フィクスチャ(仕様 §7)。`[v6.1]`
  *
- * 屋外と屋内はシームレスな1つのマップ(仕様 §7.1)。両分隊とも建物内部を任務目標と
- * するため、必ず「街路を進む → 扉にスタック → ブリーチ → 室内掃討」の流れになる。
- * 建物は原点まわりに点対称な位置へ2棟置き、扉を互いに反対側へ向けて公平を保つ
- * (仕様 §2/§13)。
+ * `urbanAssaultScenario` を非対称の大型市街地へ差し替えたので、スタック→ブリーチ→掃討→
+ * 再編成の一連を確実に踏ませる小さな点対称マップをテスト専用に残す(旧 `urban` の内容)。
+ * `SCENARIOS` には載せない。
  */
-export function urbanAssaultScenario(seed = 1): Scenario {
+export function urbanCqbFixture(seed = 1): Scenario {
   resetIds();
   const bounds: Bounds = { minX: -40, maxX: 40, minZ: -34, maxZ: 34 };
-
-  // 建物2棟。180°回転で互いに重なる位置・向きに置く
   const north = makeSimpleBuilding(1, { minX: -7, maxX: 3, minZ: 4, maxZ: 12 }, "south");
   const south = makeSimpleBuilding(2, { minX: -3, maxX: 7, minZ: -12, maxZ: -4 }, "north");
-
-  // 遮蔽としての街路構造。これも点対称に置く
   const streetWalls: AABB[] = [];
   for (const [cx, cz, hw, hd] of [
     [16, 8, 3, 0.4],
@@ -673,23 +668,18 @@ export function urbanAssaultScenario(seed = 1): Scenario {
     streetWalls.push({ cx, cz, hw, hd });
     streetWalls.push({ cx: -cx, cz: -cz, hw, hd });
   }
-
   const blueStart = { x: 0, z: -26 };
   const redStart = { x: 0, z: 26 };
-  // 各分隊の任務目標は「敵側の建物の中」。必ず突入が発生する
   const blueObjective = { x: -2, z: 8 };
   const redObjective = { x: 2, z: -8 };
-
   const soldiers = [
     ...makeSquad("blue", 0, 0, blueStart, { x: 0, z: 1 }),
     ...makeSquad("red", 1, 1, redStart, { x: 0, z: -1 }),
   ];
-
   const blue = plansFor("blue", 0, [0], blueObjective, { x: 0, z: 1 }, blueStart);
   const red = plansFor("red", 1, [1], redObjective, { x: 0, z: -1 }, redStart);
-
   return {
-    name: "urban-assault",
+    name: "urban-cqb-fixture",
     seed,
     bounds,
     walls: [...north.walls, ...south.walls, ...streetWalls],
@@ -699,7 +689,6 @@ export function urbanAssaultScenario(seed = 1): Scenario {
     squadPlans: [...blue.squadPlans, ...red.squadPlans],
     platoonPlans: [...blue.platoonPlans, ...red.platoonPlans],
     ccp: { blue: { x: 0, z: -30 }, red: { x: 0, z: 30 } },
-    // 拠点は建物そのもの。屋内を確保しないと勝てない(仕様 §7 + §12)
     objectives: [
       { id: 1, label: "OBJ NORTH", pos: { ...blueObjective }, radius: OBJECTIVE.RADIUS.small, size: "small" },
       { id: 2, label: "OBJ SOUTH", pos: { ...redObjective }, radius: OBJECTIVE.RADIUS.small, size: "small" },
@@ -707,6 +696,107 @@ export function urbanAssaultScenario(seed = 1): Scenario {
     controlMeasures: [
       { kind: "OBJ", label: "OBJ NORTH", points: [{ ...blueObjective }] },
       { kind: "OBJ", label: "OBJ SOUTH", points: [{ ...redObjective }] },
+    ],
+  };
+}
+
+/**
+ * 市街地戦シナリオ。1個小隊 vs 1個小隊で、街区に散らばる3拠点を争奪する(仕様 §7 + §12)。
+ *
+ * `[v6.1]` それまでの小さな点対称CQBマップ(2棟)を置き換え、**大きめの非対称市街地**にした
+ * (初回テストプレイ指摘: 意味のある街区・建物・射線が欲しい)。点対称ではないので
+ * `test/symmetry.test.ts` のラベル入替テストからは外す — 本番ミッションマップの扱い。
+ *
+ * 屋外と屋内はシームレスな1つのマップ(仕様 §7.1)。長い大通りは選抜射手(§10)の射線が
+ * 通り、建物内・路地では武器種によらずLOSが頭打ちになる。中央の大きな庁舎(OBJ CENTRE)は
+ * 扉が南向きで、青は正面突撃・赤は北側から迂回か突入、という非対称な攻略になる。
+ */
+export function urbanAssaultScenario(seed = 1): Scenario {
+  resetIds();
+  const bounds: Bounds = { minX: -84, maxX: 84, minZ: -72, maxZ: 72 };
+
+  // ── 建物(単室・扉1)。非対称に配置する ──
+  const b: ReturnType<typeof makeSimpleBuilding>[] = [
+    // 中央の庁舎。扉は南向き(青の正面、赤は迂回)
+    makeSimpleBuilding(1, { minX: -9, maxX: 9, minZ: -7, maxZ: 9 }, "south"),
+    // 西の街区: 倉庫(大)+ 小屋。OBJ WEST を含む
+    makeSimpleBuilding(2, { minX: -58, maxX: -40, minZ: -16, maxZ: -2 }, "east"),
+    makeSimpleBuilding(3, { minX: -46, maxX: -36, minZ: 10, maxZ: 20 }, "south"),
+    // 東の街区: 中規模ビル。OBJ EAST を含む。扉は西向き
+    makeSimpleBuilding(4, { minX: 34, maxX: 50, minZ: 4, maxZ: 20 }, "west"),
+    makeSimpleBuilding(5, { minX: 40, maxX: 52, minZ: -22, maxZ: -10 }, "north"),
+    // 赤側の縦深に1棟、青側の縦深に1棟(それぞれの立て直し用の遮蔽)
+    makeSimpleBuilding(6, { minX: -8, maxX: 6, minZ: 34, maxZ: 46 }, "south"),
+    makeSimpleBuilding(7, { minX: 10, maxX: 24, minZ: -44, maxZ: -32 }, "north"),
+  ];
+
+  // ── 街路の遮蔽(壁・塀・車列に見立てた低い遮蔽)。非対称 ──
+  const streetWalls: AABB[] = [
+    // 中央広場の南、青の突撃路を絞る横壁
+    { cx: -14, cz: -18, hw: 8, hd: 0.5 },
+    { cx: 16, cz: -16, hw: 6, hd: 0.5 },
+    // 東の大通り沿い(選抜射手の射線が通る長い直線)
+    { cx: 30, cz: -2, hw: 0.5, hd: 22 },
+    // 西の路地
+    { cx: -30, cz: 2, hw: 0.5, hd: 12 },
+    { cx: -22, cz: -6, hw: 6, hd: 0.5 },
+    // 中央北、赤の展開を分ける縦壁
+    { cx: 2, cz: 22, hw: 0.5, hd: 8 },
+    { cx: -6, cz: 16, hw: 5, hd: 0.5 },
+    // 散在する車列(短い遮蔽)
+    { cx: 24, cz: 12, hw: 2.4, hd: 0.5 },
+    { cx: -14, cz: 26, hw: 2.4, hd: 0.5 },
+    { cx: 8, cz: -8, hw: 0.5, hd: 3 },
+    { cx: -40, cz: -24, hw: 3, hd: 0.5 },
+  ];
+
+  // ── 部隊: 青は南端、赤は北端から。非対称なので座標は鏡像にしない ──
+  const blue = buildPlatoon(
+    "blue",
+    0,
+    [0, 1, 2],
+    3,
+    { x: -6, z: -54 },
+    { x: 0, z: 1 },
+    { x: 0, z: 0 },
+    0,
+  );
+  const red = buildPlatoon(
+    "red",
+    1,
+    [10, 11, 12],
+    13,
+    { x: 8, z: 54 },
+    { x: 0, z: -1 },
+    { x: 0, z: 0 },
+    1,
+  );
+
+  return {
+    name: "urban-city",
+    seed,
+    bounds,
+    walls: [...b.flatMap((x) => x.walls), ...streetWalls],
+    buildings: b.map((x) => x.building),
+    soldiers: [...blue.soldiers, ...red.soldiers],
+    fireteamPlans: [...blue.plans.fireteamPlans, ...red.plans.fireteamPlans],
+    squadPlans: [...blue.plans.squadPlans, ...red.plans.squadPlans],
+    platoonPlans: [...blue.plans.platoonPlans, ...red.plans.platoonPlans],
+    companyPlans: [
+      { side: "blue", companyId: 0, objective: { x: 0, z: 0 }, advanceDir: { x: 0, z: 1 }, rallyPoint: { x: -6, z: -60 } },
+      { side: "red", companyId: 1, objective: { x: 0, z: 0 }, advanceDir: { x: 0, z: -1 }, rallyPoint: { x: 8, z: 60 } },
+    ],
+    ccp: { blue: { x: -6, z: -66 }, red: { x: 8, z: 66 } },
+    // 3拠点: 中央庁舎 / 西の倉庫 / 東のビル。過半数(2つ)保持で勝利(仕様 §12)
+    objectives: [
+      { id: 1, label: "OBJ CENTRE", pos: { x: 0, z: 1 }, radius: OBJECTIVE.RADIUS.small, size: "small" },
+      { id: 2, label: "OBJ WEST", pos: { x: -49, z: -9 }, radius: OBJECTIVE.RADIUS.small, size: "small" },
+      { id: 3, label: "OBJ EAST", pos: { x: 42, z: 12 }, radius: OBJECTIVE.RADIUS.small, size: "small" },
+    ],
+    controlMeasures: [
+      { kind: "OBJ", label: "OBJ CENTRE", points: [{ x: 0, z: 1 }] },
+      { kind: "OBJ", label: "OBJ WEST", points: [{ x: -49, z: -9 }] },
+      { kind: "OBJ", label: "OBJ EAST", points: [{ x: 42, z: 12 }] },
     ],
   };
 }

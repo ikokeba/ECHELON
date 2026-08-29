@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createWorld, refreshBlockers } from "../src/sim/world.ts";
 import { runTicks } from "../src/sim/step.ts";
-import { urbanAssaultScenario } from "../src/sim/scenario.ts";
+import { urbanCqbFixture } from "../src/sim/scenario.ts";
 import {
   cornerAssignments,
   insideBounds,
@@ -73,7 +73,7 @@ describe("CQBの幾何(仕様 §7.3)", () => {
 
 describe("屋内視界ルール(仕様 §7.6)", () => {
   it("閉じた扉は視線を遮り、開くと室内が見える", () => {
-    const w = createWorld(urbanAssaultScenario(1));
+    const w = createWorld(urbanCqbFixture(1));
     const door = w.doors[0]!;
     const outside = {
       x: door.pos.x - door.normal.x * 2,
@@ -97,7 +97,7 @@ describe("屋内視界ルール(仕様 §7.6)", () => {
 
 describe("経路探索(design §4.2: 屋外1.0m + 屋内0.3m)", () => {
   it("街路から室内まで1回の探索で経路が出る(仕様 §7.1 シームレス)", () => {
-    const w = createWorld(urbanAssaultScenario(1));
+    const w = createWorld(urbanCqbFixture(1));
     const room = w.buildings[0]!.rooms[0]!;
     const center = {
       x: (room.bounds.minX + room.bounds.maxX) / 2,
@@ -112,7 +112,7 @@ describe("経路探索(design §4.2: 屋外1.0m + 屋内0.3m)", () => {
   });
 
   it("建物のまわりだけ細かいグリッドになっている", () => {
-    const w = createWorld(urbanAssaultScenario(1));
+    const w = createWorld(urbanCqbFixture(1));
     expect(w.nav.grids.length).toBe(1 + w.buildings.length);
     expect(w.nav.grids[0]!.step).toBe(1.0);
     for (let i = 1; i < w.nav.grids.length; i++) {
@@ -123,7 +123,7 @@ describe("経路探索(design §4.2: 屋外1.0m + 屋内0.3m)", () => {
 
 describe("突入待機命令の3段階(仕様 §7.2/§7.3)", () => {
   it("スタック → ブリーチ → 室内掃討 → 再編成 を順に通る", () => {
-    const w = createWorld(urbanAssaultScenario(1));
+    const w = createWorld(urbanCqbFixture(1));
     const seen = new Map<string, CqbStage[]>();
     let doorOpenedTick = -1;
     let anyoneInsideTick = -1;
@@ -163,7 +163,7 @@ describe("突入待機命令の3段階(仕様 §7.2/§7.3)", () => {
   }, 60000);
 
   it("突入は単一ファイル — 全員が同時に扉へ殺到しない(仕様 §7.3)", () => {
-    const w = createWorld(urbanAssaultScenario(1));
+    const w = createWorld(urbanCqbFixture(1));
     // ブリーチ中、「まだ順番待ちの隊員」と「もう動き出した隊員」が同時に存在する
     // 瞬間があること。4名が一斉に扉へ殺到する挙動はプロトタイプで確認済みの失敗。
     let sawStagger = false;
@@ -188,7 +188,7 @@ describe("突入待機命令の3段階(仕様 §7.2/§7.3)", () => {
   }, 60000);
 
   it("室内進入時は速度が落ちる(仕様 §7 — 0.7倍)", () => {
-    const w = createWorld(urbanAssaultScenario(1));
+    const w = createWorld(urbanCqbFixture(1));
     let sawSlowed = false;
     for (let t = 0; t < 90 * SIM_HZ && !sawSlowed; t++) {
       runTicks(w, 1);
@@ -209,7 +209,7 @@ describe("突入待機命令の3段階(仕様 §7.2/§7.3)", () => {
   }, 60000);
 
   it("分隊長は突入FTと支援FTに分ける(仕様 §7.2 の支援射撃)", () => {
-    const w = createWorld(urbanAssaultScenario(1));
+    const w = createWorld(urbanCqbFixture(1));
     let sawSplit = false;
     for (let t = 0; t < 90 * SIM_HZ && !sawSplit; t++) {
       runTicks(w, 1);
@@ -237,7 +237,7 @@ describe("突入待機命令の3段階(仕様 §7.2/§7.3)", () => {
 describe("ビハインドカメラ(仕様 §7.5)", () => {
   /** 兵士2名だけの最小世界を作る。壁は差し替える。 */
   function twoManWorld(walls: AABB[]) {
-    const w = createWorld(urbanAssaultScenario(1));
+    const w = createWorld(urbanCqbFixture(1));
     w.walls = walls;
     const blue = w.soldiers.find((s) => s.side === "blue")!;
     const red = w.soldiers.find((s) => s.side === "red")!;
