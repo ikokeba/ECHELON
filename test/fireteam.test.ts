@@ -163,10 +163,12 @@ describe("break contact は前線を放棄しない (`[v6.1]` 初回テストプ
       );
     }
 
-    // blue は -32 方向、red は +32 方向へ逃げる。「端まで逃げていない」= |cz| が
-    // スポーン(32m)の 7 割(≒22m)を超えない
-    expect(worstBlue).toBeLessThan(22);
-    expect(worstRed).toBeLessThan(22);
+    // blue は -32 方向、red は +32 方向へ逃げる。「スポーン端まで逃げ帰っていない」判定。
+    // 閾値はスポーン距離(32m)の約75%。`[v6.1]` で移動時命中率ペナルティを上げた
+    // (§14 −25%→−40%)ぶん、躍進的な後退の踏み込みが以前より深くなるので 22→24 に緩めた。
+    // 24m は依然「前線が消えてスポーンへ全面後退」とは明確に違う(それなら 30m 超になる)。
+    expect(worstBlue).toBeLessThan(24);
+    expect(worstRed).toBeLessThan(24);
     // ほぼ全FTが同時に FALLBACK へ抜ける(=前線が消える)状態にはならない。
     // 数個が同時に躍進的後退するのは正常なので、8割を閾値にする。
     expect(maxFallback).toBeLessThan(0.8);

@@ -69,6 +69,29 @@ describe("rollShot", () => {
     };
     expect(countHits(true)).toBeGreaterThan(countHits(false) * 1.3);
   });
+
+  it("突撃フェーズの射手は命中率が上がる(F-6, 仕様 §6 `[v6.1]`)", () => {
+    const n = 300000;
+    const countHits = (assaulting: boolean) => {
+      const rng = createRng(4242);
+      let hits = 0;
+      for (let i = 0; i < n; i++) {
+        if (
+          rollShot(rng, {
+            shooterSuppressed: false,
+            shooterIsMarksman: false,
+            shooterMoving: false,
+            shooterIsSaw: false,
+            shooterAssaulting: assaulting,
+          }).hit
+        ) {
+          hits++;
+        }
+      }
+      return hits;
+    };
+    expect(countHits(true)).toBeGreaterThan(countHits(false) * 1.4);
+  });
 });
 
 describe("isSuppressed", () => {

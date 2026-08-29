@@ -93,6 +93,8 @@ function joinReplacement(world: World, casualty: Soldier): void {
     suppressedUntilTick: 0,
     evadeUntilTick: 0,
     observedByEnemy: false,
+    assaultingUntilTick: 0,
+    holdFireUntilTick: 0,
     grenades: casualty.role === "grenadier" ? GRENADE.CHARGES : 0,
     routed: false,
     bleedOutTick: 0,

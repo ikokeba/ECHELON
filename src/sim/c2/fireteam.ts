@@ -23,6 +23,7 @@ import {
 } from "../cover.ts";
 import {
   CONFIDENCE_CUTOFF,
+  CONTACT_DRILL,
   DM_DETECT_RANGE,
   MG,
   MORALE,
@@ -571,6 +572,9 @@ export function fireteamAI(world: World): void {
     const bravo = living.filter((_, i) => i >= Math.ceil(living.length / 2));
     const mc = centroid(living);
 
+    // 協調一斉射の火力溜め(F-6)は CONTACT の中だけで管理する。他モードでは古い hold を消す。
+    if (ft.mode !== "CONTACT") for (const u of living) u.holdFireUntilTick = 0;
+
     if (ft.mode === "ROUT") {
       // 潰走(仕様 §12): 隊形も役割も崩れ、各自が集結地点へ走る。
       // 潰走を拒否した(=操作中の)兵士だけは、この命令の対象から外れる
@@ -644,7 +648,18 @@ export function fireteamAI(world: World): void {
         ft.baseElement = base === alpha ? "alpha" : "bravo";
       }
 
+      // 接敵反応ドクトリン(F-6, 仕様 §6 `[v6.1]`)。
+      // ベース組は常に即応射撃。deliberate な溜めが許されるのは「FT内の誰も敵の視界に
+      // 入っておらず、まだ撃たれてもいない」機動組が側面へ回り込む間だけ。
+      const ftDetected =
+        living.some((u) => u.observedByEnemy) ||
+        living.some((u) => u.suppressedUntilTick > world.tick) ||
+        world.tick - ft.modeSince > Math.round(CONTACT_DRILL.VOLLEY_MAX_SEC * SIM_HZ);
+      const volleyHold = Math.round(CONTACT_DRILL.VOLLEY_SETUP_SEC * SIM_HZ);
+      const assaultTicks = Math.round(CONTACT_DRILL.ASSAULT_SEC * SIM_HZ);
+
       for (const u of base) {
+        u.holdFireUntilTick = 0;
         const d = dist(u.pos, enemy);
         const los = hasLineOfSight(world.walls, u.pos.x, u.pos.z, enemy.x, enemy.z);
         // 選抜射手(仕様 §10): 射線が通っていれば交戦距離帯の外からでもその場で撃つ。
@@ -693,6 +708,20 @@ export function fireteamAI(world: World): void {
         );
         const fallback = { x: u.pos.x + (enemy.x - u.pos.x) * 0.2, z: u.pos.z + (enemy.z - u.pos.z) * 0.2 };
         issue(world, u, "maneuver", p ?? fallback, dirTo(u.pos, enemy));
+
+        // 突撃フェーズ(A): 近接まで詰めたら数秒 ASSAULT 状態(命中率上昇)
+        const dToEnemy = dist(u.pos, enemy);
+        if (dToEnemy <= CONTACT_DRILL.ASSAULT_RANGE) {
+          u.assaultingUntilTick = world.tick + assaultTicks;
+        }
+        // 協調一斉射(B): 未発見のまま側面位置へ向かっている間だけ発砲を控える。
+        // 就いた(経路終了)/ 見つかった / 突撃に入った瞬間に開く。
+        const stalking =
+          !ftDetected &&
+          !u.observedByEnemy &&
+          u.assaultingUntilTick <= world.tick &&
+          u.pathIdx < u.path.length;
+        u.holdFireUntilTick = stalking ? world.tick + volleyHold : 0;
       }
     } else if (ft.mode === "FALLBACK") {
       // `[v6.1]` break contact は集結地点までの全面後退ではなく、直近の脅威から離れる向きへ

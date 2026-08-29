@@ -14,6 +14,7 @@
 import { chance, ratePerTick, type Rng } from "../rng.ts";
 import {
   BLEED_OUT_SEC,
+  CONTACT_DRILL,
   EVADE_SEC,
   GRENADE,
   GRENADE_ATTEMPT_RATE_PER_SEC,
@@ -51,6 +52,8 @@ export interface ShotContext {
   shooterIsSaw: boolean;
   /** 射手が火器分隊の機関銃射手である(移動時ペナルティがさらに悪化。`[v6.1]` §2) */
   shooterIsMg?: boolean;
+  /** 射手が突撃フェーズにある(近接での決定的打撃 — 命中率上昇。`[v6.1]` §6 F-6) */
+  shooterAssaulting?: boolean;
 }
 
 export type ShotOutcome = { hit: false } | { hit: true; lethal: boolean };
@@ -73,6 +76,8 @@ export function rollShot(rng: Rng, ctx: ShotContext): ShotOutcome {
     const mul = ctx.shooterIsMg ? MG.MOVING_ACC_MUL : ctx.shooterIsSaw ? SAW_MOVING_ACC_MUL : 1;
     accMul *= 1 - Math.min(0.95, MOVING_ACC_PENALTY * mul);
   }
+  // 突撃フェーズ: 近接で詰めた機動組は数秒間、決定的に当てやすくなる(F-6, `[v6.1]`)
+  if (ctx.shooterAssaulting) accMul *= CONTACT_DRILL.ASSAULT_ACC_MUL;
   const hitP = ratePerTick(HIT_RATE_PER_SEC * accMul, SIM_DT);
   if (!chance(rng, hitP)) return { hit: false };
   return { hit: true, lethal: chance(rng, KIA_ON_HIT_CHANCE) };
@@ -227,6 +232,9 @@ export function combatSystem(world: World): void {
     // 潰走中は自分からは撃たない(仕様 §12: 隊形崩壊、武装放棄もあり得る)。
     // ただし**交戦対象にはなる** — 逃走中でも攻撃可能、と仕様が明記している
     if (s.routed) continue;
+    // 協調一斉射の火力溜め(F-6, 仕様 §6 `[v6.1]`)。FTリーダーAIが機動組へ短時間セットする。
+    // 制圧・被弾・回避など受け身の処理は上で済んでいる。
+    if (s.holdFireUntilTick > world.tick) continue;
 
     // 擲弾(仕様 §14)。遮蔽越しに効くので通常射撃とは別枠で判定する
     const g = tryGrenade(world, s, aimPointsByFt.get(`${s.side}:${s.squadId}:${s.fireteamId}`) ?? []);
@@ -262,6 +270,7 @@ export function combatSystem(world: World): void {
       shooterMoving: moving,
       shooterIsSaw: s.role === "saw",
       shooterIsMg: s.role === "mg",
+      shooterAssaulting: s.assaultingUntilTick > world.tick,
     });
 
     // 制圧役は行動抑制(evade)も誘発する。SAW 1.5倍 / MG 2.0倍(仕様 §14 / `[v6.1]` §2)
