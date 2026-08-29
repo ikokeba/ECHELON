@@ -28,6 +28,7 @@ import type {
   ControlMeasure,
   Door,
   FireteamState,
+  Objective,
   PlatoonState,
   Report,
   Scenario,
@@ -35,6 +36,7 @@ import type {
   Soldier,
   SquadState,
   Vec2,
+  VictoryState,
 } from "./types.ts";
 
 export interface World {
@@ -85,6 +87,12 @@ export interface World {
   controlMeasures: ControlMeasure[];
   /** 陣営ごとの負傷者集合点(CCP、仕様 §9)。担架班の搬送先。 */
   ccp: Record<Side, Vec2>;
+  /** 争奪する拠点(仕様 §12) */
+  objectives: Objective[];
+  /** 過半数の拠点を確保し始めたティック(陣営別)。勝利判定の保持時間に使う */
+  majoritySince: Record<Side, number | null>;
+  /** 決着(仕様 §12)。null なら戦闘継続中 */
+  victory: VictoryState | null;
   /**
    * いま人間が操作しているノード(仕様 §4)。null なら全ユニットがAI制御。
    * 人間はAIの意思決定者を置き換えるだけで、配管も能力も変わらない。
@@ -385,6 +393,16 @@ function buildWorld(scenario: Scenario): World {
       blue: { ...(scenario.ccp?.blue ?? defaultCcp(soldiers, "blue")) },
       red: { ...(scenario.ccp?.red ?? defaultCcp(soldiers, "red")) },
     },
+    objectives: (scenario.objectives ?? []).map((o) => ({
+      ...o,
+      pos: { ...o.pos },
+      owner: null,
+      progress: 0,
+      progressBy: null,
+      contested: false,
+    })),
+    majoritySince: { blue: null, red: null },
+    victory: null,
     control: null,
   };
 }

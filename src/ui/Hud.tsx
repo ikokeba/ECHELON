@@ -2,6 +2,7 @@ import { useSimStore } from "./store.ts";
 import { TimeControls } from "./TimeControls.tsx";
 import { ViewControls } from "./ViewControls.tsx";
 import { EchelonTree } from "./EchelonTree.tsx";
+import { ObjectivePanel } from "./ObjectivePanel.tsx";
 
 function fmtClock(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -56,6 +57,7 @@ export function Hud() {
       </div>
 
       <ViewControls />
+      <ObjectivePanel />
       <EchelonTree />
 
       <div className="hud-hint">

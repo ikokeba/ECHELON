@@ -26,6 +26,10 @@ const ROOM_FLOOR_COLOR = 0x1a2233;
 const DOOR_CLOSED_COLOR = 0xc98a3a;
 /** 開いた扉 — この瞬間から室内が見える(仕様 §7.6) */
 const DOOR_OPEN_COLOR = 0x3f6b52;
+/** 中立の拠点(仕様 §12) */
+const NEUTRAL_OBJ_COLOR = 0x6de0a0;
+/** コンテスト状態 — 確保カウントが完全に停止している(仕様 §12) */
+const CONTESTED_OBJ_COLOR = 0xf5c451;
 /** 確度が尽きた最終目撃情報(ゴースト)の色。仕様 §5 `[v6]` */
 const GHOST_COLOR = 0x6b7280;
 /** 止血済みWIA。出血は止まったが行動不能で後送待ち(仕様 §9) */
@@ -143,18 +147,36 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     return m;
   });
 
-  // 統制手段(目標リングなど)
-  for (const cm of world.controlMeasures) {
-    if (cm.kind === "OBJ" && cm.points[0]) {
-      const ring = new THREE.Mesh(
-        new THREE.RingGeometry(2.4, 2.9, 40),
-        new THREE.MeshBasicMaterial({ color: 0x6de0a0, side: THREE.DoubleSide }),
-      );
-      ring.rotation.x = -Math.PI / 2;
-      ring.position.set(cm.points[0].x, 0.02, cm.points[0].z);
-      scene.add(ring);
-    }
-  }
+  // 拠点(仕様 §12)。所有と確保進捗が一目で分かるよう、外周リングと進捗リングを分ける
+  const objectiveRings = world.objectives.map((o) => {
+    const outer = new THREE.Mesh(
+      new THREE.RingGeometry(o.radius - 0.4, o.radius, 48),
+      new THREE.MeshBasicMaterial({
+        color: NEUTRAL_OBJ_COLOR,
+        transparent: true,
+        opacity: 0.6,
+        side: THREE.DoubleSide,
+      }),
+    );
+    outer.rotation.x = -Math.PI / 2;
+    outer.position.set(o.pos.x, 0.02, o.pos.z);
+    scene.add(outer);
+
+    // 進捗は内側の円盤の大きさで示す(0 で消え、1 で外周に届く)
+    const fill = new THREE.Mesh(
+      new THREE.CircleGeometry(1, 32),
+      new THREE.MeshBasicMaterial({
+        color: NEUTRAL_OBJ_COLOR,
+        transparent: true,
+        opacity: 0.18,
+        side: THREE.DoubleSide,
+      }),
+    );
+    fill.rotation.x = -Math.PI / 2;
+    fill.position.set(o.pos.x, 0.015, o.pos.z);
+    scene.add(fill);
+    return { outer, fill };
+  });
 
   // 負傷者集合点(CCP、仕様 §9)。担架班の搬送先なので、常に両陣営分を描く。
   for (const side of ["blue", "red"] as Side[]) {
@@ -270,6 +292,22 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       const mat = m.material as THREE.MeshBasicMaterial;
       mat.color.setHex(d.open ? DOOR_OPEN_COLOR : DOOR_CLOSED_COLOR);
       m.scale.y = d.open ? 0.12 : 1;
+    });
+
+    // 拠点の所有と確保進捗(仕様 §12)
+    world.objectives.forEach((o, i) => {
+      const r = objectiveRings[i];
+      if (!r) return;
+      const owner = o.owner ?? o.progressBy;
+      const color = o.contested
+        ? CONTESTED_OBJ_COLOR
+        : owner
+          ? SIDE_COLOR[owner]
+          : NEUTRAL_OBJ_COLOR;
+      (r.outer.material as THREE.MeshBasicMaterial).color.setHex(color);
+      (r.fill.material as THREE.MeshBasicMaterial).color.setHex(color);
+      const s = Math.max(0.001, o.progress * o.radius);
+      r.fill.scale.set(s, 1, s);
     });
 
     if (world.tick !== lastTick) {

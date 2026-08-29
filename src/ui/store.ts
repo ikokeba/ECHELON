@@ -8,7 +8,7 @@
 import { create } from "zustand";
 import { SPEED_STEPS } from "@sim/constants.ts";
 import type { ScenarioKey } from "@sim/scenario.ts";
-import type { Side } from "@sim/types.ts";
+import type { Side, VictoryState } from "@sim/types.ts";
 import type { ControlState } from "@sim/control.ts";
 
 /** 階層ツリーUIが表示する編成の一覧。毎フレームではなく編成が変わったときだけ更新する。 */
@@ -50,6 +50,15 @@ export interface RosterCompany {
  */
 export type ViewEchelon = "company" | "platoon" | "squad" | "truth";
 
+/** HUDに出す拠点の状態(仕様 §12)。 */
+export interface HudObjective {
+  id: number;
+  label: string;
+  owner: Side | null;
+  progress: number;
+  contested: boolean;
+}
+
 export interface HudSnapshot {
   tick: number;
   simSeconds: number;
@@ -67,6 +76,10 @@ export interface HudSnapshot {
   /** 戦場に倒れたまま後送を待っている人数 */
   blueAwaitingEvac: number;
   redAwaitingEvac: number;
+  /** 争奪中の拠点(仕様 §12) */
+  objectives: HudObjective[];
+  /** 決着。null なら戦闘継続中 */
+  victory: VictoryState | null;
 }
 
 interface UiState extends HudSnapshot {
@@ -125,6 +138,8 @@ export const useSimStore = create<UiState>((set) => ({
   redEvacuated: 0,
   blueAwaitingEvac: 0,
   redAwaitingEvac: 0,
+  objectives: [],
+  victory: null,
 
   paused: false,
   speedIdx: RUN_SPEEDS.indexOf(1) >= 0 ? RUN_SPEEDS.indexOf(1) : 0,

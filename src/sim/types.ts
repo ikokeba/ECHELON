@@ -579,6 +579,8 @@ export interface Scenario {
   ccp?: Record<Side, Vec2>;
   /** 建物(仕様 §7)。屋外と屋内はシームレスな1つのマップとして扱う */
   buildings?: Building[];
+  /** 争奪する拠点(仕様 §12)。空なら勝敗は戦力の枯渇でのみ決まる */
+  objectives?: Array<Omit<Objective, "owner" | "progress" | "progressBy" | "contested">>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -620,6 +622,44 @@ export interface Building {
   bounds: Bounds;
   rooms: Room[];
   doors: Door[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 勝敗条件(仕様 §12)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 拠点規模。仕様 §12 は2段階(小/大)に単純化すると確定している。 */
+export type ObjectiveSize = "small" | "large";
+
+/**
+ * 拠点(仕様 §12 メイン条件「拠点確保」)。
+ *
+ * 複数を同時に奪い合い、一定数を一定時間確保した側が勝利する。
+ * 拠点内の人数に応じて確保速度が変化し(多いほど早い)、上限を超えた人数は
+ * 混雑により追加効果がない。拠点内に敵がいる間は確保カウントが完全に停止する。
+ */
+export interface Objective {
+  id: number;
+  label: string;
+  pos: Vec2;
+  radius: number;
+  size: ObjectiveSize;
+  /** 確保済みの陣営(null = 中立) */
+  owner: Side | null;
+  /** 確保の進捗 0..1 */
+  progress: number;
+  /** いま進捗を進めている陣営(null = 誰も進めていない) */
+  progressBy: Side | null;
+  /** 拠点内に両陣営がいる = コンテスト状態。確保カウントは完全に停止する */
+  contested: boolean;
+}
+
+/** 決着(仕様 §12)。null なら戦闘継続中。 */
+export interface VictoryState {
+  winner: Side;
+  /** `objectives` = 拠点確保、`annihilation` = 戦力の枯渇 */
+  reason: "objectives" | "annihilation";
+  tick: number;
 }
 
 export interface ControlMeasure {

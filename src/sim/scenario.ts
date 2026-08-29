@@ -5,7 +5,7 @@
  * このファイルはプログラム的なフィクスチャとして残す。
  */
 
-import { GRENADE } from "./constants.ts";
+import { GRENADE, OBJECTIVE } from "./constants.ts";
 import { makeSimpleBuilding } from "./cqb.ts";
 import type {
   AABB,
@@ -366,6 +366,15 @@ export function demoCrossingScenario(seed = 1): Scenario {
     fireteamPlans: [...blue.fireteamPlans, ...red.fireteamPlans],
     squadPlans: [...blue.squadPlans, ...red.squadPlans],
     platoonPlans: [...blue.platoonPlans, ...red.platoonPlans],
+    objectives: [
+      {
+        id: 1,
+        label: "OBJ FALCON",
+        pos: { ...objective },
+        radius: OBJECTIVE.RADIUS.small,
+        size: "small",
+      },
+    ],
     controlMeasures: [{ kind: "OBJ", label: "OBJ FALCON", points: [{ ...objective }] }],
   };
 }
@@ -447,6 +456,13 @@ export function platoonClashScenario(seed = 1): Scenario {
     fireteamPlans: [...blue.plans.fireteamPlans, ...red.plans.fireteamPlans],
     squadPlans: [...blue.plans.squadPlans, ...red.plans.squadPlans],
     platoonPlans: [...blue.plans.platoonPlans, ...red.plans.platoonPlans],
+    // 拠点は3つ。過半数(2つ)を維持し続けた側が勝つ(仕様 §12)。
+    // 点対称に置いて、どちらの陣営も同じ距離関係で臨めるようにする
+    objectives: [
+      { id: 1, label: "OBJ ALPHA", pos: { x: -26, z: 0 }, radius: OBJECTIVE.RADIUS.small, size: "small" },
+      { id: 2, label: "OBJ BRAVO", pos: { x: 0, z: 0 }, radius: OBJECTIVE.RADIUS.large, size: "large" },
+      { id: 3, label: "OBJ CHARLIE", pos: { x: 26, z: 0 }, radius: OBJECTIVE.RADIUS.small, size: "small" },
+    ],
     controlMeasures: [{ kind: "OBJ", label: "OBJ FALCON", points: [{ ...objective }] }],
   };
 }
@@ -541,6 +557,11 @@ export function companyClashScenario(seed = 1): Scenario {
       },
     ],
     ccp: { blue: { ...blueCcp }, red: { ...redCcp } },
+    objectives: [
+      { id: 1, label: "OBJ ALPHA", pos: { x: -55, z: 0 }, radius: OBJECTIVE.RADIUS.large, size: "large" },
+      { id: 2, label: "OBJ BRAVO", pos: { x: 0, z: 0 }, radius: OBJECTIVE.RADIUS.large, size: "large" },
+      { id: 3, label: "OBJ CHARLIE", pos: { x: 55, z: 0 }, radius: OBJECTIVE.RADIUS.large, size: "large" },
+    ],
     controlMeasures: [{ kind: "OBJ", label: "OBJ FALCON", points: [{ ...objective }] }],
   };
 }
@@ -598,6 +619,11 @@ export function urbanAssaultScenario(seed = 1): Scenario {
     squadPlans: [...blue.squadPlans, ...red.squadPlans],
     platoonPlans: [...blue.platoonPlans, ...red.platoonPlans],
     ccp: { blue: { x: 0, z: -30 }, red: { x: 0, z: 30 } },
+    // 拠点は建物そのもの。屋内を確保しないと勝てない(仕様 §7 + §12)
+    objectives: [
+      { id: 1, label: "OBJ NORTH", pos: { ...blueObjective }, radius: OBJECTIVE.RADIUS.small, size: "small" },
+      { id: 2, label: "OBJ SOUTH", pos: { ...redObjective }, radius: OBJECTIVE.RADIUS.small, size: "small" },
+    ],
     controlMeasures: [
       { kind: "OBJ", label: "OBJ NORTH", points: [{ ...blueObjective }] },
       { kind: "OBJ", label: "OBJ SOUTH", points: [{ ...redObjective }] },

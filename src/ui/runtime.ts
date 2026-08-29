@@ -117,6 +117,14 @@ function hudOf(world: World, view: ViewResult): HudSnapshot {
     redEvacuated,
     blueAwaitingEvac,
     redAwaitingEvac,
+    objectives: world.objectives.map((o) => ({
+      id: o.id,
+      label: o.label,
+      owner: o.owner,
+      progress: o.progress,
+      contested: o.contested,
+    })),
+    victory: world.victory,
   };
 }
 
