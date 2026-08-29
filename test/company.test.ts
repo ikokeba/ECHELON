@@ -222,3 +222,42 @@ describe("後送要請・補充兵(仕様 §9)", () => {
     expect(w.soldiers.every((s) => !s.sees.includes(victim.id))).toBe(true);
   });
 });
+
+describe("任務種別(WHAT。`[v6.1]` OQ-3)", () => {
+  it("初期状態は全階層 seize、火器分隊も seize から始まる", () => {
+    const w = createWorld(companyClashScenario(1));
+    expect(w.platoons.every((p) => p.mission.kind === "seize")).toBe(true);
+    expect(w.squads.every((s) => s.mission.kind === "seize")).toBe(true);
+  });
+
+  it("展開すると seize / support_by_fire / screen の3種が使われる", () => {
+    const w = createWorld(companyClashScenario(1));
+    const kinds = new Set<string>();
+    for (let i = 0; i < 30 && !w.victory; i++) {
+      runTicks(w, 5 * 30);
+      for (const sq of w.squads) kinds.add(sq.mission.kind);
+      for (const pl of w.platoons) kinds.add(pl.mission.kind);
+    }
+    // 火器分隊は必ず support_by_fire、ライフル分隊は seize、両端小隊は screen
+    expect(kinds.has("support_by_fire")).toBe(true);
+    expect(kinds.has("seize")).toBe(true);
+    expect(kinds.has("screen")).toBe(true);
+  }, 60000);
+
+  it("火器分隊は常に support_by_fire を受け、機動には出ない", () => {
+    const w = createWorld(companyClashScenario(1));
+    runTicks(w, 40 * 30);
+    for (const sq of w.squads) {
+      const isWeapons = w.soldiers.some(
+        (s) => s.side === sq.side && s.squadId === sq.squadId && s.role === "mg",
+      );
+      if (isWeapons) expect(sq.mission.kind).toBe("support_by_fire");
+    }
+    // support_by_fire / screen の分隊のFTは maneuver 役を持たない
+    for (const sq of w.squads) {
+      if (sq.mission.kind === "seize") continue;
+      const fts = w.fireteams.filter((f) => f.side === sq.side && f.squadId === sq.squadId);
+      expect(fts.every((f) => f.assignedRole !== "maneuver")).toBe(true);
+    }
+  }, 60000);
+});

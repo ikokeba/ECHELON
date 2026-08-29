@@ -70,6 +70,24 @@ export type CqbStage = "stack" | "breach" | "clear" | "reorg";
 export type MovementTechnique = "traveling" | "traveling_overwatch" | "bounding_overwatch";
 
 /**
+ * 任務の種別(WHAT。仕様 §3/§4/OQ-3)。`[v6.1]`
+ *
+ * 従来は「目的地(点)」しか下ろせなかったため、確保も支援射撃も掩護も同じ「そこへ行け」
+ * になっていた。上位AI(および将来は人間)がこの3種のどれかを下ろし、下位はそれに沿って
+ * 目的地の意味を解釈する。
+ *   seize          : 到達して確保・保持する(拠点確保、突撃)
+ *   support_by_fire : 目標へ射線の通る位置に就いて制圧する。目標の上には乗らない
+ *   screen         : 目標(軸線)に沿って広く展開し、監視・遅滞する。踏み込まない
+ */
+export type MissionKind = "seize" | "support_by_fire" | "screen";
+
+export interface Mission {
+  kind: MissionKind;
+  /** 任務の対象地点(seize=確保点 / support_by_fire=制圧目標 / screen=掩護軸の中心) */
+  target: Vec2;
+}
+
+/**
  * 生存状態のみを表す。制圧は status ではない — 余韻を持たない一律の命中率低下効果
  * (仕様 §8.6)であり、`suppressedUntilTick` で管理する。
  */
@@ -350,6 +368,8 @@ export interface SquadState {
   technique: MovementTechnique;
   /** 小隊長から割り当てられた任務目標 */
   objective: Vec2;
+  /** 小隊長から下ろされた任務(WHAT。`[v6.1]` OQ-3)。既定は objective への seize */
+  mission: Mission;
   advanceDir: Vec2;
   rallyPoint: Vec2;
 
@@ -400,10 +420,14 @@ export interface PlatoonState {
 
   /** 麾下分隊へ割り当てた任務目標 */
   squadObjectives: Map<number, Vec2>;
+  /** 麾下分隊へ下ろした任務(WHAT。`[v6.1]` OQ-3) */
+  squadMissions: Map<number, Mission>;
   /** 麾下分隊へ指示した移動技術 */
   squadTechniques: Map<number, MovementTechnique>;
 
   objective: Vec2;
+  /** 中隊長から下ろされた任務(WHAT。`[v6.1]` OQ-3)。既定は objective への seize */
+  mission: Mission;
   advanceDir: Vec2;
   rallyPoint: Vec2;
 
@@ -442,6 +466,8 @@ export interface CompanyState {
 
   /** 麾下小隊へ割り当てた任務目標 */
   platoonObjectives: Map<number, Vec2>;
+  /** 麾下小隊へ下ろした任務(WHAT。`[v6.1]` OQ-3) */
+  platoonMissions: Map<number, Mission>;
 
   objective: Vec2;
   advanceDir: Vec2;

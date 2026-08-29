@@ -33,7 +33,7 @@ import { clamp } from "../geometry.ts";
 import { next } from "../rng.ts";
 import { commandFactor } from "./succession.ts";
 import { clampToObjective, heldObjectiveNear } from "./objectiveHold.ts";
-import type { CompanyState, Contact, Soldier, Vec2 } from "../types.ts";
+import type { CompanyState, Contact, Mission, Soldier, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
 const DECIDE_BASE_TICKS = Math.round(COMPANY_DECIDE_SEC * SIM_HZ);
@@ -249,6 +249,44 @@ export function companyAI(world: World): void {
         ? PLATOON_FRONTAGE * CONSOLIDATE_FRONTAGE_MUL
         : PLATOON_FRONTAGE;
 
+    // 攻勢分遣(F-2, `[v6.1]` OQ-3): 兵力が敵の `offensiveRatio` 倍以上あり、まだ確保
+    // していない拠点があれば、1個小隊をそこへ差し向ける。しきい値はデバッグ調整可。
+    const myEff = world.soldiers.filter((s) => s.side === co.side && s.status === "ok").length;
+    const enemyEff = world.soldiers.filter((s) => s.side !== co.side && s.status === "ok").length;
+    const canDetach = enemyEff > 0 && myEff / enemyEff >= world.posture[co.side].offensiveRatio;
+    const openObj = world.objectives.filter(
+      (o) => o.owner !== co.side && !(o.owner === null && o.progressBy === co.side),
+    );
+    // 差し向ける小隊 = その未確保拠点に最も近い小隊(かつ最弱ではない)
+    let detachPlatoonId: number | null = null;
+    let detachTarget: Vec2 | null = null;
+    if (canDetach && openObj.length > 0) {
+      const plCentroid = (pl: (typeof living)[number]): Vec2 => {
+        const men = world.soldiers.filter(
+          (s) => s.side === pl.side && s.platoonId === pl.platoonId && s.status === "ok",
+        );
+        let sx = 0;
+        let sz = 0;
+        for (const m of men) {
+          sx += m.pos.x;
+          sz += m.pos.z;
+        }
+        return men.length ? { x: sx / men.length, z: sz / men.length } : { ...co.cp };
+      };
+      let bestD = Infinity;
+      for (const pl of living) {
+        const c = plCentroid(pl);
+        for (const o of openObj) {
+          const dd = dist(c, o.pos);
+          if (dd < bestD) {
+            bestD = dd;
+            detachPlatoonId = pl.platoonId;
+            detachTarget = { ...o.pos };
+          }
+        }
+      }
+    }
+
     living.forEach((pl, i) => {
       const lateral = (i - (living.length - 1) / 2) * frontage;
       let objective: Vec2 = {
@@ -261,6 +299,7 @@ export function companyAI(world: World): void {
       const plMen = world.soldiers.filter(
         (s) => s.side === pl.side && s.platoonId === pl.platoonId && s.status === "ok",
       );
+      let held: ReturnType<typeof heldObjectiveNear> = null;
       if (plMen.length > 0) {
         let sx = 0;
         let sz = 0;
@@ -268,7 +307,7 @@ export function companyAI(world: World): void {
           sx += m.pos.x;
           sz += m.pos.z;
         }
-        const held = heldObjectiveNear(world, co.side, {
+        held = heldObjectiveNear(world, co.side, {
           x: sx / plMen.length,
           z: sz / plMen.length,
         });
@@ -276,11 +315,32 @@ export function companyAI(world: World): void {
         if (held) objective = clampToObjective(objective, held, 0.7);
       }
 
+      // 任務種別(OQ-3):
+      //   攻勢分遣に指名された小隊 → 未確保拠点へ seize
+      //   担当区域に脅威も拠点も無い側面の小隊 → screen(掩護・監視)
+      //   それ以外 → seize(担当区域の確保 / 保持)
+      let mkind: Mission["kind"] = "seize";
+      if (pl.platoonId === detachPlatoonId && detachTarget) {
+        objective = detachTarget;
+        mkind = "seize";
+      } else if (
+        living.length >= 3 &&
+        !held &&
+        !threat &&
+        (i === 0 || i === living.length - 1)
+      ) {
+        // 3個小隊以上あるときだけ、両端の1個ずつを掩護に回す(中央は確保前進)
+        mkind = "screen";
+      }
+      const mission: Mission = { kind: mkind, target: { ...objective } };
+
       co.platoonObjectives.set(pl.platoonId, objective);
+      co.platoonMissions.set(pl.platoonId, mission);
 
       // 人間が操作している小隊には再割り当てを行わない(仕様 §4 `[v6]`)
       if (aiSuppressed(world, "platoon", pl.side, pl.platoonId)) return;
       pl.objective = objective;
+      pl.mission = mission;
     });
   }
 }

@@ -26,6 +26,8 @@ const TRAIL_DIST = 4;
 const DECIDE_EVERY_TICKS = Math.round(0.3 * SIM_HZ);
 /** 現在の目的地からこの距離以内なら再発行しない m。 */
 const DEST_EPS = 1.2;
+/** support_by_fire: 制圧目標からこれだけ手前に射撃位置を取る m。`[v6.1]` OQ-3 */
+const SBF_STANDOFF = 35;
 
 function centroid(units: readonly Soldier[]): Vec2 {
   if (units.length === 0) return { x: 0, z: 0 };
@@ -84,6 +86,30 @@ function directFireteams(world: World, sq: SquadState): void {
 
   const threat = primaryThreat(sq.belief);
 
+  // 任務種別による目標の解釈(`[v6.1]` OQ-3)。
+  //   support_by_fire : 制圧目標へ射線の通る「手前の位置」に就く。踏み込まない
+  //   screen          : 掩護軸(mission.target)へ薄く展開して監視・遅滞
+  //   seize           : sq.objective をそのまま(確保・突撃)
+  const mk = sq.mission.kind;
+  let ftObjective: Vec2 = { ...sq.objective };
+  let ftTechnique = sq.technique;
+  if (mk === "support_by_fire") {
+    // 目標から SBF_STANDOFF だけ分隊側へ引いた点を射撃位置とする
+    const men = world.soldiers.filter(
+      (s) => s.side === sq.side && s.squadId === sq.squadId && s.status === "ok",
+    );
+    const from = men.length ? centroid(men) : sq.objective;
+    const back = dirTo(sq.mission.target, from);
+    ftObjective = {
+      x: sq.mission.target.x + back.x * SBF_STANDOFF,
+      z: sq.mission.target.z + back.z * SBF_STANDOFF,
+    };
+    ftTechnique = "traveling_overwatch";
+  } else if (mk === "screen") {
+    ftObjective = { ...sq.mission.target };
+    ftTechnique = "traveling_overwatch";
+  }
+
   for (const ft of fireteams) {
     // 人間が操作しているFTには再割り当てを行わない(仕様 §4、小隊長と同じ理由)
     const leader = world.soldiers.find(
@@ -97,23 +123,16 @@ function directFireteams(world: World, sq: SquadState): void {
     if (leader && aiSuppressed(world, "fireteam", ft.side, leader.id)) continue;
 
     // 任務目標と移動技術は上から下へそのまま伝播する
-    ft.objective = { ...sq.objective };
-    ft.technique = sq.technique;
-    ft.assignedRole = null;
+    ft.objective = { ...ftObjective };
+    ft.technique = ftTechnique;
+    // support_by_fire は全FTをベース・オブ・ファイアに固定して踏み込ませない
+    ft.assignedRole = mk === "support_by_fire" ? "base" : null;
   }
 
+  // support_by_fire / screen は側面機動の割り当てをしない(踏み込まない任務)。
+  // 火器分隊は小隊AIから常に support_by_fire を受けるのでここで自然に弾かれる。
+  if (mk !== "seize") return;
   if (!threat) return;
-
-  // 火器分隊(`[v6.1]` §2): 機関銃射手を含む分隊は側面機動には出さず、全FTを
-  // ベース・オブ・ファイアに固定する。据えて制圧するのが役割で、走り回るものではない。
-  // (mission型 OQ-3 が入れば support-by-fire 任務として明示的に扱う。それまでの暫定)
-  const isWeaponsSquad = world.soldiers.some(
-    (s) => s.side === sq.side && s.squadId === sq.squadId && s.role === "mg",
-  );
-  if (isWeaponsSquad) {
-    for (const ft of fireteams) ft.assignedRole = "base";
-    return;
-  }
 
   // 接敵時: 敵に近い側のFTをベース・オブ・ファイア、もう一方を機動役にする。
   // 近い側が既に射撃位置についている可能性が高く、遠い側のほうが回り込む余地があるため。
@@ -297,8 +316,9 @@ export function squadAI(world: World): void {
 
     directFireteams(world, sq);
     // 建物のバトルドリル(仕様 §7.2)は通常の火力/機動の割り当てより優先する。
-    // 建物へ突入する局面では、屋外の側面攻撃ではなく突入と支援の分担が正しい
-    directBuildingAssault(world, sq);
+    // 建物へ突入する局面では、屋外の側面攻撃ではなく突入と支援の分担が正しい。
+    // ただし踏み込まない任務(support_by_fire / screen)では突入しない。
+    if (sq.mission.kind === "seize") directBuildingAssault(world, sq);
     decideCasevac(world, sq);
   }
 

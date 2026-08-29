@@ -17,7 +17,7 @@ import { SIM_HZ } from "../constants.ts";
 import { aiSuppressed } from "../control.ts";
 import { commandFactor } from "./succession.ts";
 import { clampToObjective, heldObjectiveNear } from "./objectiveHold.ts";
-import type { Contact, MovementTechnique, PlatoonState, Vec2 } from "../types.ts";
+import type { Contact, Mission, MovementTechnique, PlatoonState, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
 /** 小隊長の意思決定周期。分隊長(0.3秒)より遅く、階層が上がるほど判断は粗く遅くなる。 */
@@ -130,9 +130,17 @@ export function platoonAI(world: World): void {
     if (livingSquads.length === 0) continue;
 
     // 各分隊の重心を出し、その平均を小隊の位置とする(分隊ごとの人数差で重み付けしない
-    // ことで、損耗した分隊に引きずられない)
+    // ことで、損耗した分隊に引きずられない)。
+    // 火器分隊(support_by_fire で縦深に留まる)は maneuver 線の位置ではないので除く。
+    const lineSquads = livingSquads.filter(
+      (sq) =>
+        !world.soldiers.some(
+          (s) => s.side === sq.side && s.squadId === sq.squadId && s.role === "mg",
+        ),
+    );
+    const anchorSquads = lineSquads.length > 0 ? lineSquads : livingSquads;
     const anchor = { x: 0, z: 0 };
-    for (const sq of livingSquads) {
+    for (const sq of anchorSquads) {
       const members = world.soldiers.filter(
         (s) => s.side === sq.side && s.squadId === sq.squadId && s.status === "ok",
       );
@@ -145,8 +153,8 @@ export function platoonAI(world: World): void {
       anchor.x += sx / members.length;
       anchor.z += sz / members.length;
     }
-    anchor.x /= livingSquads.length;
-    anchor.z /= livingSquads.length;
+    anchor.x /= anchorSquads.length;
+    anchor.z /= anchorSquads.length;
 
     const technique = selectTechnique(pl, anchor, world.posture[pl.side].techniqueRangeMul);
     const threat = primaryThreat(pl.belief);
@@ -162,12 +170,32 @@ export function platoonAI(world: World): void {
 
     postPlatoonHq(world, pl, anchor, forward);
 
+    // 小隊の任務(WHAT。`[v6.1]` OQ-3)を麾下分隊へ翻訳する。
+    //   seize          : 3個ライフル分隊が担当区域を確保、火器分隊は support_by_fire で支援
+    //   support_by_fire : 全分隊が制圧目標へ射線の通る位置に就く(踏み込まない)
+    //   screen         : 全分隊を掩護軸に沿って広く展開(踏み込まない)
+    const plMission = pl.mission;
+    const isWeaponsSquad = (sq: (typeof livingSquads)[number]): boolean =>
+      world.soldiers.some(
+        (s) => s.side === sq.side && s.squadId === sq.squadId && s.role === "mg",
+      );
+    // screen は正面幅を広く取って薄く展開する
+    const frontage = plMission.kind === "screen" ? SQUAD_FRONTAGE * 1.8 : SQUAD_FRONTAGE;
+
     livingSquads.forEach((sq, i) => {
-      const lateral = (i - (livingSquads.length - 1) / 2) * SQUAD_FRONTAGE;
+      const lateral = (i - (livingSquads.length - 1) / 2) * frontage;
       let objective: Vec2 = {
         x: aim.x + right.x * lateral,
         z: aim.z + right.z * lateral,
       };
+
+      // この分隊の任務種別。seize 小隊では火器分隊だけ support_by_fire、他はそのまま。
+      const sqKind: Mission["kind"] =
+        plMission.kind === "seize"
+          ? isWeaponsSquad(sq)
+            ? "support_by_fire"
+            : "seize"
+          : plMission.kind;
 
       // 確保済み拠点の保持(`[v6.1]`)。この分隊のいる場所の近くに守るべき自軍拠点が
       // あれば、脅威へ引きずられる持ち場を拠点の内側へ引き戻す。近くに無ければ素通り。
@@ -190,7 +218,12 @@ export function platoonAI(world: World): void {
         if (held) objective = clampToObjective(objective, held, 0.7);
       }
 
+      const sqMission: Mission = {
+        kind: sqKind,
+        target: sqKind === "seize" ? { ...objective } : { ...aim },
+      };
       pl.squadObjectives.set(sq.squadId, objective);
+      pl.squadMissions.set(sq.squadId, sqMission);
       pl.squadTechniques.set(sq.squadId, technique);
 
       // 人間が操作している分隊には再割り当てを行わない(仕様 §4)。
@@ -207,6 +240,7 @@ export function platoonAI(world: World): void {
 
       // 小隊長の命令を分隊長へ渡す。これが階層間の下向きの情報流。
       sq.objective = objective;
+      sq.mission = sqMission;
       sq.technique = technique;
     });
   }
