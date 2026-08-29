@@ -49,6 +49,14 @@ export const WALL_SAFETY_CLAMP = 0.45;
 export const FOV_HALF_RAD = (50 * Math.PI) / 180;
 /** 索敵距離 m。[v5 proto — squad-12v12] */
 export const DETECT_RANGE = 20;
+/**
+ * 選抜射手(SDMR)の索敵・交戦距離 m。[仕様 §10 — 射程ティア: 拳銃25/SMG50/小銃150/SDMR300]
+ *
+ * 仕様は「明示的な縮小率は設けず、マップの見通し距離が交戦距離を自然に制限する」としている。
+ * 開豁地では選抜射手だけが遠距離で撃てるが、市街地では壁とLOSがすぐに頭打ちにする。
+ * これが選抜射手の差別化(§14)。他の兵は全員 `DETECT_RANGE`(または `world.tuning`)。
+ */
+export const DM_DETECT_RANGE = 300;
 /** 実射に必要な正対精度 rad(視界中心 ±9°)。[v5 proto — squad-12v12] */
 export const FIRE_ALIGN_RAD = (9 * Math.PI) / 180;
 

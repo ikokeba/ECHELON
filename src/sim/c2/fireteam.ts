@@ -23,6 +23,7 @@ import {
 } from "../cover.ts";
 import {
   CONFIDENCE_CUTOFF,
+  DM_DETECT_RANGE,
   MORALE,
   POS_ERROR_GROWTH,
   POS_ERROR_MAX,
@@ -586,8 +587,14 @@ export function fireteamAI(world: World): void {
       // 応急手当・担架搬送による拘束は室内でもそのまま尊重される
       runCqb(world, ft, living, (u, kind, target, look) => issue(world, u, kind, target, look));
     } else if (ft.mode === "CONTACT") {
-      let primary = contacts[0];
-      for (const c of contacts) {
+      // 交戦で狙う相手は「いま実際に撃ち合える近さ」を優先する。選抜射手が遠方
+      // (最大300m)の敵を報告してくるので、素の確度順だと FT 全体が遠くの1点へ
+      // 引きずられて足元の戦闘を放棄してしまう(仕様 §10 の副作用)。
+      const CLOSE_BAND = engageMax * 2;
+      const near = contacts.filter((c) => dist(mc, c.pos) <= CLOSE_BAND);
+      const pool = near.length > 0 ? near : contacts;
+      let primary = pool[0];
+      for (const c of pool) {
         if (!primary) primary = c;
         else if (c.confidence > primary.confidence + 0.001) primary = c;
         else if (
@@ -638,10 +645,12 @@ export function fireteamAI(world: World): void {
 
       for (const u of base) {
         const d = dist(u.pos, enemy);
+        const los = hasLineOfSight(world.walls, u.pos.x, u.pos.z, enemy.x, enemy.z);
+        // 選抜射手(仕様 §10): 射線が通っていれば交戦距離帯の外からでもその場で撃つ。
+        // FT AI に「距離を詰めろ」と言われて長射程の利を捨てないため。
+        const dmEngageFromRange = u.quals.designatedMarksman && los && d <= DM_DETECT_RANGE;
         const inPosition =
-          hasLineOfSight(world.walls, u.pos.x, u.pos.z, enemy.x, enemy.z) &&
-          d >= engageMin - 2 &&
-          d <= engageMax + 2;
+          (los && d >= engageMin - 2 && d <= engageMax + 2) || dmEngageFromRange;
         if (inPosition) {
           ft.unitDest.delete(u.id);
           issue(world, u, "suppress", null, dirTo(u.pos, enemy));

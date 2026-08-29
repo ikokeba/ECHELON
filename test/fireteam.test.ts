@@ -96,9 +96,15 @@ describe("break contact は前線を放棄しない (`[v6.1]` 初回テストプ
     // 不具合時は「頭数を見ただけで FALLBACK → 集結地点(=スポーン端)へ全面後退 →
     // 前進 → 再後退」を繰り返し、前線が消えていた。
     const w = createWorld(platoonClashScenario(3));
+    // 前線＝突撃・制圧に出る隊員の重心。選抜射手は設計上そもそも縦深に留まって
+    // 遠距離から撃つ(仕様 §10)ので、前線が保たれているかの判定からは除く。
     const fightingCz = (side: Side): number => {
       const men = w.soldiers.filter(
-        (s) => s.side === side && s.status === "ok" && s.fireteamId >= 0,
+        (s) =>
+          s.side === side &&
+          s.status === "ok" &&
+          s.fireteamId >= 0 &&
+          !s.quals.designatedMarksman,
       );
       return men.length ? men.reduce((a, s) => a + s.pos.z, 0) / men.length : 0;
     };
@@ -144,6 +150,9 @@ describe("break contact は前線を放棄しない (`[v6.1]` 初回テストプ
       }
       if (w.victory) break;
       if (t < 10) continue; // 接敵前は前線評価しない
+      // 「本当の戦闘」フェーズ = 両軍とも生存FTが3個以上。片方が壊滅寸前になると
+      // 残り1〜2個の生存者が下がるだけで割合が跳ねるので、その局面は評価しない。
+      if (liveFts("blue").length < 3 || liveFts("red").length < 3) continue;
       worstBlue = Math.max(worstBlue, -fightingCz("blue"));
       worstRed = Math.max(worstRed, fightingCz("red"));
       maxFallback = Math.max(

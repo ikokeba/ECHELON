@@ -8,6 +8,7 @@ import { demoCrossingScenario, makeSoldier, resetIds } from "../src/sim/scenario
 import {
   BLEED_OUT_SEC,
   DETECT_RANGE,
+  DM_DETECT_RANGE,
   HIT_RATE_PER_SEC,
   KIA_ON_HIT_CHANCE,
   SIM_DT,
@@ -110,6 +111,30 @@ describe("canSee", () => {
     const a = mk(0, 0, 0, 1, "blue");
     const b = mk(0, 10, 0, -1, "red");
     expect(canSee(walls, a, b)).toBe(false);
+  });
+
+  it("選抜射手(SDMR)は通常の索敵距離を超えて敵を捉える(仕様 §10)", () => {
+    resetIds();
+    const dm = makeSoldier({
+      side: "blue",
+      platoonId: 0,
+      squadId: 0,
+      fireteamId: 1,
+      pos: { x: 0, z: 0 },
+      facing: { x: 0, z: 1 },
+      quals: { designatedMarksman: true },
+    });
+    const rifleman = makeSoldier({
+      side: "blue",
+      platoonId: 0,
+      squadId: 0,
+      fireteamId: 0,
+      pos: { x: 0, z: 0 },
+      facing: { x: 0, z: 1 },
+    });
+    const far = mk(0, DETECT_RANGE + 40, 0, -1, "red"); // 60m — 通常の索敵距離の外
+    expect(canSee([], dm, far, DM_DETECT_RANGE)).toBe(true);
+    expect(canSee([], rifleman, far)).toBe(false); // 既定の索敵距離では見えない
   });
 });
 

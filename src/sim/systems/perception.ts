@@ -12,7 +12,7 @@
  */
 
 import { castRay, collidesWall, hasLineOfSight } from "../geometry.ts";
-import { DETECT_RANGE, FOV_HALF_RAD, PEEK } from "../constants.ts";
+import { DETECT_RANGE, DM_DETECT_RANGE, FOV_HALF_RAD, PEEK } from "../constants.ts";
 import { clearHash, createSpatialHash, forEachNear, insert } from "../spatial.ts";
 import { isOffField } from "./litter.ts";
 import type { World } from "../world.ts";
@@ -111,10 +111,12 @@ export function perceptionSystem(world: World): void {
       if (s.sees.length) s.sees = [];
       continue;
     }
+    // 選抜射手(SDMR)だけ索敵距離が伸びる(仕様 §10)。壁とLOSが自然に頭打ちにする。
+    const range = s.quals.designatedMarksman ? DM_DETECT_RANGE : detectRange;
     const seen: number[] = [];
-    forEachNear(hash, s.pos, detectRange, (other) => {
+    forEachNear(hash, s.pos, range, (other) => {
       if (other.side === s.side) return;
-      if (canSee(world.walls, s, other, detectRange, fovHalfRad)) seen.push(other.id);
+      if (canSee(world.walls, s, other, range, fovHalfRad)) seen.push(other.id);
     });
     // 走査順が空間ハッシュのセル順に依存するので、IDで整列して決定性を保つ。
     // ここを揺らすと同一シードのリプレイが再現しなくなる。
