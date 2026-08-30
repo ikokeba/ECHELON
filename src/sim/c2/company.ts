@@ -122,6 +122,7 @@ function joinReplacement(world: World, casualty: Soldier): void {
     pathIdx: 0,
     sees: [],
     suppressor: false,
+    assignedTarget: null,
     eye: { x: ccp.x, z: ccp.z },
     peeking: false,
     traits: {

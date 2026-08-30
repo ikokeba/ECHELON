@@ -139,6 +139,11 @@ describe("break contact は前線を放棄しない (`[v6.1]` 初回テストプ
       );
 
     // 2秒ごとに 200秒までサンプル。前線位置と、各FTの ROUT 入り/立て直りを追う。
+    let engaged = false;
+    /** 前進で到達した最浅の位置(小さいほど前へ出ている) */
+    let bestBlue = Infinity;
+    let bestRed = Infinity;
+    /** そこから押し戻された最大量 m */
     let worstBlue = 0;
     let worstRed = 0;
     let maxFallback = 0;
@@ -151,12 +156,27 @@ describe("break contact は前線を放棄しない (`[v6.1]` 初回テストプ
         else if (enteredRout.has(f.id)) exitedRout.add(f.id);
       }
       if (w.victory) break;
-      if (t < 10) continue; // 接敵前は前線評価しない
+      // `[v6.3]` 接敵の起点は**固定時刻ではなく実際に接敵したか**で判定する。
+      // 盤面を2倍にしてスポーン間隔が 64m → 160m になったため、「20秒経過」では
+      // まだ前進中で、その途中の位置を「後退」と読み違えていた。
+      if (!engaged) {
+        engaged =
+          liveFts("blue").some((f) => f.mode === "CONTACT") &&
+          liveFts("red").some((f) => f.mode === "CONTACT");
+        continue;
+      }
       // 「本当の戦闘」フェーズ = 両軍とも生存FTが3個以上。片方が壊滅寸前になると
       // 残り1〜2個の生存者が下がるだけで割合が跳ねるので、その局面は評価しない。
       if (liveFts("blue").length < 3 || liveFts("red").length < 3) continue;
-      worstBlue = Math.max(worstBlue, -fightingCz("blue"));
-      worstRed = Math.max(worstRed, fightingCz("red"));
+      // `[v6.3]` 測るのは**取った地歩を手放したか**。絶対的な深さではない。
+      // 深さの絶対値は「まだ前進中」でも大きくなるので、前進の到達点(最浅)からの
+      // 押し戻され量を見る。これが元の指摘「前線を維持せず放棄してます」そのもの。
+      const bd = -fightingCz("blue");
+      const rd = fightingCz("red");
+      bestBlue = Math.min(bestBlue, bd);
+      bestRed = Math.min(bestRed, rd);
+      worstBlue = Math.max(worstBlue, bd - bestBlue);
+      worstRed = Math.max(worstRed, rd - bestRed);
       maxFallback = Math.max(
         maxFallback,
         modeFrac("blue", "FALLBACK"),
@@ -164,19 +184,16 @@ describe("break contact は前線を放棄しない (`[v6.1]` 初回テストプ
       );
     }
 
-    // blue は -32 方向、red は +32 方向へ逃げる。「スポーン端まで逃げ帰っていない」判定。
-    // 閾値は**スポーン距離に対する割合**で見る。`[v6.3]` で盤面を2倍にしたため、
-    // 絶対値(旧27m)のままでは意味を失う — 測りたいのは「スポーン端まで逃げ帰って
-    // いないか」であって、何メートル下がったかではない。
+    // **取った地歩を手放していないこと**。1回の break contact は BREAK_DIST(12m)の
+    // 躍進なので、2回ぶん + 余裕を上限にする。
     //
-    // 経緯: 22m(初版) → 24m(`[v6.1]` 移動時命中率ペナルティ −25%→−40%)
-    //     → 27m(`[v6.2]` 拠点保持クランプを最寄り1ユニットに限定、AD-36)
-    //     → 割合判定へ(`[v6.3]` 盤面2倍)。旧27m はスポーン距離32mの84%だった。
-    // ここでは 50% を採る(実測 31m ≒ 39%)。100%に近ければ全面後退である。
-    const SPAWN_Z = 80;
-    const limit = SPAWN_Z * 0.5;
-    expect(worstBlue).toBeLessThan(limit);
-    expect(worstRed).toBeLessThan(limit);
+    // 経緯: 当初は「盤面中央からの深さ」の絶対値で見ていた(22m → 24m → 27m)。
+    // `[v6.3]` で射程を仕様 §10 へ戻し盤面を2倍にした結果、接敵が即座に成立する
+    // ようになり、深さの絶対値では「まだ前進中」と「後退した」が区別できなくなった。
+    // 測るべきは押し戻され量なので、指標そのものを作り直した。
+    const GIVE_UP_LIMIT = 30;
+    expect(worstBlue).toBeLessThan(GIVE_UP_LIMIT);
+    expect(worstRed).toBeLessThan(GIVE_UP_LIMIT);
     // ほぼ全FTが同時に FALLBACK へ抜ける(=前線が消える)状態にはならない。
     // 数個が同時に躍進的後退するのは正常なので、8割を閾値にする。
     expect(maxFallback).toBeLessThan(0.8);

@@ -143,6 +143,12 @@ function friendlyBlocksFire(world: World, shooter: Soldier, target: Soldier): bo
  * 逆に「倒せば安全」という誤った圧力が生まれてしまう。
  */
 function nearestVisibleTarget(world: World, shooter: Soldier): Soldier | null {
+  // `[v6.3]` FTリーダーが指定した目標を最優先する(火力の配分、ATP 3-21.8)。
+  // 指定が古くなっている(戦死・後送・見失った)場合だけ各自の判断へ落ちる。
+  if (shooter.assignedTarget !== null) {
+    const a = world.soldierById.get(shooter.assignedTarget);
+    if (a && a.status === "ok" && !isOffField(a) && shooter.sees.includes(a.id)) return a;
+  }
   let best: Soldier | null = null;
   let bestD = Infinity;
   let downed: Soldier | null = null;
@@ -169,6 +175,8 @@ interface PendingShot {
   target: Soldier;
   outcome: ShotOutcome;
   suppressing: boolean;
+  /** 制圧が成立する距離(=射手の有効射程内)で撃たれたか。`[v6.3]` */
+  withinEffective: boolean;
   /** このティックに回避行動を誘発したか(仕様 §14: SAWは誘発率1.5倍) */
   triggersEvade: boolean;
   /** 判定時点で目標が既に行動不能だったか(仕様 §9 の即死ルール) */
@@ -318,6 +326,10 @@ export function combatSystem(world: World): void {
       target,
       outcome,
       suppressing: s.suppressor,
+      // `[v6.3]` 制圧は**有効射程内でのみ成立**する(仕様 §8.6)。射程を150mへ戻した
+      // 結果、これが無いと遠距離から撃っているだけで敵を恒久的に釘付けにでき、
+      // 潰走からの立て直し(AD-29)が永久に閉じる、という形で実際に壊れた。
+      withinEffective: tlen <= weaponRangeOf(s).effective,
       triggersEvade,
       targetWasDowned: target.status !== "ok",
     });
@@ -347,7 +359,15 @@ export function combatSystem(world: World): void {
     }
   };
 
-  for (const { shooter, target, outcome, suppressing, triggersEvade, targetWasDowned } of pending) {
+  for (const {
+    shooter,
+    target,
+    outcome,
+    suppressing,
+    withinEffective,
+    triggersEvade,
+    targetWasDowned,
+  } of pending) {
     // 発砲線(`[v6.1]`)。戦闘は移動の後なので pos は確定済み。シムの判断には使わない。
     world.fx.push({
       kind: "shot",
@@ -361,8 +381,9 @@ export function combatSystem(world: World): void {
       // 関係なく即時戦死。倒れた味方を無防備に放置するリスクを明確化するための規則。
       applyHit(target, targetWasDowned, outcome.lethal);
     }
-    // 制圧は、制圧役が目標へ発砲し続けている間だけ持続する(§8.6)
-    if (suppressing && target.status === "ok") {
+    // 制圧は、制圧役が目標へ発砲し続けている間だけ持続する(§8.6)。
+    // `[v6.3]` かつ有効射程内であること — 遠距離の散発的な射撃は制圧にならない。
+    if (suppressing && withinEffective && target.status === "ok") {
       target.suppressedUntilTick = world.tick + 1 + SUPPRESSION_GRACE_TICKS;
       // 行動抑制(仕様 §14)。制圧そのものに余韻はない(§8.6)が、誘発された
       // 回避行動には持続がある — 遮蔽へ飛び込む動作は途中では止まらない

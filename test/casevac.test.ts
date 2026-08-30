@@ -119,6 +119,9 @@ describe("バディエイド(仕様 §9)", () => {
     const victim = squad.find((s) => !s.isSquadLeader)!;
     victim.status = "wia";
     victim.bleedOutTick = w.tick + Math.round(BLEED_OUT_SEC / SIM_DT);
+    // 手当が成立することが前提。`[v6.3]` 索敵150m(仕様 §10)ではどのマップにも
+    // 「静かな局面」が無く、交戦中は出血15秒を切るまで手当へ移らない(仕様 §9)。
+    for (const s of w.soldiers) if (s.side === "red") s.status = "kia";
 
     let sawTreating = false;
     for (let i = 0; i < Math.round(20 * SIM_HZ); i++) {

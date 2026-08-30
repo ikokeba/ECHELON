@@ -40,6 +40,7 @@ import { aiSuppressed } from "../control.ts";
 import { isCommittedToAid } from "../systems/casualties.ts";
 import { isCommittedToLitter, isOffField } from "../systems/litter.ts";
 import { exitCqb, runCqb } from "./cqbDrill.ts";
+import { assignFires } from "./fireControl.ts";
 import { decayedConfidence } from "../belief.ts";
 import type { Contact, FireteamMode, FireteamState, Soldier, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
@@ -501,6 +502,10 @@ export function fireteamAI(world: World): void {
     const pos = world.posture[ft.side];
     const engageMin = ENGAGE_MIN * pos.engageMinMul;
     const engageMax = ENGAGE_MAX * pos.engageMaxMul;
+
+    // 火力の配分(ATP 3-21.8 / `[v6.3]`)。FTリーダーが各員の射撃目標を指定する。
+    // 一点集中を避けて敵の隊形全体を覆い、重火器と指揮官を優先目標にする。
+    assignFires(world, living);
     const fallbackDeficit = pos.fallbackDeficit;
 
     const contacts = [...ft.memory.values()];

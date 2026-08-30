@@ -64,9 +64,23 @@ export function buildCoverPoints(
   return pts;
 }
 
-/** 0..COVER_SATURATE の値。大きいほど遮蔽が効いている。 */
+/**
+ * 壁からの理想的な距離 m。`[v6.3]`
+ *
+ * 従来は壁との距離0で最大値になっていた = **密着を最も高く評価**していた。
+ * これは米軍ドクトリン(TC 3-21.75)がむしろ否定する動きで、壁に密着すると
+ * 跳弾が壁面に沿って走るため、腕1本ぶん離れて進む・構えるのが正しい
+ * (3回目のテストプレイ指摘への調査で判明)。
+ */
+const COVER_STANDOFF = 0.8;
+
+/**
+ * 0..COVER_SATURATE の値。大きいほど遮蔽が効いている。
+ * **`COVER_STANDOFF` で最大**になり、密着してもそこから離れても下がる。
+ */
 export function coverBonus(walls: readonly AABB[], x: number, z: number): number {
-  return clamp(COVER_SATURATE - nearestWallDist(walls, x, z), 0, COVER_SATURATE);
+  const off = Math.abs(nearestWallDist(walls, x, z) - COVER_STANDOFF);
+  return clamp(COVER_SATURATE - off, 0, COVER_SATURATE);
 }
 
 /**

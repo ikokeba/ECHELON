@@ -106,6 +106,7 @@ export function makeSoldier(seed: SoldierSeed): Soldier {
     pathIdx: 0,
     sees: [],
     suppressor: false,
+    assignedTarget: null,
     eye: { ...seed.pos },
     peeking: false,
     role: seed.role ?? "rifleman",

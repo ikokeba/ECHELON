@@ -170,6 +170,11 @@ describe("崩壊/後退(仕様 §12 Morale Break)", () => {
 
   it("一度潰走したら最短時間は続く(条件のふらつきで点滅しない)", () => {
     const w = createWorld(demoCrossingScenario(1));
+    // 立て直し(AD-29)は「集結地点まで下がり、いま制圧を受けていない」ことが条件。
+    // `[v6.3]` 索敵150mでは敵が常に見えており、制圧を受け続けて永久に立て直せない
+    // (それ自体は仕様どおり — 撃たれ続ける残党は潰走のまま)。ここで測りたいのは
+    // 「最短時間の経過で解除されるか」なので、敵を明示的に戦場から外す。
+    for (const s of w.soldiers) if (s.side === "red") s.status = "kia";
     const men = ftMembers(w, 0, 0);
     const wounded = men.slice(0, 2);
     for (const s of wounded) {
