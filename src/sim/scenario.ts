@@ -10,6 +10,7 @@ import { makeSimpleBuilding } from "./cqb.ts";
 import type {
   AABB,
   Bounds,
+  Building,
   FireteamPlan,
   PlatoonPlan,
   Scenario,
@@ -352,6 +353,99 @@ function symmetricWalls(): AABB[] {
   return walls;
 }
 
+type DoorSide = "north" | "south" | "east" | "west";
+
+/**
+ * 建物の扉が向く面。**点対称((x,z)→(-x,-z))のもとで面も反転する**よう、
+ * 規則を「原点対称で符号が反転する」形にしてある(南↔北、東↔西)。
+ * これにより、ある建物と、その点対称の双子は、互いに厳密な鏡像の壁集合になる。
+ */
+function cityDoor(cx: number, cz: number): DoorSide {
+  if (Math.abs(cx) >= 66) return cx < 0 ? "east" : "west"; // 外周列は内側(中心方向)を向く
+  return cz < 0 ? "south" : "north"; // それ以外は中央広場側を向く
+}
+
+/**
+ * 中隊戦のための市街地マップ。**原点まわりの180°回転に対して厳密に点対称**で、
+ * 仕様 §2/§13 の戦力対称性(`test/symmetry.test.ts` のラベル入替=厳密反転)を保つ。
+ *
+ * 四角い建物 22 棟を街区状に並べ、あいだに南北・東西の街路を通す(= 十字路)。中央は
+ * 建物を抜いて広場にし、そこを塞ぐ庁舎ペア + 千鳥配置の小屋で中央の縦走路を分断する
+ * (= 迂回・寄り道を強いる)。左右の中間縦深にも広場を1つずつ空ける。建物どうしをつなぐ
+ * 低い塀で通りの縁を作り、通り抜けを絞って路地・袋小路にしてある。西の倉庫に OBJ ALPHA、
+ * その点対称の東の倉庫に OBJ CHARLIE、中央広場に OBJ BRAVO(座標は `companyClashScenario` 側)。
+ *
+ * `cz < 0` 側だけを列挙し、各要素を点対称の双子として複製する。
+ */
+function symmetricCity(): { walls: AABB[]; buildings: Building[] } {
+  const half: Array<{ cx: number; cz: number; hw: number; hd: number }> = [
+    // 中間縦深の街区(z≈-34 の行)。中央 cx=±14 と最外周 cx=±96 は抜いて開放にする
+    { cx: -70, cz: -34, hw: 10, hd: 7 },
+    { cx: -42, cz: -34, hw: 10, hd: 7 },
+    { cx: 42, cz: -34, hw: 10, hd: 7 },
+    { cx: 70, cz: -34, hw: 10, hd: 7 },
+    // 前縦深の行(z≈-11)。西の倉庫(OBJ ALPHA)+ その対の倉庫、外周ビル2棟。
+    // cx=±14(中央広場)と cx=±70(左右の広場)は抜く
+    { cx: -42, cz: -11, hw: 13, hd: 9 },
+    { cx: 42, cz: -11, hw: 13, hd: 9 },
+    { cx: -96, cz: -11, hw: 10, hd: 7 },
+    { cx: 96, cz: -11, hw: 10, hd: 7 },
+    // 中央広場を塞ぐ庁舎(南北ペア)。中央の縦走路を分断して迂回を強いる
+    { cx: 0, cz: -22, hw: 13, hd: 6 },
+    // 庁舎脇の縦走路に置く小屋。前進を蛇行させる(千鳥/chicane)
+    { cx: -24, cz: -33, hw: 5, hd: 5 },
+    { cx: 24, cz: -33, hw: 5, hd: 5 },
+  ];
+
+  const buildings: Building[] = [];
+  const walls: AABB[] = [];
+  let id = 1;
+  const add = (cx: number, cz: number, hw: number, hd: number): void => {
+    const b = makeSimpleBuilding(
+      id++,
+      { minX: cx - hw, maxX: cx + hw, minZ: cz - hd, maxZ: cz + hd },
+      cityDoor(cx, cz),
+    );
+    buildings.push(b.building);
+    walls.push(...b.walls);
+  };
+  for (const s of half) {
+    add(s.cx, s.cz, s.hw, s.hd);
+    add(-s.cx, -s.cz, s.hw, s.hd); // 点対称の双子(扉面は cityDoor が自動で反転)
+  }
+
+  // 街路の低い遮蔽(塀・車列・植栽)。cz≤0 側を列挙して点対称に複製する。
+  // 建物どうしをつなぐ塀で通りの縁を作り、通り抜けを絞って路地・袋小路にする。
+  const clutter: Array<{ cx: number; cz: number; hw: number; hd: number }> = [
+    // 中央広場の微遮蔽 — OBJ BRAVO が完全な射殺場にならないように
+    { cx: 5, cz: 6, hw: 3, hd: 0.5 },
+    { cx: -7, cz: 2, hw: 0.5, hd: 3 },
+    { cx: 9, cz: -4, hw: 0.5, hd: 2.5 },
+    { cx: 20, cz: -9, hw: 0.5, hd: 5 }, // 広場の入口を絞る
+    // 庁舎の脇 — 迂回路の角(覗き用の短い遮蔽)
+    { cx: 16, cz: -18, hw: 2.5, hd: 0.5 },
+    { cx: -4, cz: -33, hw: 6, hd: 0.5 }, // 庁舎南の張り出し塀。正面を左右へ振る
+    // 外周の長い南北大通り沿い(選抜射手の射線が通る)
+    { cx: 84, cz: -20, hw: 0.5, hd: 11 },
+    { cx: 88, cz: -36, hw: 5, hd: 0.5 }, // 大通りの北端を塞ぐ
+    // 西の路地 — 倉庫と外周ビルのあいだの通り抜けを1本に絞り、突き当りを袋小路に
+    { cx: -68, cz: -13, hw: 0.5, hd: 8 },
+    { cx: -78, cz: -6, hw: 5, hd: 0.5 },
+    // 中間街区の十字路の角
+    { cx: -56, cz: -22, hw: 3, hd: 0.5 },
+    { cx: 28, cz: -30, hw: 0.5, hd: 3 },
+    { cx: -46, cz: -45, hw: 5, hd: 0.5 }, // 中間街区の建物前の張り出し塀(前進を端へ振る)
+    // 火器分隊の展開縦深に低い塀
+    { cx: -20, cz: -46, hw: 4, hd: 0.5 },
+  ];
+  for (const w of clutter) {
+    walls.push({ cx: w.cx, cz: w.cz, hw: w.hw, hd: w.hd });
+    walls.push({ cx: -w.cx, cz: -w.cz, hw: w.hw, hd: w.hd });
+  }
+
+  return { walls, buildings };
+}
+
 function plansFor(
   side: Side,
   platoonId: number,
@@ -554,6 +648,8 @@ export function platoonClashScenario(seed = 1): Scenario {
  *
  * `[v6]` 中隊長のC2・小隊本部・中隊本部・CP・CCPを追加し、5階層が揃った。
  * `[v6.1]` 火器分隊(小隊ごと7名)を追加。
+ * `[v6.2]` 盤面を `symmetricWalls()` の意味のない壁片から、点対称の市街地
+ * (`symmetricCity()`: 四角い建物の街区・十字路・中央広場・迂回を強いる庁舎ペア)へ差し替え。
  */
 export function companyClashScenario(seed = 1): Scenario {
   resetIds();
@@ -561,6 +657,7 @@ export function companyClashScenario(seed = 1): Scenario {
   // 作られるので、CCPが外に出ると担架班が永久にたどり着けない(実際に描画で発見した)。
   const bounds: Bounds = { minX: -110, maxX: 110, minZ: -85, maxZ: 85 };
   const objective = { x: 0, z: 0 };
+  const city = symmetricCity();
 
   /** 小隊の初期展開間隔(m)。分隊3個分の正面幅より広く取る */
   const PLATOON_SPACING = 110;
@@ -615,7 +712,8 @@ export function companyClashScenario(seed = 1): Scenario {
     name: "company-clash",
     seed,
     bounds,
-    walls: symmetricWalls(),
+    walls: city.walls,
+    buildings: city.buildings,
     soldiers,
     fireteamPlans,
     squadPlans,
@@ -639,12 +737,18 @@ export function companyClashScenario(seed = 1): Scenario {
       },
     ],
     ccp: { blue: { ...blueCcp }, red: { ...redCcp } },
+    // 3拠点。点対称に置く: 西の倉庫(OBJ ALPHA)↔ 東の倉庫(OBJ CHARLIE)、中央広場(OBJ BRAVO)。
+    // 過半数(2つ)を維持し続けた側が勝つ(仕様 §12)。
     objectives: [
-      { id: 1, label: "OBJ ALPHA", pos: { x: -55, z: 0 }, radius: OBJECTIVE.RADIUS.large, size: "large" },
+      { id: 1, label: "OBJ ALPHA", pos: { x: -42, z: -9 }, radius: OBJECTIVE.RADIUS.large, size: "large" },
       { id: 2, label: "OBJ BRAVO", pos: { x: 0, z: 0 }, radius: OBJECTIVE.RADIUS.large, size: "large" },
-      { id: 3, label: "OBJ CHARLIE", pos: { x: 55, z: 0 }, radius: OBJECTIVE.RADIUS.large, size: "large" },
+      { id: 3, label: "OBJ CHARLIE", pos: { x: 42, z: 9 }, radius: OBJECTIVE.RADIUS.large, size: "large" },
     ],
-    controlMeasures: [{ kind: "OBJ", label: "OBJ FALCON", points: [{ ...objective }] }],
+    controlMeasures: [
+      { kind: "OBJ", label: "OBJ ALPHA", points: [{ x: -42, z: -9 }] },
+      { kind: "OBJ", label: "OBJ BRAVO", points: [{ ...objective }] },
+      { kind: "OBJ", label: "OBJ CHARLIE", points: [{ x: 42, z: 9 }] },
+    ],
   };
 }
 
