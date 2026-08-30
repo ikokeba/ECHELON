@@ -259,8 +259,10 @@ function directBuildingAssault(world: World, sq: SquadState): boolean {
   const aims = [sq.objective, ...(threat ? [threat.pos] : [])];
   let door: Door | null = null;
   for (const aim of aims) {
-    const d = selectAssaultDoor(world.buildings, from, aim);
-    if (d && !sq.clearedDoorIds.includes(d.id)) {
+    // `[v6.2]` 掃討済みの扉を除いて選ばせる。中廊下+区画の建物では、これで
+    // 廊下 → 区画1 → 区画2 … と部屋を1つずつ潰していく動きになる(仕様 §7.2)
+    const d = selectAssaultDoor(world.buildings, from, aim, sq.clearedDoorIds);
+    if (d) {
       door = d;
       break;
     }

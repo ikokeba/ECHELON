@@ -6,7 +6,12 @@
  */
 
 import { GRENADE, OBJECTIVE } from "./constants.ts";
-import { makeSimpleBuilding } from "./cqb.ts";
+import {
+  deepestRoomCenter,
+  makeCorridorBuilding,
+  makeSimpleBuilding,
+  type DoorSide,
+} from "./cqb.ts";
 import type {
   AABB,
   Bounds,
@@ -353,8 +358,6 @@ function symmetricWalls(): AABB[] {
   return walls;
 }
 
-type DoorSide = "north" | "south" | "east" | "west";
-
 /**
  * 建物の扉が向く面。**点対称((x,z)→(-x,-z))のもとで面も反転する**よう、
  * 規則を「原点対称で符号が反転する」形にしてある(南↔北、東↔西)。
@@ -369,15 +372,22 @@ function cityDoor(cx: number, cz: number): DoorSide {
  * 中隊戦のための市街地マップ。**原点まわりの180°回転に対して厳密に点対称**で、
  * 仕様 §2/§13 の戦力対称性(`test/symmetry.test.ts` のラベル入替=厳密反転)を保つ。
  *
- * 四角い建物 22 棟を街区状に並べ、あいだに南北・東西の街路を通す(= 十字路)。中央は
+ * 四角い建物 34 棟を街区状に並べ、あいだに南北・東西の街路を通す(= 十字路)。中央は
  * 建物を抜いて広場にし、そこを塞ぐ庁舎ペア + 千鳥配置の小屋で中央の縦走路を分断する
  * (= 迂回・寄り道を強いる)。左右の中間縦深にも広場を1つずつ空ける。建物どうしをつなぐ
- * 低い塀で通りの縁を作り、通り抜けを絞って路地・袋小路にしてある。西の倉庫に OBJ ALPHA、
- * その点対称の東の倉庫に OBJ CHARLIE、中央広場に OBJ BRAVO(座標は `companyClashScenario` 側)。
+ * 低い塀で通りの縁を作り、通り抜けを絞って路地・袋小路にしてある。
+ *
+ * `[v6.2]` 建物の中身は `makeCorridorBuilding` の**中廊下+区画**(奥行があれば前後2室)。
+ * 分隊は1棟のなかでスタック→ブリーチ→掃討を部屋の数だけ繰り返す。
+ *
+ * `[v6.2]` 展開地(z=±58)の正面に**外縁の街区**(z≈±48)を置いてある。これが無いと
+ * 街区の隙間が展開地から展開地まで一直線に抜けてしまい、選抜射手(索敵300m、仕様 §10)が
+ * 誰も動かないうちから 120m 先を撃ち始める。仕様 §10 が前提にしている「市街地の見通し
+ * 距離が交戦距離を自然に制限する」を成り立たせるための行。
  *
  * `cz < 0` 側だけを列挙し、各要素を点対称の双子として複製する。
  */
-function symmetricCity(): { walls: AABB[]; buildings: Building[] } {
+function symmetricCity(): { walls: AABB[]; buildings: Building[]; objectiveRoom: Vec2 } {
   const half: Array<{ cx: number; cz: number; hw: number; hd: number }> = [
     // 中間縦深の街区(z≈-34 の行)。中央 cx=±14 と最外周 cx=±96 は抜いて開放にする
     { cx: -70, cz: -34, hw: 10, hd: 7 },
@@ -395,13 +405,21 @@ function symmetricCity(): { walls: AABB[]; buildings: Building[] } {
     // 庁舎脇の縦走路に置く小屋。前進を蛇行させる(千鳥/chicane)
     { cx: -24, cz: -33, hw: 5, hd: 5 },
     { cx: 24, cz: -33, hw: 5, hd: 5 },
+    // 外縁の街区(z≈-48)。中間縦深の行が空けている x の帯を塞ぎ、展開地から
+    // 展開地までの直線視程を断つ。浅いので中身は単室になる。
+    { cx: -84, cz: -48, hw: 6, hd: 3.5 },
+    { cx: -56, cz: -48, hw: 6, hd: 3.5 },
+    { cx: -14, cz: -48, hw: 10, hd: 3.5 },
+    { cx: 14, cz: -48, hw: 10, hd: 3.5 },
+    { cx: 56, cz: -48, hw: 6, hd: 3.5 },
+    { cx: 84, cz: -48, hw: 6, hd: 3.5 },
   ];
 
   const buildings: Building[] = [];
   const walls: AABB[] = [];
   let id = 1;
   const add = (cx: number, cz: number, hw: number, hd: number): void => {
-    const b = makeSimpleBuilding(
+    const b = makeCorridorBuilding(
       id++,
       { minX: cx - hw, maxX: cx + hw, minZ: cz - hd, maxZ: cz + hd },
       cityDoor(cx, cz),
@@ -443,7 +461,19 @@ function symmetricCity(): { walls: AABB[]; buildings: Building[] } {
     walls.push({ cx: -w.cx, cz: -w.cz, hw: w.hw, hd: w.hd });
   }
 
-  return { walls, buildings };
+  // 拠点にする部屋: **西の倉庫**(cx=-42, cz=-11)の最奥の部屋。外扉から最も遠い部屋を
+  // 選ぶので、確保するには廊下 → 前室 → 奥室と順に潰していく必要がある。`[v6.2]`
+  //
+  // どの建物を選ぶかが重要。中隊の担当区域は「把握している脅威 ± 正面幅」で決まるので、
+  // 実際に部隊が流れるのは中央寄りの帯になる。そこから外れた建物(盤端の x=±96)へ置くと
+  // **誰も入らず永久に中立のまま**になる — 実際に置いて確認した。交戦帯の中に置く。
+  const flank = buildings.find(
+    (b) =>
+      Math.abs((b.bounds.minX + b.bounds.maxX) / 2 + 42) < 0.5 &&
+      Math.abs((b.bounds.minZ + b.bounds.maxZ) / 2 + 11) < 0.5,
+  );
+  if (!flank) throw new Error("symmetricCity: 西の倉庫が見つからない");
+  return { walls, buildings, objectiveRoom: deepestRoomCenter(flank) };
 }
 
 function plansFor(
@@ -658,6 +688,8 @@ export function companyClashScenario(seed = 1): Scenario {
   const bounds: Bounds = { minX: -110, maxX: 110, minZ: -85, maxZ: 85 };
   const objective = { x: 0, z: 0 };
   const city = symmetricCity();
+  const objRoom = city.objectiveRoom;
+  const objRoomMirror = { x: -objRoom.x, z: -objRoom.z };
 
   /** 小隊の初期展開間隔(m)。分隊3個分の正面幅より広く取る */
   const PLATOON_SPACING = 110;
@@ -737,17 +769,18 @@ export function companyClashScenario(seed = 1): Scenario {
       },
     ],
     ccp: { blue: { ...blueCcp }, red: { ...redCcp } },
-    // 3拠点。点対称に置く: 西の倉庫(OBJ ALPHA)↔ 東の倉庫(OBJ CHARLIE)、中央広場(OBJ BRAVO)。
-    // 過半数(2つ)を維持し続けた側が勝つ(仕様 §12)。
+    // `[v6.2]` 3拠点。点対称に置く: 西の倉庫の最奥の一室(OBJ ALPHA)↔ その点対称の
+    // 東の倉庫の一室(OBJ CHARLIE)、中央広場(OBJ BRAVO)。判定半径は部屋1つぶん
+    // (`OBJECTIVE.ROOM_RADIUS`)まで絞ってある。過半数(2つ)維持で勝利(仕様 §12)。
     objectives: [
-      { id: 1, label: "OBJ ALPHA", pos: { x: -42, z: -9 }, radius: OBJECTIVE.RADIUS.large, size: "large" },
-      { id: 2, label: "OBJ BRAVO", pos: { x: 0, z: 0 }, radius: OBJECTIVE.RADIUS.large, size: "large" },
-      { id: 3, label: "OBJ CHARLIE", pos: { x: 42, z: 9 }, radius: OBJECTIVE.RADIUS.large, size: "large" },
+      { id: 1, label: "OBJ ALPHA", pos: { ...objRoom }, radius: OBJECTIVE.ROOM_RADIUS, size: "small" },
+      { id: 2, label: "OBJ BRAVO", pos: { ...objective }, radius: OBJECTIVE.ROOM_RADIUS, size: "small" },
+      { id: 3, label: "OBJ CHARLIE", pos: { ...objRoomMirror }, radius: OBJECTIVE.ROOM_RADIUS, size: "small" },
     ],
     controlMeasures: [
-      { kind: "OBJ", label: "OBJ ALPHA", points: [{ x: -42, z: -9 }] },
+      { kind: "OBJ", label: "OBJ ALPHA", points: [{ ...objRoom }] },
       { kind: "OBJ", label: "OBJ BRAVO", points: [{ ...objective }] },
-      { kind: "OBJ", label: "OBJ CHARLIE", points: [{ x: 42, z: 9 }] },
+      { kind: "OBJ", label: "OBJ CHARLIE", points: [{ ...objRoomMirror }] },
     ],
   };
 }
@@ -821,20 +854,24 @@ export function urbanAssaultScenario(seed = 1): Scenario {
   resetIds();
   const bounds: Bounds = { minX: -84, maxX: 84, minZ: -72, maxZ: 72 };
 
-  // ── 建物(単室・扉1)。非対称に配置する ──
-  const b: ReturnType<typeof makeSimpleBuilding>[] = [
+  // ── 建物。`[v6.2]` 中身は中廊下+区画(奥行があれば前後2室)。非対称に配置する ──
+  const b: ReturnType<typeof makeCorridorBuilding>[] = [
     // 中央の庁舎。扉は南向き(青の正面、赤は迂回)
-    makeSimpleBuilding(1, { minX: -9, maxX: 9, minZ: -7, maxZ: 9 }, "south"),
+    makeCorridorBuilding(1, { minX: -9, maxX: 9, minZ: -7, maxZ: 9 }, "south"),
     // 西の街区: 倉庫(大)+ 小屋。OBJ WEST を含む
-    makeSimpleBuilding(2, { minX: -58, maxX: -40, minZ: -16, maxZ: -2 }, "east"),
-    makeSimpleBuilding(3, { minX: -46, maxX: -36, minZ: 10, maxZ: 20 }, "south"),
+    makeCorridorBuilding(2, { minX: -58, maxX: -40, minZ: -16, maxZ: -2 }, "east"),
+    makeCorridorBuilding(3, { minX: -46, maxX: -36, minZ: 10, maxZ: 20 }, "south"),
     // 東の街区: 中規模ビル。OBJ EAST を含む。扉は西向き
-    makeSimpleBuilding(4, { minX: 34, maxX: 50, minZ: 4, maxZ: 20 }, "west"),
-    makeSimpleBuilding(5, { minX: 40, maxX: 52, minZ: -22, maxZ: -10 }, "north"),
+    makeCorridorBuilding(4, { minX: 34, maxX: 50, minZ: 4, maxZ: 20 }, "west"),
+    makeCorridorBuilding(5, { minX: 40, maxX: 52, minZ: -22, maxZ: -10 }, "north"),
     // 赤側の縦深に1棟、青側の縦深に1棟(それぞれの立て直し用の遮蔽)
-    makeSimpleBuilding(6, { minX: -8, maxX: 6, minZ: 34, maxZ: 46 }, "south"),
-    makeSimpleBuilding(7, { minX: 10, maxX: 24, minZ: -44, maxZ: -32 }, "north"),
+    makeCorridorBuilding(6, { minX: -8, maxX: 6, minZ: 34, maxZ: 46 }, "south"),
+    makeCorridorBuilding(7, { minX: 10, maxX: 24, minZ: -44, maxZ: -32 }, "north"),
   ];
+  // `[v6.2]` 拠点は建物の最奥の一室。中央広場だけは屋外のまま(点の争奪)。
+  const objCentre = deepestRoomCenter(b[0]!.building);
+  const objWest = deepestRoomCenter(b[1]!.building);
+  const objEast = deepestRoomCenter(b[3]!.building);
 
   // ── 街路の遮蔽(壁・塀・車列に見立てた低い遮蔽)。非対称 ──
   const streetWalls: AABB[] = [
@@ -893,16 +930,17 @@ export function urbanAssaultScenario(seed = 1): Scenario {
       { side: "red", companyId: 1, objective: { x: 0, z: 0 }, advanceDir: { x: 0, z: -1 }, rallyPoint: { x: 8, z: 60 } },
     ],
     ccp: { blue: { x: -6, z: -66 }, red: { x: 8, z: 66 } },
-    // 3拠点: 中央庁舎 / 西の倉庫 / 東のビル。過半数(2つ)保持で勝利(仕様 §12)
+    // 3拠点: 中央庁舎 / 西の倉庫 / 東のビル。いずれも**建物の最奥の一室**で、
+    // 判定半径は部屋1つぶん(`[v6.2]`)。過半数(2つ)保持で勝利(仕様 §12)
     objectives: [
-      { id: 1, label: "OBJ CENTRE", pos: { x: 0, z: 1 }, radius: OBJECTIVE.RADIUS.small, size: "small" },
-      { id: 2, label: "OBJ WEST", pos: { x: -49, z: -9 }, radius: OBJECTIVE.RADIUS.small, size: "small" },
-      { id: 3, label: "OBJ EAST", pos: { x: 42, z: 12 }, radius: OBJECTIVE.RADIUS.small, size: "small" },
+      { id: 1, label: "OBJ CENTRE", pos: { ...objCentre }, radius: OBJECTIVE.ROOM_RADIUS, size: "small" },
+      { id: 2, label: "OBJ WEST", pos: { ...objWest }, radius: OBJECTIVE.ROOM_RADIUS, size: "small" },
+      { id: 3, label: "OBJ EAST", pos: { ...objEast }, radius: OBJECTIVE.ROOM_RADIUS, size: "small" },
     ],
     controlMeasures: [
-      { kind: "OBJ", label: "OBJ CENTRE", points: [{ x: 0, z: 1 }] },
-      { kind: "OBJ", label: "OBJ WEST", points: [{ x: -49, z: -9 }] },
-      { kind: "OBJ", label: "OBJ EAST", points: [{ x: 42, z: 12 }] },
+      { kind: "OBJ", label: "OBJ CENTRE", points: [{ ...objCentre }] },
+      { kind: "OBJ", label: "OBJ WEST", points: [{ ...objWest }] },
+      { kind: "OBJ", label: "OBJ EAST", points: [{ ...objEast }] },
     ],
   };
 }

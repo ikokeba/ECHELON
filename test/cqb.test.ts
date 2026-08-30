@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createWorld, refreshBlockers } from "../src/sim/world.ts";
+import { createWorld, refreshBlockers, setBlockers } from "../src/sim/world.ts";
 import { runTicks } from "../src/sim/step.ts";
 import { urbanCqbFixture } from "../src/sim/scenario.ts";
 import {
@@ -238,7 +238,8 @@ describe("ビハインドカメラ(仕様 §7.5)", () => {
   /** 兵士2名だけの最小世界を作る。壁は差し替える。 */
   function twoManWorld(walls: AABB[]) {
     const w = createWorld(urbanCqbFixture(1));
-    w.walls = walls;
+    // `[v6.2]` 壁の差し替えは setBlockers 経由で。空間索引も一緒に張り直す必要がある
+    setBlockers(w, walls);
     const blue = w.soldiers.find((s) => s.side === "blue")!;
     const red = w.soldiers.find((s) => s.side === "red")!;
     for (const s of w.soldiers) {
