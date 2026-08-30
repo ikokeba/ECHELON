@@ -18,9 +18,9 @@ import type { AABB, Bounds } from "./types.ts";
 const CELL = 8;
 /**
  * 壁を登録する際に外形へ足す余裕 m。`collidesWall` 相当の点問い合わせを
- * 1セルの参照だけで正しく行うため、想定される最大の判定半径より大きく取る。
+ * 1セルの参照だけで正しく行うため、想定される最大の判定半径より大きく取る(最大は遮蔽判定の COVER_SEEK.IN_COVER_DIST = 1.4m)。
  */
-const PAD = 1.0;
+const PAD = 1.6;
 
 export interface WallIndex {
   /** 索引が張られている元の壁配列(順序も含めて保持) */

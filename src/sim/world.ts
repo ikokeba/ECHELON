@@ -6,7 +6,7 @@
  */
 
 import { buildNavSet, type NavSet } from "./navgrid.ts";
-import { buildCoverPoints } from "./cover.ts";
+import { buildCoverPoints, type CoverPoint } from "./cover.ts";
 import { successionSystem } from "./c2/succession.ts";
 import { clamp } from "./geometry.ts";
 import { createRng, type Rng } from "./rng.ts";
@@ -70,7 +70,7 @@ export interface World {
    */
   nav: NavSet;
   /** C2層が躍進先・射撃位置・側面攻撃位置を選ぶための遮蔽候補点の格子 */
-  coverPoints: Vec2[];
+  coverPoints: CoverPoint[];
   /** どちらの陣営にも帰属しない事象のための汎用ストリーム */
   rng: Rng;
   /**
@@ -399,7 +399,7 @@ function buildWorld(scenario: Scenario): World {
     CQB.NAV_STEP,
     CQB.NAV_MARGIN,
   );
-  const coverPoints = buildCoverPoints(structuralWalls, scenario.bounds);
+  const coverPoints = buildCoverPoints(structuralWalls, scenario.bounds, buildings);
   const soldiers = scenario.soldiers.map(cloneSoldier);
   const soldierById = new Map(soldiers.map((s) => [s.id, s]));
 

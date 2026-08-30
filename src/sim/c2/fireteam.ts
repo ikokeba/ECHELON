@@ -14,16 +14,18 @@
  * ここには `side` を読んで挙動を分岐させる箇所は一切存在しない。
  */
 
-import { hasLineOfSightIndexed } from "../wallIndex.ts";
+import { collidesWallIndexed, hasLineOfSightIndexed } from "../wallIndex.ts";
 import {
   bestCoverPoint,
   bestFlankPoint,
+  bestNearbyCover,
   nearestCoverTowards,
   pickSupportedBoundTarget,
 } from "../cover.ts";
 import {
   CONFIDENCE_CUTOFF,
   CONTACT_DRILL,
+  COVER_SEEK,
   DM_DETECT_RANGE,
   MG,
   MORALE,
@@ -669,8 +671,39 @@ export function fireteamAI(world: World): void {
         const eMax = engageMax * (u.role === "mg" ? MG.ENGAGE_RANGE_MUL : 1);
         const inPosition = (los && d >= engageMin - 2 && d <= eMax + 2) || dmEngageFromRange;
         if (inPosition) {
-          ft.unitDest.delete(u.id);
-          issue(world, u, "suppress", null, dirTo(u.pos, enemy));
+          // `[v6.2]` 撃てる位置にいても**開豁地に突っ立ったままにはしない**。
+          // 射線と交戦距離を保ったまま、すぐ隣の遮蔽(壁際・建物の角)へ身を寄せる
+          // (仕様 §6。2回目のテストプレイ指摘「敵を見つけたら即座にカバーを探す」)。
+          // 露出判定は「近くに壁があるか」の1問い合わせで済ませる。`coverBonus` は
+          // 全壁走査なので、交戦中の全兵士ぶん毎周期呼ぶと市街地マップで破綻する
+          const sheltered = collidesWallIndexed(
+            world.wallIndex,
+            u.pos.x,
+            u.pos.z,
+            COVER_SEEK.IN_COVER_DIST,
+          );
+          const shelter = sheltered
+            ? null
+            : cachedDest(world, ft, u, () =>
+                bestNearbyCover(
+                  world.wallIndex,
+                  world.coverPoints,
+                  u.pos,
+                  enemy,
+                  engageMin,
+                  eMax,
+                  COVER_SEEK.MAX_MOVE,
+                  COVER_SEEK.TARGET_COVER,
+                  COVER_SEEK.MAX_YIELD,
+                ),
+              );
+          if (shelter) {
+            // 移動中も撃ち続ける。制圧を切らすと §8 の交戦で不利になる(AD-28)
+            issue(world, u, "suppress", shelter, dirTo(u.pos, enemy));
+          } else {
+            ft.unitDest.delete(u.id);
+            issue(world, u, "suppress", null, dirTo(u.pos, enemy));
+          }
         } else {
           const p = cachedDest(world, ft, u, () =>
             bestCoverPoint(world.walls, world.coverPoints, u.pos, enemy, engageMin, engageMax),
@@ -697,13 +730,13 @@ export function fireteamAI(world: World): void {
       for (const u of maneuver) {
         const p = cachedDest(world, ft, u, () =>
           bestFlankPoint(
-            world.walls,
             world.coverPoints,
             u.pos,
             enemy,
             baseCentroid,
             engageMin,
             engageMax,
+            ft.objective,
           ),
         );
         const fallback = { x: u.pos.x + (enemy.x - u.pos.x) * 0.2, z: u.pos.z + (enemy.z - u.pos.z) * 0.2 };
