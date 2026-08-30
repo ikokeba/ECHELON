@@ -11,9 +11,15 @@
  * 毎秒200万回の判定になり破綻するため。
  */
 
-import { castRay, collidesWall, hasLineOfSight } from "../geometry.ts";
+import { hasLineOfSight } from "../geometry.ts";
 import { DETECT_RANGE, DM_DETECT_RANGE, FOV_HALF_RAD, PEEK } from "../constants.ts";
 import { clearHash, createSpatialHash, forEachNear, insert } from "../spatial.ts";
+import {
+  castRayIndexed,
+  collidesWallIndexed,
+  hasLineOfSightIndexed,
+  type WallIndex,
+} from "../wallIndex.ts";
 import { isOffField } from "./litter.ts";
 import type { World } from "../world.ts";
 import type { Soldier, Vec2 } from "../types.ts";
@@ -43,6 +49,26 @@ export function canSee(
 }
 
 /**
+ * `canSee` の空間索引版。`[v6.2]` 索敵は毎ティック全兵士ぶん回る唯一の重い経路なので、
+ * ここだけ壁の全数走査をやめる。**判定結果は `canSee` と厳密に同一**。
+ */
+function canSeeIndexed(
+  idx: WallIndex,
+  viewer: Soldier,
+  target: Soldier,
+  range: number,
+  fovHalfRad: number,
+): boolean {
+  const dx = target.eye.x - viewer.eye.x;
+  const dz = target.eye.z - viewer.eye.z;
+  const d2 = dx * dx + dz * dz;
+  if (d2 > range * range || d2 < 1e-6) return false;
+  const inv = 1 / Math.sqrt(d2);
+  if (viewer.facing.x * dx * inv + viewer.facing.z * dz * inv < Math.cos(fovHalfRad)) return false;
+  return hasLineOfSightIndexed(idx, viewer.eye.x, viewer.eye.z, target.eye.x, target.eye.z);
+}
+
+/**
  * ビハインドカメラ(コーナー視認、仕様 §7.5)。
  *
  * 壁角の近くで静止している隊員は、体を残したまま視線だけを横へ出して覗ける
@@ -67,7 +93,14 @@ function updateEyes(world: World): void {
     if (s.pathIdx < s.path.length) continue;
 
     // 正面が壁で塞がれているときだけ意味がある
-    const ahead = castRay(world.walls, s.pos.x, s.pos.z, s.facing.x, s.facing.z, DETECT_RANGE);
+    const ahead = castRayIndexed(
+      world.wallIndex,
+      s.pos.x,
+      s.pos.z,
+      s.facing.x,
+      s.facing.z,
+      DETECT_RANGE,
+    );
     if (ahead > PEEK.WALL_DIST) continue;
 
     const r = right(s.facing);
@@ -76,8 +109,15 @@ function updateEyes(world: World): void {
     for (const sign of [1, -1]) {
       const e = { x: s.pos.x + r.x * sign * PEEK.OFFSET, z: s.pos.z + r.z * sign * PEEK.OFFSET };
       // 体はその場にあるので、覗く先が壁の中では意味がない
-      if (collidesWall(world.walls, e.x, e.z, 0.2)) continue;
-      const reach = castRay(world.walls, e.x, e.z, s.facing.x, s.facing.z, DETECT_RANGE);
+      if (collidesWallIndexed(world.wallIndex, e.x, e.z, 0.2)) continue;
+      const reach = castRayIndexed(
+        world.wallIndex,
+        e.x,
+        e.z,
+        s.facing.x,
+        s.facing.z,
+        DETECT_RANGE,
+      );
       const gain = reach - ahead;
       if (gain > bestGain) {
         bestGain = gain;
@@ -116,7 +156,7 @@ export function perceptionSystem(world: World): void {
     const seen: number[] = [];
     forEachNear(hash, s.pos, range, (other) => {
       if (other.side === s.side) return;
-      if (canSee(world.walls, s, other, range, fovHalfRad)) seen.push(other.id);
+      if (canSeeIndexed(world.wallIndex, s, other, range, fovHalfRad)) seen.push(other.id);
     });
     // 走査順が空間ハッシュのセル順に依存するので、IDで整列して決定性を保つ。
     // ここを揺らすと同一シードのリプレイが再現しなくなる。

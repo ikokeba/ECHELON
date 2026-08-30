@@ -14,7 +14,7 @@
  * ここには `side` を読んで挙動を分岐させる箇所は一切存在しない。
  */
 
-import { hasLineOfSight } from "../geometry.ts";
+import { hasLineOfSightIndexed } from "../wallIndex.ts";
 import {
   bestCoverPoint,
   bestFlankPoint,
@@ -630,10 +630,10 @@ export function fireteamAI(world: World): void {
         // 指示がない(分隊長不在・未接敵扱い)場合はFT内で自律的に分割する。
         // すでに敵を視認できている側のペアがベース・オブ・ファイアを担当する
         const alphaLOS = alpha.some((u) =>
-          hasLineOfSight(world.walls, u.pos.x, u.pos.z, enemy.x, enemy.z),
+          hasLineOfSightIndexed(world.wallIndex, u.pos.x, u.pos.z, enemy.x, enemy.z),
         );
         const bravoLOS = bravo.some((u) =>
-          hasLineOfSight(world.walls, u.pos.x, u.pos.z, enemy.x, enemy.z),
+          hasLineOfSightIndexed(world.wallIndex, u.pos.x, u.pos.z, enemy.x, enemy.z),
         );
         if (alphaLOS && !bravoLOS) {
           base = alpha;
@@ -661,7 +661,7 @@ export function fireteamAI(world: World): void {
       for (const u of base) {
         u.holdFireUntilTick = 0;
         const d = dist(u.pos, enemy);
-        const los = hasLineOfSight(world.walls, u.pos.x, u.pos.z, enemy.x, enemy.z);
+        const los = hasLineOfSightIndexed(world.wallIndex, u.pos.x, u.pos.z, enemy.x, enemy.z);
         // 選抜射手(仕様 §10): 射線が通っていれば交戦距離帯の外からでもその場で撃つ。
         // FT AI に「距離を詰めろ」と言われて長射程の利を捨てないため。
         const dmEngageFromRange = u.quals.designatedMarksman && los && d <= DM_DETECT_RANGE;

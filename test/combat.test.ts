@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createRng, next, ratePerTick } from "../src/sim/rng.ts";
 import { combatSystem, rollShot, isSuppressed } from "../src/sim/systems/combat.ts";
 import { canSee, perceptionSystem } from "../src/sim/systems/perception.ts";
-import { createWorld } from "../src/sim/world.ts";
+import { createWorld, setBlockers } from "../src/sim/world.ts";
 import { runTicks } from "../src/sim/step.ts";
 import { demoCrossingScenario, makeSoldier, resetIds } from "../src/sim/scenario.ts";
 import {
@@ -222,7 +222,7 @@ describe("integrated combat", () => {
 
     const w = createWorld(demoCrossingScenario(1));
     // 遮蔽は本件の関心事ではない。射線が通ることを保証するため取り除く
-    w.walls = [];
+    setBlockers(w, []);
     for (const s of w.soldiers) s.status = "kia";
     const blue = w.soldiers.find((s) => s.side === "blue")!;
     const red = w.soldiers.find((s) => s.side === "red")!;

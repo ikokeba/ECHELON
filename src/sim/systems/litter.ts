@@ -22,7 +22,7 @@
  */
 
 import { LITTER, MOVE_SPEED, SIM_DT, SOLDIER_RADIUS } from "../constants.ts";
-import { collidesWall } from "../geometry.ts";
+import { collidesWallIndexed } from "../wallIndex.ts";
 import { findPathSet } from "../navgrid.ts";
 import { advanceAlongPath } from "../pathfollow.ts";
 import type { Side, Soldier, Vec2 } from "../types.ts";
@@ -210,7 +210,7 @@ export function litterSystem(world: World): void {
 
     // 搬送速度倍率(仕様 §9: 2名0.5倍 / 4名0.85倍)。全体がここに律速される
     const step = advanceAlongPath(patient.pos, patient.path, patient.pathIdx, maxStep * speedMul);
-    if (!collidesWall(world.walls, step.pos.x, step.pos.z, SOLDIER_RADIUS)) {
+    if (!collidesWallIndexed(world.wallIndex, step.pos.x, step.pos.z, SOLDIER_RADIUS)) {
       patient.pos = step.pos;
     }
     patient.pathIdx = step.pathIdx;
@@ -223,7 +223,7 @@ export function litterSystem(world: World): void {
       const px = patient.pos.x + off.x;
       const pz = patient.pos.z + off.z;
       // 担架の四隅へ貼り付ける。壁に食い込む位置なら担架中心へ寄せる
-      b.pos = collidesWall(world.walls, px, pz, SOLDIER_RADIUS * 0.7)
+      b.pos = collidesWallIndexed(world.wallIndex, px, pz, SOLDIER_RADIUS * 0.7)
         ? { ...patient.pos }
         : { x: px, z: pz };
       b.path = [];

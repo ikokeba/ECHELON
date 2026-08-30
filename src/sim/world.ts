@@ -10,6 +10,7 @@ import { buildCoverPoints } from "./cover.ts";
 import { successionSystem } from "./c2/succession.ts";
 import { clamp } from "./geometry.ts";
 import { createRng, type Rng } from "./rng.ts";
+import { buildWallIndex, type WallIndex } from "./wallIndex.ts";
 import { defaultPosture, defaultTuning } from "./tuning.ts";
 import type { ControlState } from "./control.ts";
 import {
@@ -51,6 +52,12 @@ export interface World {
    * 扉が開くとそのAABBはここから取り除かれ、視線も移動も通るようになる。
    */
   walls: AABB[];
+  /**
+   * `walls` の空間索引。`[v6.2]` 索敵は毎ティック 兵士×近傍×壁 の計算になるので、
+   * 市街地マップ(壁460枚)では全数走査が支配的になる。答えは全数走査と厳密に同じ。
+   * `walls` を差し替えたら必ず `refreshBlockers` を通して張り直すこと。
+   */
+  wallIndex: WallIndex;
   /** 構造物の壁だけ。扉は常に開いているものとしてナビグリッドを作るために使う */
   structuralWalls: AABB[];
   /** 建物(仕様 §7)。屋外と屋内はシームレスな1つのマップ */
@@ -355,9 +362,19 @@ function blockersOf(structural: readonly AABB[], doors: readonly Door[]): AABB[]
   return [...structural, ...doors.filter((d) => !d.open).map(doorBlocker)];
 }
 
-/** 扉の開閉が変わったあとに呼ぶ。視線・移動の判定対象を組み直す。 */
+/**
+ * 視線・移動の判定対象を差し替える。**空間索引を必ず一緒に張り直す**ので、
+ * `world.walls` へ直接代入するのではなく必ずここを通すこと(`[v6.2]`)。
+ * 索引だけ古いままだと、見えないはずの壁越しに視線が通るなどの形で静かに壊れる。
+ */
+export function setBlockers(world: World, walls: AABB[]): void {
+  world.walls = walls;
+  world.wallIndex = buildWallIndex(walls, world.bounds);
+}
+
+/** 扉の開閉が変わったあとに呼ぶ。視線・移動の判定対象と、その空間索引を組み直す。 */
 export function refreshBlockers(world: World): void {
-  world.walls = blockersOf(world.structuralWalls, world.doors);
+  setBlockers(world, blockersOf(world.structuralWalls, world.doors));
 }
 
 function buildWorld(scenario: Scenario): World {
@@ -390,6 +407,7 @@ function buildWorld(scenario: Scenario): World {
     tick: 0,
     bounds: { ...scenario.bounds },
     walls,
+    wallIndex: buildWallIndex(walls, scenario.bounds),
     structuralWalls,
     buildings,
     doors,

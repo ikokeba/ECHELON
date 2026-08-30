@@ -214,6 +214,39 @@ export function findPath(
  * A* の本体。ノード列と隣接リストだけを見るので、単一グリッドでも
  * 複数グリッドを束ねた NavSet でも同じ実装が使える。
  */
+/**
+ * A* の作業領域。`[v6.2]` 呼び出しごとに確保・初期化していると、市街地マップの
+ * 探索空間(ノード約15万)では**探索そのものより初期化のほうが重くなる**
+ * (Float64 15万を Infinity で2本埋めるのが毎回発生していた)。
+ *
+ * 世代スタンプで「まだ触っていないスロット」を表現し、確保も初期化も一度きりにする。
+ * 遅延初期化なので**返す経路は初期化していた頃と1ビットも変わらない**。
+ */
+interface AstarScratch {
+  gScore: Float64Array;
+  fScore: Float64Array;
+  prev: Int32Array;
+  closed: Uint8Array;
+  stamp: Int32Array;
+  gen: number;
+}
+let scratch: AstarScratch | null = null;
+
+function scratchFor(n: number): AstarScratch {
+  if (!scratch || scratch.stamp.length < n) {
+    scratch = {
+      gScore: new Float64Array(n),
+      fScore: new Float64Array(n),
+      prev: new Int32Array(n),
+      closed: new Uint8Array(n),
+      stamp: new Int32Array(n),
+      gen: 0,
+    };
+  }
+  scratch.gen++;
+  return scratch;
+}
+
 function astar(
   nodes: readonly NavNode[],
   adj: readonly [number, number][][],
@@ -223,14 +256,23 @@ function astar(
   tz: number,
 ): Vec2[] | null {
   const n = nodes.length;
-  const gScore = new Float64Array(n).fill(Infinity);
-  const fScore = new Float64Array(n).fill(Infinity);
-  const prev = new Int32Array(n).fill(-1);
-  const closed = new Uint8Array(n);
+  const sc = scratchFor(n);
+  const { gScore, fScore, prev, closed, stamp } = sc;
+  const gen = sc.gen;
+  /** 未訪問スロットを「gScore=∞ / prev=-1 / closed=0」として立ち上げる */
+  const touch = (i: number): void => {
+    if (stamp[i] === gen) return;
+    stamp[i] = gen;
+    gScore[i] = Infinity;
+    fScore[i] = Infinity;
+    prev[i] = -1;
+    closed[i] = 0;
+  };
 
   const end = nodes[endIdx]!;
   const h = (i: number): number => Math.hypot(nodes[i]!.x - end.x, nodes[i]!.z - end.z);
 
+  touch(startIdx);
   gScore[startIdx] = 0;
   fScore[startIdx] = h(startIdx);
   const open = new MinHeap((i) => fScore[i]!);
@@ -243,6 +285,7 @@ function astar(
     closed[cur] = 1;
 
     for (const [nb, cost] of adj[cur]!) {
+      touch(nb);
       if (closed[nb]) continue;
       const tentative = gScore[cur]! + cost;
       if (tentative < gScore[nb]!) {
@@ -254,6 +297,7 @@ function astar(
     }
   }
 
+  touch(endIdx);
   if (prev[endIdx] === -1 && startIdx !== endIdx) return null;
 
   const path: Vec2[] = [];
@@ -327,9 +371,20 @@ export function buildNavSet(
     outdoorMargin,
     buildings.map((b) => b.bounds),
   );
-  const fine = regions.map((r) =>
-    buildNavGrid(walls, clampBounds(r, bounds), fineStep, fineMargin),
-  );
+  // `[v6.2]` 細グリッドは1棟ぶんの範囲しか見ないので、その範囲に触れる壁だけを渡す。
+  // `buildNavGrid` はセル×壁の総当たりなので、街区全体の壁を毎回渡すと建物数×壁数で
+  // 効きが悪くなる(市街地マップで34棟・壁400枚超になったときに実測で3倍遅くなった)。
+  const fine = regions.map((r) => {
+    const region = clampBounds(r, bounds);
+    const near = walls.filter(
+      (w) =>
+        w.cx + w.hw >= region.minX - fineMargin &&
+        w.cx - w.hw <= region.maxX + fineMargin &&
+        w.cz + w.hd >= region.minZ - fineMargin &&
+        w.cz - w.hd <= region.maxZ + fineMargin,
+    );
+    return buildNavGrid(near, region, fineStep, fineMargin);
+  });
 
   const grids = [outdoor, ...fine];
   const offsets: number[] = [];

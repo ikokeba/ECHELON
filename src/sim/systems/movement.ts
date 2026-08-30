@@ -8,7 +8,8 @@
  */
 
 import { advanceAlongPath } from "../pathfollow.ts";
-import { angleOf, collidesWall, dirFromAngle, turnToward } from "../geometry.ts";
+import { angleOf, dirFromAngle, turnToward } from "../geometry.ts";
+import { collidesWallIndexed, type WallIndex } from "../wallIndex.ts";
 import { MG, SIM_DT, SOLDIER_RADIUS } from "../constants.ts";
 import type { World } from "../world.ts";
 import type { Soldier, Vec2 } from "../types.ts";
@@ -18,12 +19,12 @@ function faceAngle(s: Soldier, angle: number): void {
 }
 
 /** `to` へ移動する。壁に当たる場合は壁沿いにスライドし、採用した位置を返す。 */
-function moveWithWallSlide(walls: World["walls"], from: Vec2, to: Vec2): Vec2 {
-  if (!collidesWall(walls, to.x, to.z, SOLDIER_RADIUS)) return to;
+function moveWithWallSlide(idx: WallIndex, from: Vec2, to: Vec2): Vec2 {
+  if (!collidesWallIndexed(idx, to.x, to.z, SOLDIER_RADIUS)) return to;
   const slideX = { x: to.x, z: from.z };
-  if (!collidesWall(walls, slideX.x, slideX.z, SOLDIER_RADIUS)) return slideX;
+  if (!collidesWallIndexed(idx, slideX.x, slideX.z, SOLDIER_RADIUS)) return slideX;
   const slideZ = { x: from.x, z: to.z };
-  if (!collidesWall(walls, slideZ.x, slideZ.z, SOLDIER_RADIUS)) return slideZ;
+  if (!collidesWallIndexed(idx, slideZ.x, slideZ.z, SOLDIER_RADIUS)) return slideZ;
   return { ...from };
 }
 
@@ -65,7 +66,7 @@ export function movementSystem(world: World): void {
       if (d > 0.08) {
         const step = Math.min(d, maxStep);
         const to = { x: s.pos.x + (dx / d) * step, z: s.pos.z + (dz / d) * step };
-        s.pos = moveWithWallSlide(world.walls, s.pos, to);
+        s.pos = moveWithWallSlide(world.wallIndex, s.pos, to);
       }
       // 向きは命令で指定された監視方向を優先し、なければ進行方向を向く
       const look = s.order.facing ?? (d > 1e-6 ? { x: dx / d, z: dz / d } : s.facing);
@@ -75,7 +76,7 @@ export function movementSystem(world: World): void {
 
     if (wantsToMove(s) && s.pathIdx < s.path.length) {
       const step = advanceAlongPath(s.pos, s.path, s.pathIdx, maxStep);
-      const accepted = moveWithWallSlide(world.walls, s.pos, step.pos);
+      const accepted = moveWithWallSlide(world.wallIndex, s.pos, step.pos);
       s.pos = accepted;
       s.pathIdx = step.pathIdx;
       if (step.dir) {

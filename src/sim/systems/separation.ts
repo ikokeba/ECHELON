@@ -14,7 +14,7 @@
  * 片側だけを動かすと、走査順が先の陣営が有利になる。
  */
 
-import { collidesWall } from "../geometry.ts";
+import { collidesWallIndexed } from "../wallIndex.ts";
 import { SOLDIER_RADIUS } from "../constants.ts";
 import { clearHash, createSpatialHash, forEachNear, insert } from "../spatial.ts";
 import type { Soldier } from "../types.ts";
@@ -92,7 +92,7 @@ export function separationSystem(world: World): void {
     const nx = s.pos.x + (dx ?? 0);
     const nz = s.pos.z + (dz ?? 0);
     // 押し出しで壁へめり込ませない
-    if (!collidesWall(world.walls, nx, nz, SOLDIER_RADIUS)) {
+    if (!collidesWallIndexed(world.wallIndex, nx, nz, SOLDIER_RADIUS)) {
       s.pos = { x: nx, z: nz };
     }
   }
