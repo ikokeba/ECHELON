@@ -71,7 +71,11 @@ describe("バディエイド(仕様 §9)", () => {
     victim.status = "wia";
     victim.bleedOutTick = w.tick + Math.round(BLEED_OUT_SEC / SIM_DT);
 
-    // 敵はまだ遠く、交戦していない。移動+処置に十分な時間を与える
+    // 「脅威がない」ことがこのテストの前提。`[v6.3]` で索敵が150m(仕様 §10)に
+    // 戻り、盤面のどこにいても敵が見えるようになったので、敵を明示的に戦場から外す。
+    // 交戦中の手当は §9 の別条件(出血15秒以下で射撃を中断)であって、ここの対象ではない。
+    for (const s of w.soldiers) if (s.side === "red") s.status = "kia";
+    // 移動+処置に十分な時間を与える
     runTicks(w, Math.round(20 * SIM_HZ));
 
     expect(victim.stabilized).toBe(true);
@@ -85,6 +89,8 @@ describe("バディエイド(仕様 §9)", () => {
     const victim = squad.find((s) => !s.isSquadLeader)!;
     victim.status = "wia";
     victim.bleedOutTick = w.tick + Math.round(BLEED_OUT_SEC / SIM_DT);
+    // 手当が成立することが前提のテストなので、脅威を外す(`[v6.3]` 索敵150m)
+    for (const s of w.soldiers) if (s.side === "red") s.status = "kia";
 
     runTicks(w, Math.round(20 * SIM_HZ));
     expect(victim.stabilized).toBe(true);

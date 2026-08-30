@@ -129,6 +129,9 @@ function joinReplacement(world: World, casualty: Soldier): void {
       boldness: next(rng),
       caution: next(rng),
     },
+    // 編成上の位置は戦死者から引き継ぐ。鏡像の補充兵どうしが一致する(仕様 §2/§13)
+    ordinal: casualty.ordinal,
+    seesFar: [],
   };
   world.soldiers.push(replacement);
   world.soldierById.set(id, replacement);

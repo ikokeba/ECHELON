@@ -19,6 +19,7 @@ import {
   GRENADE,
   GRENADE_ATTEMPT_RATE_PER_SEC,
   HIT_RATE_PER_SEC,
+  RANGE_FALLOFF,
   KIA_ON_HIT_CHANCE,
   MG,
   MOVING_ACC_PENALTY,
@@ -34,6 +35,7 @@ import {
 } from "../constants.ts";
 import { angleOf, dirFromAngle, turnToward } from "../geometry.ts";
 import { isOffField } from "./litter.ts";
+import { weaponRangeOf } from "../weapons.ts";
 import type { World } from "../world.ts";
 import type { Soldier, Vec2 } from "../types.ts";
 
@@ -54,6 +56,25 @@ export interface ShotContext {
   shooterIsMg?: boolean;
   /** 射手が突撃フェーズにある(近接での決定的打撃 — 命中率上昇。`[v6.1]` §6 F-6) */
   shooterAssaulting?: boolean;
+  /**
+   * 目標までの距離 m と、射手の武器の索敵/射撃上限 m。`[v6.3]`
+   * 省略した場合は距離減衰なし(=従来どおり)。`src/balance/` の抽象交戦モデルは
+   * 位置を持たない設計なので省略する — あちらが測るのはMOS構成比であって射距離ではない。
+   */
+  range?: number;
+  maxRange?: number;
+}
+
+/**
+ * 距離による命中率の倍率(仕様 §8 `[v6.3]`)。`POINT_BLANK` までは 1.0、
+ * そこから `maxRange` に向けて `MIN_MUL` まで落ちる。
+ */
+export function rangeAccMul(range: number, maxRange: number): number {
+  if (maxRange <= RANGE_FALLOFF.POINT_BLANK) return 1;
+  const over = range - RANGE_FALLOFF.POINT_BLANK;
+  if (over <= 0) return 1;
+  const t = Math.min(1, over / (maxRange - RANGE_FALLOFF.POINT_BLANK));
+  return Math.max(RANGE_FALLOFF.MIN_MUL, 1 - Math.pow(t, RANGE_FALLOFF.EXPONENT));
 }
 
 export type ShotOutcome = { hit: false } | { hit: true; lethal: boolean };
@@ -78,6 +99,10 @@ export function rollShot(rng: Rng, ctx: ShotContext): ShotOutcome {
   }
   // 突撃フェーズ: 近接で詰めた機動組は数秒間、決定的に当てやすくなる(F-6, `[v6.1]`)
   if (ctx.shooterAssaulting) accMul *= CONTACT_DRILL.ASSAULT_ACC_MUL;
+  // 距離減衰(`[v6.3]` 仕様 §8)。射程を §10 の本来の値へ戻したことと不可分。
+  if (ctx.range !== undefined && ctx.maxRange !== undefined) {
+    accMul *= rangeAccMul(ctx.range, ctx.maxRange);
+  }
   const hitP = ratePerTick(HIT_RATE_PER_SEC * accMul, SIM_DT);
   if (!chance(rng, hitP)) return { hit: false };
   return { hit: true, lethal: chance(rng, KIA_ON_HIT_CHANCE) };
@@ -271,15 +296,20 @@ export function combatSystem(world: World): void {
       shooterIsSaw: s.role === "saw",
       shooterIsMg: s.role === "mg",
       shooterAssaulting: s.assaultingUntilTick > world.tick,
+      range: tlen,
+      maxRange: weaponRangeOf(s).detect,
     });
 
     // 制圧役は行動抑制(evade)も誘発する。SAW 1.5倍 / MG 2.0倍(仕様 §14 / `[v6.1]` §2)
+    // `[v6.3]` 制圧も距離で減衰する。しないと 150m から撃っているだけで敵を
+    // 釘付けにできてしまい、近接して制圧を作る意味が消える
     let triggersEvade = false;
     if (s.suppressor) {
       const mul = s.role === "mg" ? MG.SUPPRESS_MUL : s.role === "saw" ? SAW_SUPPRESS_MUL : 1;
+      const rMul = rangeAccMul(tlen, weaponRangeOf(s).detect);
       triggersEvade = chance(
         world.rngBySide[s.side],
-        ratePerTick(SUPPRESS_TRIGGER_RATE_PER_SEC * mul, SIM_DT),
+        ratePerTick(SUPPRESS_TRIGGER_RATE_PER_SEC * mul * rMul, SIM_DT),
       );
     }
 

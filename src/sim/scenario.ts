@@ -69,6 +69,8 @@ export interface SoldierSeed {
   facing?: Vec2;
   moveTo?: Vec2;
   traits?: Partial<Soldier["traits"]>;
+  /** 自軍の中での編成上の通し番号(鏡像で一致すること)。`[v6.3]` */
+  ordinal?: number;
   role?: Soldier["role"];
   hqRole?: Soldier["hqRole"];
   quals?: Partial<Soldier["quals"]>;
@@ -125,6 +127,8 @@ export function makeSoldier(seed: SoldierSeed): Soldier {
       boldness: seed.traits?.boldness ?? 0.5,
       caution: seed.traits?.caution ?? 0.5,
     },
+    ordinal: seed.ordinal ?? 0,
+    seesFar: [],
   };
 }
 
@@ -234,6 +238,7 @@ function makeSquad(
       pos: { x: anchor.x, z: anchor.z },
       facing: dir,
       traits: traitProfile(variant * 16),
+      ordinal: variant * 16,
     }),
   );
 
@@ -260,6 +265,7 @@ function makeSquad(
           facing: dir,
           role: ROLES[m],
           traits: traitProfile(variant * 16 + 1 + ft * 4 + m),
+          ordinal: variant * 16 + 1 + ft * 4 + m,
           quals: {
             // 各FTのライフルマン1名が衛生要員を兼任(仕様 §9/§14 `[v6]`)
             medicalCrossTrained: m === 3,
@@ -300,6 +306,7 @@ function makeWeaponsSquad(
       pos: { x: anchor.x, z: anchor.z },
       facing: dir,
       traits: traitProfile(variant * 16),
+      ordinal: variant * 16,
     }),
   ];
   // 各班: 射手(mg) + 副射手 + 弾薬手。1丁につき射手1名 = 分隊に機関銃2丁。
@@ -323,6 +330,7 @@ function makeWeaponsSquad(
           facing: dir,
           role: ROLES[m],
           traits: traitProfile(variant * 16 + 1 + ft * 3 + m),
+          ordinal: variant * 16 + 1 + ft * 3 + m,
           quals: { medicalCrossTrained: m === 2, designatedMarksman: false },
         }),
       );
@@ -346,8 +354,13 @@ function mirror(base: AABB[]): AABB[] {
 /**
  * 原点まわりの180°回転に対して対称な壁配置を作る。
  * 両陣営が本当に公平な盤面で戦うために必須(仕様 §2/§13)。
+ *
+ * `[v6.3]` `scale` で盤面ごと拡大できるようにした。射程を仕様 §10 の本来の値
+ * (ライフル150m)へ戻した結果、従来の盤面では**展開地から敵展開地まで射程内**に
+ * 入ってしまい、部隊が一歩も動かずに撃ち合う状態になったため。
  */
-function symmetricWalls(): AABB[] {
+function symmetricWalls(scale = 1): AABB[] {
+  const k = scale;
   const walls = mirror([
     { cx: 10, cz: 4, hw: 4, hd: 0.4 },
     { cx: 18, cz: 10, hw: 0.4, hd: 3 },
@@ -367,7 +380,10 @@ function symmetricWalls(): AABB[] {
     { cx: 3, cz: -1.4, hw: 0.4, hd: 1.6 },
     { cx: -3, cz: 1.4, hw: 0.4, hd: 1.6 },
   );
-  return walls;
+  // 位置だけ拡大し、遮蔽そのものの大きさは変えない(人体スケールの遮蔽のまま
+  // 盤面だけ広くする)。壁が疎になるぶんは長射程の見通しとして意味を持つ。
+  if (k === 1) return walls;
+  return walls.map((w) => ({ cx: w.cx * k, cz: w.cz * k, hw: w.hw, hd: w.hd }));
 }
 
 /**
@@ -663,7 +679,9 @@ function buildPlatoon(
 export function platoonClashScenario(seed = 1): Scenario {
   resetIds();
   // `[v6.1]` 火器分隊+小隊本部が後方に伸びるぶん、縦深を広げて全員を盤内に収める。
-  const bounds: Bounds = { minX: -56, maxX: 56, minZ: -50, maxZ: 50 };
+  // `[v6.3]` 射程を仕様 §10 の本来の値へ戻したので盤面を2倍にした。従来の 112×100 では
+  // 展開地から敵展開地までライフルの射程内に収まり、両軍が一歩も動かず撃ち合っていた。
+  const bounds: Bounds = { minX: -112, maxX: 112, minZ: -100, maxZ: 100 };
   const objective = { x: 0, z: 0 };
 
   const blue = buildPlatoon("blue", 0, [0, 1, 2], 3, { x: 0, z: -32 }, { x: 0, z: 1 }, objective);

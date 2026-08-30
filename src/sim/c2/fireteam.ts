@@ -29,6 +29,7 @@ import {
   DM_DETECT_RANGE,
   MG,
   MORALE,
+  WEAPON_RANGE,
   POS_ERROR_GROWTH,
   POS_ERROR_MAX,
   SIM_HZ,
@@ -46,7 +47,15 @@ import type { World } from "../world.ts";
 // ── チューニング値(モック由来。squad-12v12 の TEAM_DEFS を参照)。
 //    仕様 §14 の個体差パラメータは、チーム単位の「性格」ではなくFT単位でこれらを変調する。
 const ENGAGE_MIN = 8;
-const ENGAGE_MAX = 15;
+/**
+ * 交戦距離帯の上限 m。`[v6.3]` 従来はモック由来の 15m 固定で、これがFT AIに
+ * 「敵へ15mまで詰めろ」と言い続けていたため、市街地でも街路の真ん中で殴り合っていた
+ * (3回目のテストプレイ指摘「開けた空間で入り乱れていて現実的じゃない」)。
+ * 武器の**有効射程帯**(`WEAPON_RANGE.*.effective`)から取るように変えた。
+ * 索敵上限(`detect`)ではないことが重要 — そちらを使うと全員が最大射程で
+ * 当たらない弾を撃ち続け、近接戦もCQBも起きなくなる。
+ */
+const ENGAGE_MAX = WEAPON_RANGE.rifle.effective;
 const BOUND_MIN_ADV = 3;
 const BOUND_MAX_ADV = 7;
 /** モードを離れるまでの最小滞留ティック数(モック: 1.2秒)— FALLBACKへの遷移は例外 */

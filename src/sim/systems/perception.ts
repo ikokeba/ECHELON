@@ -12,7 +12,7 @@
  */
 
 import { hasLineOfSight } from "../geometry.ts";
-import { DETECT_RANGE, DM_DETECT_RANGE, FOV_HALF_RAD, PEEK } from "../constants.ts";
+import { DETECT_RANGE, FOV_HALF_RAD, PEEK, SCAN } from "../constants.ts";
 import { clearHash, createSpatialHash, forEachNear, insert } from "../spatial.ts";
 import {
   castRayIndexed,
@@ -21,11 +21,13 @@ import {
   type WallIndex,
 } from "../wallIndex.ts";
 import { isOffField } from "./litter.ts";
+import { weaponRangeOf } from "../weapons.ts";
 import type { World } from "../world.ts";
 import type { Soldier, Vec2 } from "../types.ts";
 
-/** セルサイズは索敵距離の半分。1回の問い合わせで走査するセル数を小さく保つ(性能係数のみ)。 */
-const hash = createSpatialHash<Soldier>(DETECT_RANGE / 2);
+/** 空間ハッシュのセルサイズ m(性能係数のみ)。`[v6.3]` 索敵150mでは絞り込みの主役は
+ * FOV扇形とLOSに移るので、セルは中庸な大きさで固定する。 */
+const hash = createSpatialHash<Soldier>(25);
 
 /**
  * `range` / `fovHalfRad` は省略時に仕様定数へフォールバックする(既存テストの3引数呼び出しを
@@ -99,7 +101,7 @@ function updateEyes(world: World): void {
       s.pos.z,
       s.facing.x,
       s.facing.z,
-      DETECT_RANGE,
+      PEEK.PROBE_DIST,
     );
     if (ahead > PEEK.WALL_DIST) continue;
 
@@ -116,7 +118,7 @@ function updateEyes(world: World): void {
         e.z,
         s.facing.x,
         s.facing.z,
-        DETECT_RANGE,
+        PEEK.PROBE_DIST,
       );
       const gain = reach - ahead;
       if (gain > bestGain) {
@@ -149,15 +151,44 @@ export function perceptionSystem(world: World): void {
   for (const s of world.soldiers) {
     if (s.status === "kia" || isOffField(s)) {
       if (s.sees.length) s.sees = [];
+      if (s.seesFar.length) s.seesFar = [];
       continue;
     }
-    // 選抜射手(SDMR)だけ索敵距離が伸びる(仕様 §10)。壁とLOSが自然に頭打ちにする。
-    const range = s.quals.designatedMarksman ? DM_DETECT_RANGE : detectRange;
+    // `[v6.3]` 索敵距離は武器種別(仕様 §10 の4段階)から取る。壁とLOSが頭打ちにする。
+    // `world.tuning.detectRange` は**デバッグ用の上限**として掛け合わせる — 既定では
+    // 仕様値と一致し、スライダーを絞ったときだけ短くなる。
+    const range = Math.min(weaponRangeOf(s).detect, detectRange);
+    const nearRange = Math.min(range, SCAN.NEAR_DIST);
+    // `[v6.3]` 近距離は毎ティック、遠距離は数ティックおき。位相は `ordinal`(鏡像で
+    // 一致する編成上の通し番号)から取るので、点対称でも片側だけ早く見つけない。
+    const scanFar = range > nearRange && (world.tick + s.ordinal) % SCAN.FAR_EVERY === 0;
+
     const seen: number[] = [];
-    forEachNear(hash, s.pos, range, (other) => {
+    forEachNear(hash, s.pos, nearRange, (other) => {
       if (other.side === s.side) return;
-      if (canSeeIndexed(world.wallIndex, s, other, range, fovHalfRad)) seen.push(other.id);
+      if (canSeeIndexed(world.wallIndex, s, other, nearRange, fovHalfRad)) seen.push(other.id);
     });
+
+    if (scanFar) {
+      const far: number[] = [];
+      forEachNear(hash, s.pos, range, (other) => {
+        if (other.side === s.side) return;
+        // 近距離ぶんは上で見ているので、ここは外側の帯だけ
+        const dx = other.eye.x - s.eye.x;
+        const dz = other.eye.z - s.eye.z;
+        if (dx * dx + dz * dz <= nearRange * nearRange) return;
+        if (canSeeIndexed(world.wallIndex, s, other, range, fovHalfRad)) far.push(other.id);
+      });
+      s.seesFar = far;
+    } else if (s.seesFar.length > 0) {
+      // 更新ティックでない間はキャッシュを使う。ただし戦死・後送は即座に落とす
+      s.seesFar = s.seesFar.filter((id) => {
+        const t = world.soldierById.get(id);
+        return t !== undefined && t.status !== "kia" && !isOffField(t);
+      });
+    }
+    for (const id of s.seesFar) if (!seen.includes(id)) seen.push(id);
+
     // 走査順が空間ハッシュのセル順に依存するので、IDで整列して決定性を保つ。
     // ここを揺らすと同一シードのリプレイが再現しなくなる。
     seen.sort((a, b) => a - b);
