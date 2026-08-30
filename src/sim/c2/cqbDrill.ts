@@ -93,6 +93,9 @@ export function runCqb(
         if (dist(u.pos, slot) > CQB.STACK_ARRIVE) allSet = false;
         issue(u, "move", slot, door.normal);
       });
+      // 時間切れでも必ず次の段階へ進める。到達不能な扉に張り付いて分隊が丸ごと
+      // 戦闘から消えるのが最悪の失敗なので、ここで「諦めて立て直す」分岐は作らない
+      // (`[v6.2]` に一度入れて、突入が abandon→再選択 のループに落ちるのを確認した)。
       if (allSet || stuck) {
         // ② ブリーチ: 扉が開く。この瞬間から室内が見えるようになる(仕様 §7.6)
         if (!door.open) {

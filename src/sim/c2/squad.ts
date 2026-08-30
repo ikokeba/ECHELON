@@ -11,10 +11,10 @@
  *   - 分隊長自身の位置取り(指揮を執れる位置に留まり、突撃の先頭には立たない)
  */
 
-import { LITTER, SIM_HZ } from "../constants.ts";
+import { CQB, LITTER, SIM_HZ } from "../constants.ts";
 import { aiSuppressed } from "../control.ts";
 import { bearersNeeded, isCommittedToLitter } from "../systems/litter.ts";
-import { doorById, selectAssaultDoor } from "../cqb.ts";
+import { buildingAt, doorById, selectAssaultDoor } from "../cqb.ts";
 import { commandFactor } from "./succession.ts";
 import { exitCqb } from "./cqbDrill.ts";
 import type { Contact, Door, Soldier, SquadState, Vec2 } from "../types.ts";
@@ -108,6 +108,21 @@ function directFireteams(world: World, sq: SquadState): void {
   } else if (mk === "screen") {
     ftObjective = { ...sq.mission.target };
     ftTechnique = "traveling_overwatch";
+  } else {
+    // `[v6.2]` 目標が建物の中にある場合、そこは**屋外からは到達できない目的地**である。
+    // 経路は扉を通るが閉じた扉が移動を阻むので、そのまま渡すとFTは扉に張り付いて止まる。
+    // 接近の経由地は外扉にしておき、屋内へ入るのは突入ドリル(仕様 §7.2)に任せる。
+    const host = buildingAt(world.buildings, sq.objective);
+    if (host) {
+      const entry = host.doors.find((d) => d.exterior) ?? host.doors[0];
+      // 扉の真上ではなく手前に置く。真上だとFT全員が戸口に群がってスタックが組めない
+      if (entry) {
+        ftObjective = {
+          x: entry.pos.x - entry.normal.x * CQB.APPROACH_DIST,
+          z: entry.pos.z - entry.normal.z * CQB.APPROACH_DIST,
+        };
+      }
+    }
   }
 
   for (const ft of fireteams) {

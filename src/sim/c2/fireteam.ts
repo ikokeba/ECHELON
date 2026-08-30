@@ -727,18 +727,42 @@ export function fireteamAI(world: World): void {
       }
 
       const baseCentroid = centroid(base);
+      // `[v6.2]` 突撃の継続(F-10 (a))。接敵が続いていて、かつ自分たちが釘付けに
+      // されていなければ、機動組は側面確保をやめて**任務目標へ躍進を継続**する。
+      // これが無いと接敵した部隊は敵のまわりを回るだけで目標へ一歩も近づかない。
+      // 判定に使うのは自軍の状態だけ — 敵の制圧状態を覗くのは §5 の情報階層の迂回になる。
+      const pinnedNow = living.some(
+        (u) => u.suppressedUntilTick > world.tick || u.evadeUntilTick > world.tick,
+      );
+      const pushing =
+        !pinnedNow &&
+        world.tick - ft.modeSince > Math.round(CONTACT_DRILL.PUSH_AFTER_SEC * SIM_HZ) &&
+        dist(mc, ft.objective) > engageMax;
       for (const u of maneuver) {
-        const p = cachedDest(world, ft, u, () =>
-          bestFlankPoint(
-            world.coverPoints,
-            u.pos,
-            enemy,
-            baseCentroid,
-            engageMin,
-            engageMax,
-            ft.objective,
-          ),
-        );
+        const p = pushing
+          ? // 目標へ向けた躍進。オーバーウォッチ(ベース組)の支援内に留まる(仕様 §6)
+            cachedDest(world, ft, u, () =>
+              pickSupportedBoundTarget(
+                world.walls,
+                world.coverPoints,
+                u.pos,
+                dirTo(u.pos, ft.objective),
+                BOUND_MIN_ADV * pos.boundMinMul,
+                BOUND_MAX_ADV * pos.boundMaxMul,
+                baseCentroid,
+              ),
+            )
+          : cachedDest(world, ft, u, () =>
+              bestFlankPoint(
+                world.coverPoints,
+                u.pos,
+                enemy,
+                baseCentroid,
+                engageMin,
+                engageMax,
+                ft.objective,
+              ),
+            );
         const fallback = { x: u.pos.x + (enemy.x - u.pos.x) * 0.2, z: u.pos.z + (enemy.z - u.pos.z) * 0.2 };
         issue(world, u, "maneuver", p ?? fallback, dirTo(u.pos, enemy));
 
