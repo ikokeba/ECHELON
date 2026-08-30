@@ -192,6 +192,15 @@ export function DebugPanel() {
           <span className="lg-swatch" style={{ background: "#f04a38" }} />
           隠蔽グリッド: 赤=選択ユニットから見える / 緑=見えない
         </div>
+        {/* `[v6.2]` 階級章。指揮継承の結果で付くので、次席が引き継げば標も移る(仕様 §12) */}
+        <div>
+          <span className="lg-rank">▪</span>
+          点1 = FTリーダー / 点2 = 分隊長
+        </div>
+        <div>
+          <span className="lg-rank">▬</span>
+          棒1 = 小隊長 / 棒2 = 中隊長
+        </div>
       </div>
     </div>
   );

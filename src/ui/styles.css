@@ -633,3 +633,5 @@ span.obj-contested { background: none; flex: none; }
 .dbg-legend { display: flex; flex-direction: column; gap: 3px; border-top: 1px solid var(--border); padding-top: 8px; }
 .dbg-legend div { display: flex; align-items: center; gap: 6px; }
 .lg-swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; display: inline-block; }
+/* 階級章の凡例マーク。地図上の白っぽい標に合わせる */
+.lg-rank { width: 10px; flex: none; display: inline-block; text-align: center; color: #cfe0f5; }

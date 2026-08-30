@@ -96,6 +96,31 @@ const CARRYING_COLOR = 0x8fd6ff;
 const MAX_SOLDIERS = 512;
 const MAX_CONTACTS = 512;
 
+/**
+ * 階級章(`[v6.2]` 初回テストプレイ指摘「陣営ユニットの階級別の表示がわかりにくい」)。
+ *
+ * トークンの上に NATO 風の小さな標を置く。階級は肩書きではなく**指揮継承の結果**
+ * (`commanderId`)から引くので、分隊長が倒れて次席が引き継げば標もそちらへ移る(仕様 §12)。
+ *
+ * 一般兵 = 無印 / FTリーダー = 点1 / 分隊長 = 点2 / 小隊長 = 棒1 / 中隊長 = 棒2
+ */
+const RANK_NONE = 0;
+const RANK_FIRETEAM = 1;
+const RANK_SQUAD = 2;
+const RANK_PLATOON = 3;
+const RANK_COMPANY = 4;
+/** 点(pip)の一辺 m と横の間隔 m */
+const PIP_SIZE = 0.26;
+const PIP_GAP = 0.36;
+/** 棒(bar)の寸法 m と縦の間隔 m */
+const BAR_W = 0.95;
+const BAR_H = 0.17;
+const BAR_GAP = 0.3;
+/** トークン中心から階級章までの距離 m(画面上では上方向 = −Z) */
+const RANK_OFFSET = SOLDIER_RADIUS * 2.4;
+/** 階級章1個ぶんのインスタンス上限(兵士1名あたり最大2個) */
+const MAX_RANK_MARKS = MAX_SOLDIERS * 2;
+
 interface TickSnapshot {
   tick: number;
   pos: Map<number, { x: number; z: number; fx: number; fz: number }>;
@@ -289,6 +314,22 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     3,
   );
   scene.add(wedgeMesh);
+
+  // 階級章(`[v6.2]`)。単位平面を1枚だけ用意し、点は正方形・棒は横長にスケールする。
+  const rankGeo = new THREE.PlaneGeometry(1, 1);
+  rankGeo.rotateX(-Math.PI / 2);
+  const rankMesh = new THREE.InstancedMesh(
+    rankGeo,
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.95, depthTest: false }),
+    MAX_RANK_MARKS,
+  );
+  rankMesh.instanceColor = new THREE.InstancedBufferAttribute(
+    new Float32Array(MAX_RANK_MARKS * 3),
+    3,
+  );
+  rankMesh.renderOrder = 12;
+  rankMesh.frustumCulled = false;
+  scene.add(rankMesh);
 
   // 敵接触マーカー — 実体ではなく「報告された最終目撃位置」を描く(仕様 §5)。
   // 味方の円盤と明確に見分けがつくよう、菱形(4分割の円)で表現する。
@@ -486,6 +527,8 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   const dummy = new THREE.Object3D();
   const col = new THREE.Color();
   const col2 = new THREE.Color();
+  /** 兵士ID → 階級(毎フレーム作り直す)。`[v6.2]` 階級章の描画に使う */
+  const rankOf = new Map<number, number>();
 
   let prev: TickSnapshot = snapshot(world);
   let cur: TickSnapshot = prev;
@@ -590,6 +633,44 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     const tokens: Soldier[] = opts.truth
       ? view.friendly.concat(view.enemiesTruth)
       : view.friendly;
+
+    // 階級は指揮継承の結果から引く(仕様 §12)。肩書きのフラグではなく commanderId を
+    // 見るので、分隊長が倒れて次席のFTリーダーが引き継げば階級章もそちらへ移る。
+    rankOf.clear();
+    for (const co of world.companies) {
+      if (co.commanderId !== null) rankOf.set(co.commanderId, RANK_COMPANY);
+    }
+    for (const pl of world.platoons) {
+      if (pl.commanderId !== null) rankOf.set(pl.commanderId, RANK_PLATOON);
+    }
+    for (const sq of world.squads) {
+      if (sq.commanderId !== null && !rankOf.has(sq.commanderId)) {
+        rankOf.set(sq.commanderId, RANK_SQUAD);
+      }
+    }
+
+    let rankN = 0;
+    /** 階級章を1個置く。`w`/`h` は m、`dz` はトークンからの上方向オフセット */
+    const putMark = (
+      x: number,
+      z: number,
+      dx: number,
+      dz: number,
+      w: number,
+      h: number,
+      hex: number,
+    ): void => {
+      if (rankN >= MAX_RANK_MARKS) return;
+      dummy.position.set(x + dx, 0.11, z - RANK_OFFSET - dz);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(w, 1, h);
+      dummy.updateMatrix();
+      dummy.scale.setScalar(1);
+      rankMesh.setMatrixAt(rankN, dummy.matrix);
+      rankMesh.setColorAt(rankN, col.setHex(hex));
+      rankN++;
+    };
+
     let i = 0;
     for (const s of tokens) {
       const p = prev.pos.get(s.id) ?? cur.pos.get(s.id)!;
@@ -639,14 +720,36 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       wedgeMesh.setMatrixAt(i, dummy.matrix);
       wedgeMesh.setColorAt(i, col.setHex(SIDE_COLOR[s.side]));
 
+      // ── 階級章(`[v6.2]`)。戦闘可能な指揮官にのみ。陣営色を明るく振って、
+      // どちらの軍かを保ったまま地の色から浮かせる。
+      const rank = s.status === "ok"
+        ? (rankOf.get(s.id) ?? (s.isFireteamLeader ? RANK_FIRETEAM : RANK_NONE))
+        : RANK_NONE;
+      if (rank !== RANK_NONE) {
+        const hex = col2.setHex(SIDE_COLOR[s.side]).lerp(col.setHex(0xffffff), 0.6).getHex();
+        if (rank === RANK_FIRETEAM || rank === RANK_SQUAD) {
+          const pips = rank === RANK_SQUAD ? 2 : 1;
+          for (let q = 0; q < pips; q++) {
+            const dx = (q - (pips - 1) / 2) * PIP_GAP;
+            putMark(x, z, dx, 0, PIP_SIZE, PIP_SIZE, hex);
+          }
+        } else {
+          const bars = rank === RANK_COMPANY ? 2 : 1;
+          for (let q = 0; q < bars; q++) putMark(x, z, 0, q * BAR_GAP, BAR_W, BAR_H, hex);
+        }
+      }
+
       i++;
     }
     discMesh.count = i;
     wedgeMesh.count = i;
+    rankMesh.count = rankN;
     discMesh.instanceMatrix.needsUpdate = true;
     wedgeMesh.instanceMatrix.needsUpdate = true;
+    rankMesh.instanceMatrix.needsUpdate = true;
     if (discMesh.instanceColor) discMesh.instanceColor.needsUpdate = true;
     if (wedgeMesh.instanceColor) wedgeMesh.instanceColor.needsUpdate = true;
+    if (rankMesh.instanceColor) rankMesh.instanceColor.needsUpdate = true;
 
     // ── 敵 ── 実体ではなく world picture の接触情報を描く(仕様 §5)。
     // 位置は最終目撃位置であって現在位置ではない。確度が下がるほど薄く、
@@ -937,6 +1040,8 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       canvas.removeEventListener("wheel", onWheel);
       discGeo.dispose();
       wedgeGeo.dispose();
+      rankGeo.dispose();
+      (rankMesh.material as THREE.Material).dispose();
       discMesh.dispose();
       wedgeMesh.dispose();
       controlRing.geometry.dispose();
