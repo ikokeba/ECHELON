@@ -32,7 +32,7 @@ import { aiSuppressed } from "../control.ts";
 import { clamp } from "../geometry.ts";
 import { next } from "../rng.ts";
 import { commandFactor } from "./succession.ts";
-import { clampToObjective, heldObjectiveNear } from "./objectiveHold.ts";
+import { assignHolders, clampToObjective } from "./objectiveHold.ts";
 import type { CompanyState, Contact, Mission, Soldier, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
@@ -46,6 +46,17 @@ const DECIDE_BASE_TICKS = Math.round(COMPANY_DECIDE_SEC * SIM_HZ);
 const CONSOLIDATE_STRENGTH_RATIO = 0.6;
 /** 集約時に正面幅へ掛ける係数。 */
 const CONSOLIDATE_FRONTAGE_MUL = 0.55;
+/**
+ * 拠点を守る小隊の持ち場を、拠点中心からこれだけは広げてよい m。`[v6.2]`
+ * 拠点が建物内の1室(半径3m)でも、小隊36名は建物と周囲の遮蔽に散って守る。
+ * これが無いと「半径2mの点に36名集合」という指示になる。
+ */
+const PLATOON_HOLD_SPREAD = 16;
+/**
+ * 未確保拠点を担当区域へ引き込む距離。正面幅に対する倍率。`[v6.2]`
+ * 1.0 だと隣の小隊の区域まで手を伸ばし、0.5 だと少し外れた拠点を誰も取りに行かない。
+ */
+const OBJECTIVE_CLAIM_MUL = 0.9;
 
 function dist(a: Vec2, b: Vec2): number {
   return Math.hypot(a.x - b.x, a.z - b.z);
@@ -289,33 +300,71 @@ export function companyAI(world: World): void {
       }
     }
 
-    living.forEach((pl, i) => {
-      const lateral = (i - (living.length - 1) / 2) * frontage;
-      let objective: Vec2 = {
-        x: aim.x + right.x * lateral,
-        z: aim.z + right.z * lateral,
-      };
-
-      // 確保済み拠点の保持(`[v6.1]`)。担当区域の近くに守るべき自軍拠点があれば、
-      // 脅威へ寄った持ち場を拠点の内側へ引き戻す(仕様 §12。詳細は c2/objectiveHold.ts)。
-      const plMen = world.soldiers.filter(
+    // 確保済み拠点の保持(`[v6.1]`、`[v6.2]` で最寄り1個小隊に限定)。拠点ごとに
+    // **最寄りの1個小隊だけ**が守備に付く。全員を掛けると、拠点が小さいときに
+    // 中隊まるごとが1点へ吸い寄せられて戦線が消える(詳細は c2/objectiveHold.ts)。
+    const plCentroidOf = (pl: (typeof living)[number]): Vec2 | null => {
+      const men = world.soldiers.filter(
         (s) => s.side === pl.side && s.platoonId === pl.platoonId && s.status === "ok",
       );
-      let held: ReturnType<typeof heldObjectiveNear> = null;
-      if (plMen.length > 0) {
-        let sx = 0;
-        let sz = 0;
-        for (const m of plMen) {
-          sx += m.pos.x;
-          sz += m.pos.z;
-        }
-        held = heldObjectiveNear(world, co.side, {
-          x: sx / plMen.length,
-          z: sz / plMen.length,
-        });
-        // 0.7: 守備の小隊を拠点中心に固めず、拠点内の遮蔽へ広めに散らす(`[v6.1]`)。
-        if (held) objective = clampToObjective(objective, held, 0.7);
+      if (men.length === 0) return null;
+      let sx = 0;
+      let sz = 0;
+      for (const m of men) {
+        sx += m.pos.x;
+        sz += m.pos.z;
       }
+      return { x: sx / men.length, z: sz / men.length };
+    };
+    const holders = assignHolders(
+      world,
+      co.side,
+      living
+        .map((pl) => ({ key: pl.platoonId, centroid: plCentroidOf(pl) }))
+        .filter((e): e is { key: number; centroid: Vec2 } => e.centroid !== null),
+    );
+
+    // 未確保拠点の割り当て(`[v6.2]`)。中隊長が小隊へ与えるのは幾何的な「点」ではなく
+    // **取るべき拠点**であるべき(仕様 §3① / §12 の複数拠点同時争奪)。
+    // 担当区域を脅威まわりの等間隔だけで決めていたため、脅威から離れた拠点は
+    // どの小隊の担当にもならず、最後まで中立で残っていた(ヘッドレスで確認)。
+    // 幾何的な区域を出発点に、その近くの未確保拠点へ1個小隊ずつ割り当てる。
+    const sectorOf = (i: number): Vec2 => {
+      const lateral = (i - (living.length - 1) / 2) * frontage;
+      return { x: aim.x + right.x * lateral, z: aim.z + right.z * lateral };
+    };
+    /** 拠点をこの距離まで引き寄せて担当に含める m。正面幅に比例させる */
+    const claimRange = frontage * OBJECTIVE_CLAIM_MUL;
+    const unclaimed = world.objectives.filter(
+      (o) => !(o.owner === co.side || (o.owner === null && o.progressBy === co.side)),
+    );
+    const claimed = new Map<number, Vec2>(); // platoonId → 拠点位置
+    const takenObj = new Set<number>();
+    living.forEach((pl, i) => {
+      if (holders.has(pl.platoonId)) return; // すでに守備に付いている小隊は動かさない
+      const sector = sectorOf(i);
+      let best: (typeof unclaimed)[number] | null = null;
+      let bestD = Infinity;
+      for (const o of unclaimed) {
+        if (takenObj.has(o.id)) continue;
+        const d = dist(sector, o.pos);
+        if (d > claimRange || d >= bestD) continue;
+        bestD = d;
+        best = o;
+      }
+      if (best) {
+        takenObj.add(best.id);
+        claimed.set(pl.platoonId, { ...best.pos });
+      }
+    });
+
+    living.forEach((pl, i) => {
+      let objective: Vec2 = claimed.get(pl.platoonId) ?? sectorOf(i);
+
+      const held = holders.get(pl.platoonId) ?? null;
+      // 0.7: 守備の小隊を拠点中心に固めず、拠点内の遮蔽へ広めに散らす(`[v6.1]`)。
+      // 下限 PLATOON_HOLD_SPREAD: 拠点が1室でも小隊が点に固まらないだけの床を残す。
+      if (held) objective = clampToObjective(objective, held, 0.7, PLATOON_HOLD_SPREAD);
 
       // 任務種別(OQ-3):
       //   攻勢分遣に指名された小隊 → 未確保拠点へ seize

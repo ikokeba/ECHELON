@@ -42,14 +42,52 @@ export function heldObjectiveNear(
 }
 
 /**
+ * 拠点ごとに「守備に付ける下位ユニットは**最寄りの1つだけ**」へ絞る。`[v6.2]`
+ *
+ * `heldObjectiveNear` は「近い守るべき拠点」を返すだけなので、複数のユニットの重心が
+ * 同じ拠点の近くにあると**全員が同じ拠点へクランプされる**。拠点が広くて離れていた
+ * うちは1つずつしか掛からず問題にならなかったが、拠点が建物内の1室になった途端、
+ * 3個小隊すべてが中央拠点の1点へ吸い寄せられて戦線が消えた。
+ *
+ * 設計意図(design AD-26)はもともと「最寄りの1ユニットが拠点に残り、残りは通常どおり
+ * 脅威へ機動する」だったので、その意図どおりに絞る。
+ *
+ * @param entries 下位ユニットの識別子と重心
+ * @returns 守備に付くユニットの識別子 → 守る拠点
+ */
+export function assignHolders<K>(
+  world: World,
+  side: Side,
+  entries: ReadonlyArray<{ key: K; centroid: Vec2 }>,
+): Map<K, Objective> {
+  /** 拠点id → いま最寄りの候補 */
+  const bestFor = new Map<number, { key: K; d: number; obj: Objective }>();
+  for (const e of entries) {
+    const o = heldObjectiveNear(world, side, e.centroid);
+    if (!o) continue;
+    const d = Math.hypot(e.centroid.x - o.pos.x, e.centroid.z - o.pos.z);
+    const cur = bestFor.get(o.id);
+    // 同距離は先に出た方を採る(entries の順は決定的なので結果も決定的)
+    if (!cur || d < cur.d) bestFor.set(o.id, { key: e.key, d, obj: o });
+  }
+  const out = new Map<K, Objective>();
+  for (const { key, obj } of bestFor.values()) out.set(key, obj);
+  return out;
+}
+
+/**
  * `aim`(脅威方向へ寄った持ち場)を拠点中心から `radius * frac` 以内へ引き戻す。
  * 脅威を睨む向きは保ったまま、持ち場そのものは拠点の外へ出さない。
+ *
+ * `minLimit` は引き戻す先の下限 m。`[v6.2]` 拠点が建物内の1室(半径3m)まで小さくなり、
+ * `radius * frac` だけだと**小隊36名を半径2mの点に集める**指示になってしまった。
+ * 守備隊は拠点の上に立つのではなく拠点を囲んで守るので、隊の広がりぶんの床が要る。
  */
-export function clampToObjective(aim: Vec2, o: Objective, frac = 0.5): Vec2 {
+export function clampToObjective(aim: Vec2, o: Objective, frac = 0.5, minLimit = 0): Vec2 {
   const dx = aim.x - o.pos.x;
   const dz = aim.z - o.pos.z;
   const d = Math.hypot(dx, dz);
-  const limit = o.radius * frac;
+  const limit = Math.max(o.radius * frac, minLimit);
   if (d <= limit || d < 1e-6) return { x: o.pos.x + dx, z: o.pos.z + dz };
   return { x: o.pos.x + (dx / d) * limit, z: o.pos.z + (dz / d) * limit };
 }

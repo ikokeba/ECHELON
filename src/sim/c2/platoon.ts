@@ -16,7 +16,7 @@
 import { SIM_HZ } from "../constants.ts";
 import { aiSuppressed } from "../control.ts";
 import { commandFactor } from "./succession.ts";
-import { clampToObjective, heldObjectiveNear } from "./objectiveHold.ts";
+import { assignHolders, clampToObjective } from "./objectiveHold.ts";
 import type { Contact, Mission, MovementTechnique, PlatoonState, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
@@ -43,6 +43,11 @@ const TECHNIQUE_THRESHOLDS = {
  * 相互支援が届く範囲に収める必要があるため、視界距離(20m)の2倍程度に留める。
  */
 const SQUAD_FRONTAGE = 26;
+/**
+ * 拠点を守る分隊の持ち場を、拠点中心からこれだけは広げてよい m。`[v6.2]`
+ * 拠点が1室(半径3m)でも、分隊9名は部屋と入口まわりの遮蔽に散って守る。
+ */
+const SQUAD_HOLD_SPREAD = 8;
 
 function dist(a: Vec2, b: Vec2): number {
   return Math.hypot(a.x - b.x, a.z - b.z);
@@ -182,6 +187,28 @@ export function platoonAI(world: World): void {
     // screen は正面幅を広く取って薄く展開する
     const frontage = plMission.kind === "screen" ? SQUAD_FRONTAGE * 1.8 : SQUAD_FRONTAGE;
 
+    // 拠点ごとに守備へ付くのは最寄りの1個分隊だけ(`[v6.2]`、c2/objectiveHold.ts)
+    const sqCentroidOf = (sq: (typeof livingSquads)[number]): Vec2 | null => {
+      const men = world.soldiers.filter(
+        (s) => s.side === sq.side && s.squadId === sq.squadId && s.status === "ok",
+      );
+      if (men.length === 0) return null;
+      let sx = 0;
+      let sz = 0;
+      for (const m of men) {
+        sx += m.pos.x;
+        sz += m.pos.z;
+      }
+      return { x: sx / men.length, z: sz / men.length };
+    };
+    const holders = assignHolders(
+      world,
+      pl.side,
+      livingSquads
+        .map((sq) => ({ key: sq.squadId, centroid: sqCentroidOf(sq) }))
+        .filter((e): e is { key: number; centroid: Vec2 } => e.centroid !== null),
+    );
+
     livingSquads.forEach((sq, i) => {
       const lateral = (i - (livingSquads.length - 1) / 2) * frontage;
       let objective: Vec2 = {
@@ -197,26 +224,12 @@ export function platoonAI(world: World): void {
             : "seize"
           : plMission.kind;
 
-      // 確保済み拠点の保持(`[v6.1]`)。この分隊のいる場所の近くに守るべき自軍拠点が
-      // あれば、脅威へ引きずられる持ち場を拠点の内側へ引き戻す。近くに無ければ素通り。
-      const sqMembers = world.soldiers.filter(
-        (s) => s.side === sq.side && s.squadId === sq.squadId && s.status === "ok",
-      );
-      if (sqMembers.length > 0) {
-        let sx = 0;
-        let sz = 0;
-        for (const m of sqMembers) {
-          sx += m.pos.x;
-          sz += m.pos.z;
-        }
-        const held = heldObjectiveNear(world, pl.side, {
-          x: sx / sqMembers.length,
-          z: sz / sqMembers.length,
-        });
-        // 0.7: 拠点の縁寄りまで許して守備隊を中心に固めず、拠点内の遮蔽へ分散させる
-        // (`[v6.1]` 指摘: 守備隊は拠点内の遮蔽に散る)。
-        if (held) objective = clampToObjective(objective, held, 0.7);
-      }
+      // 確保済み拠点の保持(`[v6.1]`、`[v6.2]` で最寄り1個分隊に限定)。
+      // 0.7: 拠点の縁寄りまで許して守備隊を中心に固めず、拠点内の遮蔽へ分散させる
+      // (`[v6.1]` 指摘: 守備隊は拠点内の遮蔽に散る)。
+      // 下限 SQUAD_HOLD_SPREAD: 拠点が1室でも分隊9名が点に固まらないだけの床を残す。
+      const held = holders.get(sq.squadId) ?? null;
+      if (held) objective = clampToObjective(objective, held, 0.7, SQUAD_HOLD_SPREAD);
 
       const sqMission: Mission = {
         kind: sqKind,
