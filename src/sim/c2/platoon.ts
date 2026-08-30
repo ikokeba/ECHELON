@@ -17,6 +17,7 @@ import { SIM_HZ } from "../constants.ts";
 import { aiSuppressed } from "../control.ts";
 import { commandFactor } from "./succession.ts";
 import { assignHolders, clampToObjective } from "./objectiveHold.ts";
+import { clearingObjective, nextBuildingToClear } from "./clearInZone.ts";
 import type { Contact, Mission, MovementTechnique, PlatoonState, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
@@ -43,6 +44,11 @@ const TECHNIQUE_THRESHOLDS = {
  * 相互支援が届く範囲に収める必要があるため、視界距離(20m)の2倍程度に留める。
  */
 const SQUAD_FRONTAGE = 26;
+/**
+ * clear in zone(`[v6.3]`)で担当区域とみなす、前進軸からの横幅 m。
+ * 小隊の正面幅(分隊3個 × 26m)におおむね合わせ、軸から大きく外れた建物までは追わない。
+ */
+const CLEAR_ZONE_RADIUS = 40;
 /**
  * 拠点を守る分隊の持ち場を、拠点中心からこれだけは広げてよい m。`[v6.2]`
  * 拠点が1室(半径3m)でも、分隊9名は部屋と入口まわりの遮蔽に散って守る。
@@ -209,9 +215,27 @@ export function platoonAI(world: World): void {
         .filter((e): e is { key: number; centroid: Vec2 } => e.centroid !== null),
     );
 
+    // clear in zone(ATP 3-06.11 / `[v6.3]`)。担当区域内に未掃討の建物があれば、
+    // 前進軸に沿って**最も手前のもの**から各分隊へ割り当てる。掃討を終えるまで
+    // その建物が分隊の任務目標になり、終われば次の建物・最終的に本来の目標へ進む。
+    // これが無いと分隊は建物を素通りし、未掃討の建物を側背に残したまま前進する。
+    const clearAssign = new Map<number, Vec2>();
+    if (plMission.kind === "seize" && world.buildings.length > 0) {
+      const taken = new Set<number>();
+      for (const sq of livingSquads) {
+        if (isWeaponsSquad(sq)) continue; // 火器分隊は支援射撃。突入させない
+        const c = sqCentroidOf(sq);
+        if (!c) continue;
+        const b = nextBuildingToClear(world, pl.side, c, aim, CLEAR_ZONE_RADIUS, taken);
+        if (!b) continue;
+        taken.add(b.id);
+        clearAssign.set(sq.squadId, clearingObjective(b));
+      }
+    }
+
     livingSquads.forEach((sq, i) => {
       const lateral = (i - (livingSquads.length - 1) / 2) * frontage;
-      let objective: Vec2 = {
+      let objective: Vec2 = clearAssign.get(sq.squadId) ?? {
         x: aim.x + right.x * lateral,
         z: aim.z + right.z * lateral,
       };
