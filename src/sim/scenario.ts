@@ -6,6 +6,7 @@
  */
 
 import { GRENADE, OBJECTIVE } from "./constants.ts";
+import { traitProfile } from "./traits.ts";
 import {
   deepestRoomCenter,
   makeCorridorBuilding,
@@ -213,6 +214,11 @@ function makeSquad(
   anchor: Vec2,
   dir: Vec2,
   companyId = 0,
+  /**
+   * 自軍の中での分隊の通し番号(`[v6.2]` OQ-6)。個体差の割り当てに使う。
+   * **両陣営で同じ番号が鏡像の分隊に振られること**が要件 — 詳細は traits.ts。
+   */
+  variant = 0,
 ): Soldier[] {
   const right = { x: -dir.z, z: dir.x };
   const soldiers: Soldier[] = [];
@@ -227,6 +233,7 @@ function makeSquad(
       isSquadLeader: true,
       pos: { x: anchor.x, z: anchor.z },
       facing: dir,
+      traits: traitProfile(variant * 16),
     }),
   );
 
@@ -252,6 +259,7 @@ function makeSquad(
           },
           facing: dir,
           role: ROLES[m],
+          traits: traitProfile(variant * 16 + 1 + ft * 4 + m),
           quals: {
             // 各FTのライフルマン1名が衛生要員を兼任(仕様 §9/§14 `[v6]`)
             medicalCrossTrained: m === 3,
@@ -277,6 +285,8 @@ function makeWeaponsSquad(
   anchor: Vec2,
   dir: Vec2,
   companyId = 0,
+  /** 自軍の中での通し番号(`[v6.2]` OQ-6)。個体差の割り当てに使う */
+  variant = 0,
 ): Soldier[] {
   const right = { x: -dir.z, z: dir.x };
   const soldiers: Soldier[] = [
@@ -289,6 +299,7 @@ function makeWeaponsSquad(
       isSquadLeader: true,
       pos: { x: anchor.x, z: anchor.z },
       facing: dir,
+      traits: traitProfile(variant * 16),
     }),
   ];
   // 各班: 射手(mg) + 副射手 + 弾薬手。1丁につき射手1名 = 分隊に機関銃2丁。
@@ -311,6 +322,7 @@ function makeWeaponsSquad(
           },
           facing: dir,
           role: ROLES[m],
+          traits: traitProfile(variant * 16 + 1 + ft * 3 + m),
           quals: { medicalCrossTrained: m === 2, designatedMarksman: false },
         }),
       );
@@ -577,6 +589,11 @@ function buildPlatoon(
   dir: Vec2,
   objective: Vec2,
   companyId = 0,
+  /**
+   * 自軍の中での小隊の通し番号(`[v6.2]` OQ-6)。麾下の分隊へ個体差の種として配る。
+   * 両陣営で同じ値を渡すこと — 鏡像の兵士が同じ性格になるための前提(traits.ts)。
+   */
+  variant = 0,
 ): {
   soldiers: Soldier[];
   plans: ReturnType<typeof plansFor>;
@@ -593,6 +610,7 @@ function buildPlatoon(
         { x: center.x + right.x * lateral, z: center.z + right.z * lateral },
         dir,
         companyId,
+        variant * 4 + i,
       ),
     );
   });
@@ -605,6 +623,7 @@ function buildPlatoon(
       { x: center.x - dir.x * 7, z: center.z - dir.z * 7 },
       dir,
       companyId,
+      variant * 4 + 3,
     ),
   );
   // 小隊本部は分隊列の後方に置く(仕様 §2/§3②: 小隊長は担当区域全体を見渡す位置)

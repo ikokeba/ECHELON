@@ -34,6 +34,7 @@ import {
   SIM_HZ,
 } from "../constants.ts";
 import { formationSlots } from "../formation.ts";
+import { meanTraits, traitMul } from "../traits.ts";
 import { aiSuppressed } from "../control.ts";
 import { isCommittedToAid } from "../systems/casualties.ts";
 import { isCommittedToLitter, isOffField } from "../systems/litter.ts";
@@ -680,7 +681,10 @@ export function fireteamAI(world: World): void {
             world.wallIndex,
             u.pos.x,
             u.pos.z,
-            COVER_SEEK.IN_COVER_DIST,
+            // `[v6.2]` OQ-6: この半径内に壁があれば「遮蔽が取れている」とみなす。
+            // 慎重な兵ほど**半径を小さく**取る = より壁に密着していないと納得せず、
+            // 結果として早めに遮蔽へ寄る。t=0.5 で倍率1.0(=定数どおり)。
+            COVER_SEEK.IN_COVER_DIST * traitMul(1 - u.traits.caution, 0.4),
           );
           const shelter = sheltered
             ? null
@@ -727,6 +731,8 @@ export function fireteamAI(world: World): void {
       }
 
       const baseCentroid = centroid(base);
+      // FT単位で決まる事柄(躍進の歩幅、押し出しの早さ)には隊員の平均を使う
+      const ftTraits = meanTraits(living);
       // `[v6.2]` 突撃の継続(F-10 (a))。接敵が続いていて、かつ自分たちが釘付けに
       // されていなければ、機動組は側面確保をやめて**任務目標へ躍進を継続**する。
       // これが無いと接敵した部隊は敵のまわりを回るだけで目標へ一歩も近づかない。
@@ -736,7 +742,12 @@ export function fireteamAI(world: World): void {
       );
       const pushing =
         !pinnedNow &&
-        world.tick - ft.modeSince > Math.round(CONTACT_DRILL.PUSH_AFTER_SEC * SIM_HZ) &&
+        world.tick - ft.modeSince >
+          Math.round(
+            CONTACT_DRILL.PUSH_AFTER_SEC *
+              SIM_HZ *
+              traitMul(1 - ftTraits.aggressiveness, 0.35),
+          ) &&
         dist(mc, ft.objective) > engageMax;
       for (const u of maneuver) {
         const p = pushing
@@ -747,8 +758,9 @@ export function fireteamAI(world: World): void {
                 world.coverPoints,
                 u.pos,
                 dirTo(u.pos, ft.objective),
+                // `[v6.2]` OQ-6: 大胆なFTほど一度の躍進で長く出る
                 BOUND_MIN_ADV * pos.boundMinMul,
-                BOUND_MAX_ADV * pos.boundMaxMul,
+                BOUND_MAX_ADV * pos.boundMaxMul * traitMul(ftTraits.boldness, 0.35),
                 baseCentroid,
               ),
             )
@@ -768,7 +780,8 @@ export function fireteamAI(world: World): void {
 
         // 突撃フェーズ(A): 近接まで詰めたら数秒 ASSAULT 状態(命中率上昇)
         const dToEnemy = dist(u.pos, enemy);
-        if (dToEnemy <= CONTACT_DRILL.ASSAULT_RANGE) {
+        // `[v6.2]` OQ-6: 積極的な兵ほど遠めから突撃へ踏み切る
+        if (dToEnemy <= CONTACT_DRILL.ASSAULT_RANGE * traitMul(u.traits.aggressiveness, 0.35)) {
           u.assaultingUntilTick = world.tick + assaultTicks;
         }
         // 協調一斉射(B): 未発見のまま側面位置へ向かっている間だけ発砲を控える。
