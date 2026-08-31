@@ -15,6 +15,7 @@
  */
 
 import { castRay, collidesWall, hasLineOfSight } from "./geometry.ts";
+import { forEachCoverNear, type CoverIndex } from "./cover.ts";
 import { SOLDIER_RADIUS, WALL_SAFETY_CLAMP } from "./constants.ts";
 import type { AABB, Contact, Vec2 } from "./types.ts";
 
@@ -159,7 +160,7 @@ export function exposureAt(
  */
 export function preferCover(
   walls: readonly AABB[],
-  coverPoints: readonly Vec2[],
+  cover: CoverIndex,
   contacts: Iterable<Contact>,
   desired: Vec2,
   /** 露出回避度(`[v6.1]` 陣営別 coverPref。1 = 現行、>1 でより早く遮蔽へ寄る) */
@@ -171,15 +172,16 @@ export function preferCover(
 
   let best: Vec2 | null = null;
   let bestExp = base;
-  for (const p of coverPoints) {
+  // `[v6.3]` 半径 COVER_SEARCH_RADIUS の外は見ない(索引経由)。
+  forEachCoverNear(cover, desired, COVER_SEARCH_RADIUS, (p) => {
     const d = Math.hypot(p.x - desired.x, p.z - desired.z);
-    if (d > COVER_SEARCH_RADIUS) continue;
+    if (d > COVER_SEARCH_RADIUS) return;
     const e = exposureAt(walls, cs, p);
     if (e < bestExp) {
       bestExp = e;
       best = p;
     }
-  }
+  });
   return best && base - bestExp >= IMPROVE_MARGIN ? best : desired;
 }
 
@@ -204,7 +206,7 @@ export function formationSlots(
   count: number,
   opts?: {
     contacts?: Iterable<Contact>;
-    coverPoints?: readonly Vec2[];
+    coverPoints?: CoverIndex;
     /** 露出回避度(`[v6.1]` 陣営別 coverPref)。既定 1 で現行挙動 */
     coverPref?: number;
   },

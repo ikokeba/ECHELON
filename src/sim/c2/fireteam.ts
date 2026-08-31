@@ -299,7 +299,7 @@ function runBoundingOverwatch(
     if (!ft.boundTarget || dist(mc, ft.boundTarget) < BOUND_ARRIVE) {
       ft.boundTarget = pickSupportedBoundTarget(
         world.walls,
-        world.coverPoints,
+        world.coverIndex,
         mc,
         forward,
         boundMin,
@@ -322,7 +322,7 @@ function runBoundingOverwatch(
   if (!ft.boundTarget) {
     ft.boundTarget = pickSupportedBoundTarget(
       world.walls,
-      world.coverPoints,
+      world.coverIndex,
       centroid(moving),
       forward,
       boundMin,
@@ -377,7 +377,7 @@ function moveInFormation(
 
   const slots = formationSlots(world.walls, leader.pos, forward, members.length, {
     contacts: ft.memory.values(),
-    coverPoints: world.coverPoints,
+    coverPoints: world.coverIndex,
     coverPref: world.posture[ft.side].coverPref,
   });
   // 隊形Tierによる速度差(仕様 §6: 縦隊が最速、横隊が最遅)は隊全体に掛ける。
@@ -705,7 +705,7 @@ export function fireteamAI(world: World): void {
             : cachedDest(world, ft, u, () =>
                 bestNearbyCover(
                   world.wallIndex,
-                  world.coverPoints,
+                  world.coverIndex,
                   u.pos,
                   enemy,
                   engageMin,
@@ -724,7 +724,7 @@ export function fireteamAI(world: World): void {
           }
         } else {
           const p = cachedDest(world, ft, u, () =>
-            bestCoverPoint(world.walls, world.coverPoints, u.pos, enemy, engageMin, engageMax),
+            bestCoverPoint(world.walls, world.coverIndex, u.pos, enemy, engageMin, engageMax),
           );
           if (p) {
             issue(world, u, "suppress", p, dirTo(u.pos, enemy));
@@ -769,7 +769,7 @@ export function fireteamAI(world: World): void {
             cachedDest(world, ft, u, () =>
               pickSupportedBoundTarget(
                 world.walls,
-                world.coverPoints,
+                world.coverIndex,
                 u.pos,
                 dirTo(u.pos, ft.objective),
                 // `[v6.2]` OQ-6: 大胆なFTほど一度の躍進で長く出る
@@ -780,7 +780,7 @@ export function fireteamAI(world: World): void {
             )
           : cachedDest(world, ft, u, () =>
               bestFlankPoint(
-                world.coverPoints,
+                world.coverIndex,
                 u.pos,
                 enemy,
                 baseCentroid,
@@ -819,7 +819,7 @@ export function fireteamAI(world: World): void {
         : { x: -ft.advanceDir.x, z: -ft.advanceDir.z };
       if (!ft.boundTarget) {
         ft.boundTarget =
-          nearestCoverTowards(world.walls, world.coverPoints, mc, away, 6, BREAK_DIST + 6) ?? {
+          nearestCoverTowards(world.walls, world.coverIndex, mc, away, 6, BREAK_DIST + 6) ?? {
             x: mc.x + away.x * BREAK_DIST,
             z: mc.z + away.z * BREAK_DIST,
           };
@@ -869,7 +869,7 @@ export function fireteamAI(world: World): void {
       const d = Math.hypot(away.x, away.z) || 1;
       const dir = { x: away.x / d, z: away.z / d };
       const dest =
-        nearestCoverTowards(world.walls, world.coverPoints, u.pos, dir, 1, EVADE_DIST) ??
+        nearestCoverTowards(world.walls, world.coverIndex, u.pos, dir, 1, EVADE_DIST) ??
         { x: u.pos.x + dir.x * EVADE_DIST, z: u.pos.z + dir.z * EVADE_DIST };
       const look = threatPos ? dirTo(u.pos, threatPos) : ft.advanceDir;
       issue(world, u, "evade", dest, look);

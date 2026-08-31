@@ -16,8 +16,12 @@ import { aiSuppressed } from "../control.ts";
 import { bearersNeeded, isCommittedToLitter } from "../systems/litter.ts";
 import { buildingAt, doorById, selectAssaultDoor } from "../cqb.ts";
 import { commandFactor } from "./succession.ts";
+import { activateBuildingNav } from "../world.ts";
 import { exitCqb } from "./cqbDrill.ts";
 import type { Contact, Door, Soldier, SquadState, Vec2 } from "../types.ts";
+
+/** `indexLiving` の戻り値。分隊AIの内部でだけ使う */
+type LivingIndex = { bySquad: Map<string, Soldier[]>; byFt: Map<string, Soldier[]> };
 import type { World } from "../world.ts";
 
 /** 分隊の先端から分隊長が後方に位置する距離 m。 */
@@ -63,7 +67,7 @@ function primaryThreat(belief: Map<string, Contact>): Contact | null {
  * 移動技術は小隊長の指示をそのまま流す。接敵時のベース・オブ・ファイア/機動役の
  * 割り当ては分隊長の裁量(仕様 §6 Fire and Movement の実行判断は分隊長の責務)。
  */
-function directFireteams(world: World, sq: SquadState): void {
+function directFireteams(world: World, sq: SquadState, idx: LivingIndex): void {
   const fireteams = world.fireteams.filter(
     (f) => f.side === sq.side && f.squadId === sq.squadId,
   );
@@ -74,13 +78,7 @@ function directFireteams(world: World, sq: SquadState): void {
   for (const ft of fireteams) {
     strength.set(
       ft.ftIndex,
-      world.soldiers.filter(
-        (s) =>
-          s.side === ft.side &&
-          s.squadId === ft.squadId &&
-          s.fireteamId === ft.ftIndex &&
-          s.status === "ok",
-      ).length,
+      (idx.byFt.get(`${ft.side}:${ft.squadId}:${ft.ftIndex}`) ?? []).length,
     );
   }
 
@@ -95,9 +93,7 @@ function directFireteams(world: World, sq: SquadState): void {
   let ftTechnique = sq.technique;
   if (mk === "support_by_fire") {
     // 目標から SBF_STANDOFF だけ分隊側へ引いた点を射撃位置とする
-    const men = world.soldiers.filter(
-      (s) => s.side === sq.side && s.squadId === sq.squadId && s.status === "ok",
-    );
+    const men = idx.bySquad.get(`${sq.side}:${sq.squadId}`) ?? [];
     const from = men.length ? centroid(men) : sq.objective;
     const back = dirTo(sq.mission.target, from);
     ftObjective = {
@@ -162,13 +158,7 @@ function directFireteams(world: World, sq: SquadState): void {
   }
 
   const withDist = alive.map((ft) => {
-    const members = world.soldiers.filter(
-      (s) =>
-        s.side === ft.side &&
-        s.squadId === ft.squadId &&
-        s.fireteamId === ft.ftIndex &&
-        s.status === "ok",
-    );
+    const members = idx.byFt.get(`${ft.side}:${ft.squadId}:${ft.ftIndex}`) ?? [];
     const c = centroid(members);
     return { ft, d: Math.hypot(c.x - threat.pos.x, c.z - threat.pos.z) };
   });
@@ -224,7 +214,7 @@ function decideCasevac(world: World, sq: SquadState): void {
  *
  * @returns 突入を指示したら true(通常の火力/機動の割り当てを上書きする)
  */
-function directBuildingAssault(world: World, sq: SquadState): boolean {
+function directBuildingAssault(world: World, sq: SquadState, idx: LivingIndex): boolean {
   if (world.buildings.length === 0) return false;
 
   const fireteams = world.fireteams.filter(
@@ -232,20 +222,12 @@ function directBuildingAssault(world: World, sq: SquadState): boolean {
   );
   if (fireteams.length === 0) return false;
 
-  const members = world.soldiers.filter(
-    (s) => s.side === sq.side && s.squadId === sq.squadId && s.status === "ok",
-  );
+  const members = idx.bySquad.get(`${sq.side}:${sq.squadId}`) ?? [];
   if (members.length === 0) return false;
   const from = centroid(members);
 
-  const alive = fireteams.filter((ft) =>
-    world.soldiers.some(
-      (s) =>
-        s.side === ft.side &&
-        s.squadId === ft.squadId &&
-        s.fireteamId === ft.ftIndex &&
-        s.status === "ok",
-    ),
+  const alive = fireteams.filter(
+    (ft) => (idx.byFt.get(`${ft.side}:${ft.squadId}:${ft.ftIndex}`) ?? []).length > 0,
   );
   if (alive.length === 0) return false;
 
@@ -287,6 +269,10 @@ function directBuildingAssault(world: World, sq: SquadState): boolean {
     return false;
   }
 
+  // `[v6.3]` 突入が決まったこの時点で、その建物の屋内ナビグリッドを張る。
+  // 全棟ぶんを常時持つと市街地マップでノード数が破綻するため、遅延して作る。
+  activateBuildingNav(world, door.buildingId);
+
   // 扉に近い側が突撃、遠い側が支援射撃。近い側のほうがスタックを早く組める
   const target = door;
   const withDist = alive.map((ft) => {
@@ -319,8 +305,37 @@ function directBuildingAssault(world: World, sq: SquadState): boolean {
   return true;
 }
 
+/**
+ * 生存者を (陣営, 分隊) と (陣営, 分隊, FT) で索引する。`[v6.3]`
+ *
+ * 分隊AIは1回の判断で `world.soldiers.filter` を10箇所近く回しており、
+ * 兵士224名 × 分隊24個 で判断周期ごとに数十万回の走査になっていた
+ * (盤面2倍のあと、ティック時間の主要因のひとつ)。1回だけ索引を作って使い回す。
+ */
+function indexLiving(world: World): {
+  bySquad: Map<string, Soldier[]>;
+  byFt: Map<string, Soldier[]>;
+} {
+  const bySquad = new Map<string, Soldier[]>();
+  const byFt = new Map<string, Soldier[]>();
+  for (const s of world.soldiers) {
+    if (s.status !== "ok") continue;
+    const k = `${s.side}:${s.squadId}`;
+    const a = bySquad.get(k);
+    if (a) a.push(s);
+    else bySquad.set(k, [s]);
+    if (s.fireteamId < 0) continue;
+    const k2 = `${k}:${s.fireteamId}`;
+    const b = byFt.get(k2);
+    if (b) b.push(s);
+    else byFt.set(k2, [s]);
+  }
+  return { bySquad, byFt };
+}
+
 export function squadAI(world: World): void {
   const decidedThisTick = new Set<number>();
+  const idx = indexLiving(world);
 
   for (const sq of world.squads) {
     // 人間が操作している分隊長のAIは止める(仕様 §4)
@@ -331,11 +346,11 @@ export function squadAI(world: World): void {
     sq.lastDecisionTick = world.tick;
     decidedThisTick.add(sq.squadId);
 
-    directFireteams(world, sq);
+    directFireteams(world, sq, idx);
     // 建物のバトルドリル(仕様 §7.2)は通常の火力/機動の割り当てより優先する。
     // 建物へ突入する局面では、屋外の側面攻撃ではなく突入と支援の分担が正しい。
     // ただし踏み込まない任務(support_by_fire / screen)では突入しない。
-    if (sq.mission.kind === "seize") directBuildingAssault(world, sq);
+    if (sq.mission.kind === "seize") directBuildingAssault(world, sq, idx);
     decideCasevac(world, sq);
   }
 

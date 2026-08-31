@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { buildCoverIndex } from "../src/sim/cover.ts";
 import {
   TIER_OFFSETS,
   TIER_SPEED_MUL,
@@ -124,19 +125,23 @@ describe("遮蔽物優先ロジック(仕様 §6.5)", () => {
   it("露出がしきい値を超えたときだけ遮蔽へ寄せる", () => {
     const walls: AABB[] = [{ cx: 0, cz: 0, hw: 3, hd: 0.4 }];
     const enemy = [mkContact(0, -10)];
-    const coverPoints = [
-      { x: 0, z: 1.2 }, // 壁の陰
-      { x: 0, z: -2.0 }, // 露出したまま
-    ];
+    // `[v6.3]` 遮蔽候補点は空間索引経由で渡す(全点走査をやめたため)
+    const coverPoints = buildCoverIndex(
+      [
+        { x: 0, z: 1.2, cover: 2.0 }, // 壁の陰
+        { x: 0, z: -2.0, cover: 0 }, // 露出したまま
+      ],
+      { minX: -20, maxX: 20, minZ: -20, maxZ: 20 },
+    );
 
     // 露出した地点 → 近くの遮蔽へ移る
     const exposed = { x: 0, z: -1.0 };
     expect(exposureAt(walls, enemy, exposed)).toBeGreaterThan(EXPOSURE_THRESHOLD);
-    expect(preferCover(walls, coverPoints, enemy, exposed)).toEqual({ x: 0, z: 1.2 });
+    expect(preferCover(walls, coverPoints, enemy, exposed)).toMatchObject({ x: 0, z: 1.2 });
 
     // すでに安全な地点 → 動かさない(振動防止)
     const safe = { x: 0, z: 2.0 };
-    expect(preferCover(walls, coverPoints, enemy, safe)).toEqual(safe);
+    expect(preferCover(walls, coverPoints, enemy, safe)).toMatchObject(safe);
   });
 });
 

@@ -2,7 +2,11 @@ import { describe, it, expect } from "vitest";
 import { createWorld } from "../src/sim/world.ts";
 import { runTicks } from "../src/sim/step.ts";
 import { companyClashScenario } from "../src/sim/scenario.ts";
-import { buildingCleared, nextBuildingToClear } from "../src/sim/c2/clearInZone.ts";
+import {
+  buildingCleared,
+  clearedDoorSet,
+  nextBuildingToClear,
+} from "../src/sim/c2/clearInZone.ts";
 
 /**
  * 担当区域内の建物掃討(ATP 3-06.11 / 仕様 §7)。`[v6.3]`
@@ -13,7 +17,7 @@ describe("clear in zone(ATP 3-06.11 / `[v6.3]`)", () => {
     const w = createWorld(companyClashScenario(1));
     const from = { x: 0, z: -60 };
     const aim = { x: 0, z: 60 };
-    const b = nextBuildingToClear(w, "blue", from, aim, 40, new Set());
+    const b = nextBuildingToClear(w, "blue", from, aim, 40, new Set(), clearedDoorSet(w, "blue"));
     expect(b).not.toBeNull();
     // 選ばれた建物より手前(from寄り)に、担当区域内の未掃討の建物は無いこと
     const chosenAlong = (b!.bounds.minZ + b!.bounds.maxZ) / 2 - from.z;
@@ -31,8 +35,8 @@ describe("clear in zone(ATP 3-06.11 / `[v6.3]`)", () => {
     const w = createWorld(companyClashScenario(1));
     const from = { x: 0, z: -60 };
     const aim = { x: 0, z: 60 };
-    const first = nextBuildingToClear(w, "blue", from, aim, 40, new Set())!;
-    const second = nextBuildingToClear(w, "blue", from, aim, 40, new Set([first.id]));
+    const first = nextBuildingToClear(w, "blue", from, aim, 40, new Set(), clearedDoorSet(w, "blue"))!;
+    const second = nextBuildingToClear(w, "blue", from, aim, 40, new Set([first.id]), clearedDoorSet(w, "blue"));
     expect(second).not.toBeNull();
     expect(second!.id).not.toBe(first.id);
   });

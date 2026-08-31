@@ -83,6 +83,73 @@ export function coverBonus(walls: readonly AABB[], x: number, z: number): number
   return clamp(COVER_SATURATE - off, 0, COVER_SATURATE);
 }
 
+
+/**
+ * 遮蔽候補点の空間索引。`[v6.3]`
+ *
+ * 候補点の探索はどれも「`from` から半径いくら以内」で絞れるのに、実装は全点を走査して
+ * いた。盤面を2倍(440×340)にして候補点が約3.1万になった結果、**FTリーダーAIが
+ * ティック時間の83%を占める**ところまで悪化した(1兵士1判断ごとに3.1万点の走査)。
+ *
+ * 一様グリッドに振り分け、半径内のセルだけを見る。返る点の集合は全走査と同一なので、
+ * 選ばれる地点も決定性も変わらない。
+ */
+export interface CoverIndex {
+  points: readonly CoverPoint[];
+  cell: number;
+  minX: number;
+  minZ: number;
+  cols: number;
+  rows: number;
+  /** 長さ cols*rows。各要素は `points` へのindex配列 */
+  buckets: Int32Array[];
+}
+
+/** 索引のセル一辺 m。最小の探索半径(遮蔽への寄り 9m)より小さく取る。 */
+const COVER_CELL = 8;
+/** 射撃位置を探すときに移動してよい距離 m(従来はリテラル 18) */
+const MAX_REPOSITION = 18;
+/** 側面位置を探すときに移動してよい距離 m(従来はリテラル 20) */
+const MAX_FLANK_TRAVEL = 20;
+
+export function buildCoverIndex(points: readonly CoverPoint[], bounds: Bounds): CoverIndex {
+  const minX = bounds.minX - COVER_CELL;
+  const minZ = bounds.minZ - COVER_CELL;
+  const cols = Math.max(1, Math.ceil((bounds.maxX - bounds.minX + COVER_CELL * 2) / COVER_CELL));
+  const rows = Math.max(1, Math.ceil((bounds.maxZ - bounds.minZ + COVER_CELL * 2) / COVER_CELL));
+  const lists: number[][] = Array.from({ length: cols * rows }, () => []);
+  points.forEach((p, i) => {
+    const gx = Math.min(cols - 1, Math.max(0, Math.floor((p.x - minX) / COVER_CELL)));
+    const gz = Math.min(rows - 1, Math.max(0, Math.floor((p.z - minZ) / COVER_CELL)));
+    lists[gz * cols + gx]!.push(i);
+  });
+  return { points, cell: COVER_CELL, minX, minZ, cols, rows, buckets: lists.map((l) => Int32Array.from(l)) };
+}
+
+/**
+ * `from` から半径 `radius` 以内の候補点を列挙する。
+ * セル単位の粗い絞り込みなので、半径をわずかに超える点も渡る — 呼び出し側は
+ * 従来どおり自分の条件で弾くこと(全走査と同じ結果になるのはそのため)。
+ */
+export function forEachCoverNear(
+  idx: CoverIndex,
+  from: Vec2,
+  radius: number,
+  cb: (p: CoverPoint) => void,
+): void {
+  const r = Math.max(0, radius);
+  const gx0 = Math.max(0, Math.floor((from.x - r - idx.minX) / idx.cell));
+  const gx1 = Math.min(idx.cols - 1, Math.floor((from.x + r - idx.minX) / idx.cell));
+  const gz0 = Math.max(0, Math.floor((from.z - r - idx.minZ) / idx.cell));
+  const gz1 = Math.min(idx.rows - 1, Math.floor((from.z + r - idx.minZ) / idx.cell));
+  for (let gz = gz0; gz <= gz1; gz++) {
+    for (let gx = gx0; gx <= gx1; gx++) {
+      const b = idx.buckets[gz * idx.cols + gx]!;
+      for (let k = 0; k < b.length; k++) cb(idx.points[b[k]!]!);
+    }
+  }
+}
+
 /**
  * 最良の躍進先: `dir` 方向へ `minAdv`..`maxAdv` 前方にある遮蔽の効いた地点。
  * `support`(オーバーウォッチ側の位置)が渡された場合、そこから視認できない地点は
@@ -90,7 +157,7 @@ export function coverBonus(walls: readonly AABB[], x: number, z: number): number
  */
 export function nearestCoverTowards(
   walls: readonly AABB[],
-  points: readonly CoverPoint[],
+  cover: CoverIndex,
   from: Vec2,
   dir: Vec2,
   minAdv: number,
@@ -100,21 +167,22 @@ export function nearestCoverTowards(
   let best: Vec2 | null = null;
   let bestScore = -Infinity;
 
-  for (const p of points) {
+  // along も lateral も maxAdv 以内なので、半径 maxAdv*1.5 の外は見なくてよい
+  forEachCoverNear(cover, from, maxAdv * 1.5, (p) => {
     const dx = p.x - from.x;
     const dz = p.z - from.z;
     const along = dx * dir.x + dz * dir.z;
-    if (along < minAdv || along > maxAdv) continue;
+    if (along < minAdv || along > maxAdv) return;
     const lateral = Math.abs(dx * -dir.z + dz * dir.x);
-    if (lateral > maxAdv) continue;
-    if (support && !hasLineOfSight(walls, support.x, support.z, p.x, p.z)) continue;
+    if (lateral > maxAdv) return;
+    if (support && !hasLineOfSight(walls, support.x, support.z, p.x, p.z)) return;
 
     const score = along * 0.6 - lateral * 0.5 + p.cover * 1.4;
     if (score > bestScore) {
       bestScore = score;
       best = p;
     }
-  }
+  });
   return best;
 }
 
@@ -124,7 +192,7 @@ export function nearestCoverTowards(
  */
 export function pickSupportedBoundTarget(
   walls: readonly AABB[],
-  points: readonly CoverPoint[],
+  cover: CoverIndex,
   from: Vec2,
   dir: Vec2,
   minAdv: number,
@@ -137,16 +205,16 @@ export function pickSupportedBoundTarget(
     [minAdv * 0.5, maxAdv * 2.4],
   ];
   for (const [mn, mx] of ranges) {
-    const p = nearestCoverTowards(walls, points, from, dir, mn, mx, support);
+    const p = nearestCoverTowards(walls, cover, from, dir, mn, mx, support);
     if (p) return p;
   }
-  return nearestCoverTowards(walls, points, from, dir, minAdv, maxAdv * 2.4);
+  return nearestCoverTowards(walls, cover, from, dir, minAdv, maxAdv * 2.4);
 }
 
 /** 敵に対する最良の射撃位置: 交戦距離帯の内側・LOSが通る・遮蔽が効く。 */
 export function bestCoverPoint(
   walls: readonly AABB[],
-  points: readonly CoverPoint[],
+  cover: CoverIndex,
   from: Vec2,
   enemy: Vec2,
   engageMin: number,
@@ -155,19 +223,19 @@ export function bestCoverPoint(
   let best: Vec2 | null = null;
   let bestScore = -Infinity;
 
-  for (const p of points) {
-    const dToEnemy = Math.hypot(p.x - enemy.x, p.z - enemy.z);
-    if (dToEnemy < engageMin || dToEnemy > engageMax) continue;
-    if (!hasLineOfSight(walls, p.x, p.z, enemy.x, enemy.z)) continue;
+  forEachCoverNear(cover, from, MAX_REPOSITION, (p) => {
     const travel = Math.hypot(p.x - from.x, p.z - from.z);
-    if (travel > 18) continue;
+    if (travel > MAX_REPOSITION) return;
+    const dToEnemy = Math.hypot(p.x - enemy.x, p.z - enemy.z);
+    if (dToEnemy < engageMin || dToEnemy > engageMax) return;
+    if (!hasLineOfSight(walls, p.x, p.z, enemy.x, enemy.z)) return;
 
     const score = p.cover * 2 - travel * 0.35;
     if (score > bestScore) {
       bestScore = score;
       best = p;
     }
-  }
+  });
   return best;
 }
 
@@ -186,7 +254,7 @@ export function bestCoverPoint(
  */
 export function bestNearbyCover(
   idx: WallIndex,
-  points: readonly CoverPoint[],
+  cover: CoverIndex,
   from: Vec2,
   enemy: Vec2,
   engageMin: number,
@@ -201,19 +269,19 @@ export function bestNearbyCover(
   let best: Vec2 | null = null;
   let bestScore = -Infinity;
 
-  for (const p of points) {
-    // 事前計算済みの遮蔽値と移動距離で先に落とす(候補点は数千あるので順序が効く)
-    if (p.cover < minCover) continue;
+  forEachCoverNear(cover, from, maxMove, (p) => {
+    // 事前計算済みの遮蔽値と移動距離で先に落とす
+    if (p.cover < minCover) return;
     const dx = p.x - from.x;
     const dz = p.z - from.z;
     const travel2 = dx * dx + dz * dz;
-    if (travel2 > maxMove * maxMove) continue;
+    if (travel2 > maxMove * maxMove) return;
     const dToEnemy = Math.hypot(p.x - enemy.x, p.z - enemy.z);
-    if (dToEnemy < engageMin || dToEnemy > engageMax) continue;
+    if (dToEnemy < engageMin || dToEnemy > engageMax) return;
     // **地歩を譲らない**。背後の遮蔽も等しく選べるようにすると、判断周期ごとに
     // 少しずつ下がってスポーン端まで後退してしまう
-    if (dToEnemy > dNow + maxYield) continue;
-    if (!hasLineOfSightIndexed(idx, p.x, p.z, enemy.x, enemy.z)) continue;
+    if (dToEnemy > dNow + maxYield) return;
+    if (!hasLineOfSightIndexed(idx, p.x, p.z, enemy.x, enemy.z)) return;
 
     // 遮蔽を最優先し、近さと「敵へ寄れるぶん」で差をつける
     const score = p.cover * 3 - Math.sqrt(travel2) * 0.25 + (dNow - dToEnemy) * 0.2;
@@ -221,7 +289,7 @@ export function bestNearbyCover(
       bestScore = score;
       best = p;
     }
-  }
+  });
   return best;
 }
 
@@ -230,7 +298,7 @@ export function bestNearbyCover(
  * ファイア組との角度差を加点する — 機動組は別の軸から攻撃すべきであるため。
  */
 export function bestFlankPoint(
-  points: readonly CoverPoint[],
+  cover: CoverIndex,
   from: Vec2,
   enemy: Vec2,
   base: Vec2,
@@ -248,11 +316,11 @@ export function bestFlankPoint(
   let best: Vec2 | null = null;
   let bestScore = -Infinity;
 
-  for (const p of points) {
-    const dToEnemy = Math.hypot(p.x - enemy.x, p.z - enemy.z);
-    if (dToEnemy < engageMin || dToEnemy > engageMax) continue;
+  forEachCoverNear(cover, from, MAX_FLANK_TRAVEL, (p) => {
     const travel = Math.hypot(p.x - from.x, p.z - from.z);
-    if (travel > 20) continue;
+    if (travel > MAX_FLANK_TRAVEL) return;
+    const dToEnemy = Math.hypot(p.x - enemy.x, p.z - enemy.z);
+    if (dToEnemy < engageMin || dToEnemy > engageMax) return;
 
     const a = Math.atan2(p.x - enemy.x, p.z - enemy.z);
     let sep = Math.abs(a - baseAngle);
@@ -270,6 +338,6 @@ export function bestFlankPoint(
       bestScore = score;
       best = p;
     }
-  }
+  });
   return best;
 }

@@ -185,6 +185,10 @@ describe("後送要請・補充兵(仕様 §9)", () => {
 
   it("アセット到着で負傷者が収容され、同じMOSの補充兵が分隊へ合流する(仕様 §9)", () => {
     const w = createWorld(companyClashScenario(1));
+    // 負傷者は下でこちらが仕込む。戦闘そのものはこのテストの対象ではないので敵を外す。
+    // `[v6.3]` 索敵150mでは490秒回すあいだに補充兵自身が被弾して後送要請が立ち、
+    // 「後送状態を引き継がない」ことの確認が戦況に左右されてしまう。
+    for (const s of w.soldiers) if (s.side === "red") s.status = "kia";
     const victim = w.soldiers.find(
       (s) => s.side === "blue" && s.role === "saw" && s.squadId === 0,
     )!;
@@ -195,7 +199,14 @@ describe("後送要請・補充兵(仕様 §9)", () => {
     // 補充兵は新しいIDで追加されるので、開始時点のIDの上限で切り分ける
     const idCeiling = w.nextSoldierId;
 
-    runTicks(w, Math.round((CASEVAC_ARRIVAL_SEC.max + 10) * SIM_HZ));
+    // `[v6.3]` 上限の490秒を丸ごと回すのではなく、**実際に発進したアセットの到着
+    // ティックまで**進める。待ち時間は §9 の式で決まるので、上限を待つ必要はない。
+    // 盤面2倍で1回の実行が長くなり、上限待ちだとテストが2分を超えるようになった。
+    const co = w.companies.find((c) => c.side === "blue")!;
+    runTicks(w, 2); // 要請が立ち、アセットが発進する
+    const busy = co.assets.find((a) => a.arriveTick !== null);
+    expect(busy).toBeDefined();
+    runTicks(w, busy!.arriveTick! - w.tick + 2);
 
     expect(victim.evac).toBe("collected");
     const joined = w.soldiers.filter((s) => s.id >= idCeiling && s.side === "blue");

@@ -12,7 +12,11 @@
  * (AABB + 平行オフセットLOS を `edgeIsClear` で判定)。
  */
 
-import { edgeIsClear, collidesWall } from "./geometry.ts";
+import {
+  buildWallIndex,
+  collidesWallIndexed,
+  edgeIsClearIndexed,
+} from "./wallIndex.ts";
 import type { AABB, Bounds, Building, Vec2 } from "./types.ts";
 
 export interface NavNode {
@@ -59,6 +63,13 @@ const DIRS8: [number, number][] = [
  */
 const TIE_EPS = 1e-4;
 
+/**
+ * A* が展開してよいノード数の上限。`[v6.3]`
+ * 盤面2倍(ノード15万)で、到達不能な目標1件あたり全走査が発生していたため設けた。
+ * 実際に到達できる経路の展開数はこれを大きく下回る(市街地を斜めに横断しても数千)。
+ */
+const MAX_EXPANSIONS = 100000;
+
 function tieJitter(gx: number, gz: number): number {
   // 32bit整数ハッシュ(乗算+シフト)。座標が近くても出力は散らばる。
   let h = (gx * 374761393 + gz * 668265263) | 0;
@@ -80,6 +91,10 @@ export function buildNavGrid(
   /** この領域の内側のセルは作らない。屋外の粗いグリッドから建物内部を除くために使う */
   exclude: readonly Bounds[] = [],
 ): NavGrid {
+  // `[v6.3]` セル×壁の総当たりをやめ、壁の空間索引を通す。市街地マップが大型化して
+  // 壁が数百枚・セルが十数万になると、総当たりでは構築だけで数秒かかる。
+  // 判定結果は全数走査と厳密に同一(wallIndex.ts)。
+  const idx = buildWallIndex(walls, pad(bounds, margin + 2));
   const cols = Math.round((bounds.maxX - bounds.minX) / step) + 1;
   const rows = Math.round((bounds.maxZ - bounds.minZ) / step) + 1;
   const idxMap = new Int32Array(cols * rows).fill(-1);
@@ -89,7 +104,7 @@ export function buildNavGrid(
     for (let gx = 0; gx < cols; gx++) {
       const x = bounds.minX + gx * step;
       const z = bounds.minZ + gz * step;
-      if (collidesWall(walls, x, z, margin)) continue;
+      if (collidesWallIndexed(idx, x, z, margin)) continue;
       if (exclude.some((b) => inBounds(b, x, z))) continue;
       idxMap[gz * cols + gx] = nodes.length;
       nodes.push({ x, z, gx, gz });
@@ -105,7 +120,7 @@ export function buildNavGrid(
       const j = idxMap[ngz * cols + ngx]!;
       if (j === -1) continue;
       const m = nodes[j]!;
-      if (!edgeIsClear(walls, n.x, n.z, m.x, m.z, margin * 0.6)) continue;
+      if (!edgeIsClearIndexed(idx, n.x, n.z, m.x, m.z, margin * 0.6)) continue;
       // 進入先ノードのハッシュ由来の微小コストを加え、等コスト経路の決着から
       // 方角の選好を取り除く
       adj[i]!.push([j, Math.hypot(dx, dz) * step + tieJitter(m.gx, m.gz)]);
@@ -278,11 +293,17 @@ function astar(
   const open = new MinHeap((i) => fScore[i]!);
   open.push(startIdx);
 
+  let expanded = 0;
   while (open.size > 0) {
     const cur = open.pop()!;
     if (cur === endIdx) break;
     if (closed[cur]) continue;
     closed[cur] = 1;
+    // `[v6.3]` 展開数の上限。到達不能な目標(細グリッドを張っていない建物の内部など)を
+    // 指されると、探索空間(15万ノード)を丸ごと走査してしまう。到達可能な経路は
+    // ヒューリスティクスが効くのでこの上限には届かない — 届いたということは
+    // 「事実上つながっていない」ので、諦めて呼び出し側の直進フォールバックへ渡す。
+    if (++expanded > MAX_EXPANSIONS) return null;
 
     for (const [nb, cost] of adj[cur]!) {
       touch(nb);
@@ -357,6 +378,9 @@ export function buildNavSet(
   bounds: Bounds,
   outdoorStep: number,
   outdoorMargin: number,
+  /** 盤面上の**すべて**の建物。屋外グリッドから内部を除くために使う */
+  allBuildings: readonly Building[],
+  /** 屋内の細グリッドを張る建物(`[v6.3]` 突入する建物だけ) */
   buildings: readonly Building[],
   fineStep: number,
   fineMargin: number,
@@ -369,7 +393,9 @@ export function buildNavSet(
     bounds,
     outdoorStep,
     outdoorMargin,
-    buildings.map((b) => b.bounds),
+    // `[v6.3]` **すべて**の建物の内部を除く。活性化した建物だけを除いていると、
+    // 活性化のたびに屋外グリッドを作り直す必要が生じる(15万ノードの再構築)。
+    allBuildings.map((b) => b.bounds),
   );
   // `[v6.2]` 細グリッドは1棟ぶんの範囲しか見ないので、その範囲に触れる壁だけを渡す。
   // `buildNavGrid` はセル×壁の総当たりなので、街区全体の壁を毎回渡すと建物数×壁数で
@@ -387,6 +413,8 @@ export function buildNavSet(
   });
 
   const grids = [outdoor, ...fine];
+  // 継ぎ目の判定でも全数走査を避ける(`[v6.3]`)
+  const seamIdx = buildWallIndex(walls, pad(bounds, fineMargin + 2));
   const offsets: number[] = [];
   let total = 0;
   for (const g of grids) {
@@ -422,7 +450,7 @@ export function buildNavSet(
       const o = outdoor.nodes[oi]!;
       const d = Math.hypot(o.x - n.x, o.z - n.z);
       if (d > outdoorStep * 2) return;
-      if (!edgeIsClear(walls, n.x, n.z, o.x, o.z, fineMargin * 0.6)) return;
+      if (!edgeIsClearIndexed(seamIdx, n.x, n.z, o.x, o.z, fineMargin * 0.6)) return;
       const a = globalIdx({ offsets }, gi, li);
       const b = globalIdx({ offsets }, 0, oi);
       adj[a]!.push([b, d]);
@@ -431,6 +459,62 @@ export function buildNavSet(
   });
 
   return { nodes, adj, grids, offsets, regions };
+}
+
+/**
+ * 建物1棟ぶんの細グリッドを**既存の NavSet へ追記**する。`[v6.3]`
+ *
+ * 突入が決まった建物の屋内を後から歩けるようにするための操作。全体を作り直すと
+ * 屋外の15万ノードごと再構築することになり、1回あたり数百ミリ秒かかる
+ * (実測でティック時間の半分がこれに消えていた)。追記なら新しいノードと継ぎ目だけで済む。
+ *
+ * 屋外グリッドは最初から**全建物**の内部を除いてあるので、ここで作り直す必要はない。
+ */
+export function appendBuildingNav(
+  set: NavSet,
+  walls: readonly AABB[],
+  bounds: Bounds,
+  building: Building,
+  fineStep: number,
+  fineMargin: number,
+  outdoorStep: number,
+): void {
+  const region = clampBounds(pad(building.bounds, FINE_PAD), bounds);
+  const near = walls.filter(
+    (w) =>
+      w.cx + w.hw >= region.minX - fineMargin &&
+      w.cx - w.hw <= region.maxX + fineMargin &&
+      w.cz + w.hd >= region.minZ - fineMargin &&
+      w.cz - w.hd <= region.maxZ + fineMargin,
+  );
+  const grid = buildNavGrid(near, region, fineStep, fineMargin);
+  const base = set.nodes.length;
+  set.grids.push(grid);
+  set.offsets.push(base);
+  set.regions.push(region);
+  for (const n of grid.nodes) set.nodes.push(n);
+  for (const list of grid.adj) set.adj.push(list.map(([j, c]) => [base + j, c] as [number, number]));
+
+  // 継ぎ目: 細グリッドの外縁ノードから直近の屋外ノードへ双方向の辺を張る
+  const outdoor = set.grids[0]!;
+  const seamIdx = buildWallIndex(near, pad(region, fineMargin + 2));
+  const SEAM = fineStep * 1.5;
+  grid.nodes.forEach((n, li) => {
+    const nearEdge =
+      n.x - region.minX < SEAM ||
+      region.maxX - n.x < SEAM ||
+      n.z - region.minZ < SEAM ||
+      region.maxZ - n.z < SEAM;
+    if (!nearEdge) return;
+    const oi = nearestNavNode(outdoor, n.x, n.z);
+    if (oi === -1) return;
+    const o = outdoor.nodes[oi]!;
+    const d = Math.hypot(o.x - n.x, o.z - n.z);
+    if (d > outdoorStep * 2) return;
+    if (!edgeIsClearIndexed(seamIdx, n.x, n.z, o.x, o.z, fineMargin * 0.6)) return;
+    set.adj[base + li]!.push([oi, d]);
+    set.adj[oi]!.push([base + li, d]);
+  });
 }
 
 function clampBounds(b: Bounds, outer: Bounds): Bounds {

@@ -17,7 +17,7 @@ import { SIM_HZ } from "../constants.ts";
 import { aiSuppressed } from "../control.ts";
 import { commandFactor } from "./succession.ts";
 import { assignHolders, clampToObjective } from "./objectiveHold.ts";
-import { clearingObjective, nextBuildingToClear } from "./clearInZone.ts";
+import { clearedDoorSet, clearingObjective, nextBuildingToClear } from "./clearInZone.ts";
 import type { Contact, Mission, MovementTechnique, PlatoonState, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
@@ -222,11 +222,12 @@ export function platoonAI(world: World): void {
     const clearAssign = new Map<number, Vec2>();
     if (plMission.kind === "seize" && world.buildings.length > 0) {
       const taken = new Set<number>();
+      const cleared = clearedDoorSet(world, pl.side);
       for (const sq of livingSquads) {
         if (isWeaponsSquad(sq)) continue; // 火器分隊は支援射撃。突入させない
         const c = sqCentroidOf(sq);
         if (!c) continue;
-        const b = nextBuildingToClear(world, pl.side, c, aim, CLEAR_ZONE_RADIUS, taken);
+        const b = nextBuildingToClear(world, pl.side, c, aim, CLEAR_ZONE_RADIUS, taken, cleared);
         if (!b) continue;
         taken.add(b.id);
         clearAssign.set(sq.squadId, clearingObjective(b));
@@ -240,13 +241,14 @@ export function platoonAI(world: World): void {
         z: aim.z + right.z * lateral,
       };
 
-      // この分隊の任務種別。seize 小隊では火器分隊だけ support_by_fire、他はそのまま。
-      const sqKind: Mission["kind"] =
-        plMission.kind === "seize"
-          ? isWeaponsSquad(sq)
-            ? "support_by_fire"
-            : "seize"
-          : plMission.kind;
+      // この分隊の任務種別。
+      // **火器分隊は小隊の任務によらず常に support_by_fire**(`[v6.3]` 修正)。
+      // 従来は seize 小隊のときだけ support_by_fire にしており、小隊が screen を
+      // 受けると火器分隊まで screen になっていた。機関銃班は掩護でも「据えて撃つ」
+      // のであって薄く展開して監視するのではない(仕様 §2)。
+      const sqKind: Mission["kind"] = isWeaponsSquad(sq)
+        ? "support_by_fire"
+        : plMission.kind;
 
       // 確保済み拠点の保持(`[v6.1]`、`[v6.2]` で最寄り1個分隊に限定)。
       // 0.7: 拠点の縁寄りまで許して守備隊を中心に固めず、拠点内の遮蔽へ分散させる

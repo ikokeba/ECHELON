@@ -393,7 +393,7 @@ function symmetricWalls(scale = 1): AABB[] {
  * これにより、ある建物と、その点対称の双子は、互いに厳密な鏡像の壁集合になる。
  */
 function cityDoor(cx: number, cz: number): DoorSide {
-  if (Math.abs(cx) >= 66) return cx < 0 ? "east" : "west"; // 外周列は内側(中心方向)を向く
+  if (Math.abs(cx) >= 150) return cx < 0 ? "east" : "west"; // 外周列は内側(中心方向)を向く
   return cz < 0 ? "south" : "north"; // それ以外は中央広場側を向く
 }
 
@@ -417,32 +417,32 @@ function cityDoor(cx: number, cz: number): DoorSide {
  * `cz < 0` 側だけを列挙し、各要素を点対称の双子として複製する。
  */
 function symmetricCity(): { walls: AABB[]; buildings: Building[]; objectiveRoom: Vec2 } {
-  const half: Array<{ cx: number; cz: number; hw: number; hd: number }> = [
-    // 中間縦深の街区(z≈-34 の行)。中央 cx=±14 と最外周 cx=±96 は抜いて開放にする
-    { cx: -70, cz: -34, hw: 10, hd: 7 },
-    { cx: -42, cz: -34, hw: 10, hd: 7 },
-    { cx: 42, cz: -34, hw: 10, hd: 7 },
-    { cx: 70, cz: -34, hw: 10, hd: 7 },
-    // 前縦深の行(z≈-11)。西の倉庫(OBJ ALPHA)+ その対の倉庫、外周ビル2棟。
-    // cx=±14(中央広場)と cx=±70(左右の広場)は抜く
-    { cx: -42, cz: -11, hw: 13, hd: 9 },
-    { cx: 42, cz: -11, hw: 13, hd: 9 },
-    { cx: -96, cz: -11, hw: 10, hd: 7 },
-    { cx: 96, cz: -11, hw: 10, hd: 7 },
-    // 中央広場を塞ぐ庁舎(南北ペア)。中央の縦走路を分断して迂回を強いる
-    { cx: 0, cz: -22, hw: 13, hd: 6 },
-    // 庁舎脇の縦走路に置く小屋。前進を蛇行させる(千鳥/chicane)
-    { cx: -24, cz: -33, hw: 5, hd: 5 },
-    { cx: 24, cz: -33, hw: 5, hd: 5 },
-    // 外縁の街区(z≈-48)。中間縦深の行が空けている x の帯を塞ぎ、展開地から
-    // 展開地までの直線視程を断つ。浅いので中身は単室になる。
-    { cx: -84, cz: -48, hw: 6, hd: 3.5 },
-    { cx: -56, cz: -48, hw: 6, hd: 3.5 },
-    { cx: -14, cz: -48, hw: 10, hd: 3.5 },
-    { cx: 14, cz: -48, hw: 10, hd: 3.5 },
-    { cx: 56, cz: -48, hw: 6, hd: 3.5 },
-    { cx: 84, cz: -48, hw: 6, hd: 3.5 },
-  ];
+  // `[v6.3]` 街区は手置きの座標表ではなく**格子から生成**する。盤面を2倍(440×340)へ
+  // 広げるにあたり、手置きでは棟数が100近くになって管理できないため。
+  //
+  // 生成規則:
+  //   - 建物 24×16m を 36×30m の間隔で並べる(街路の幅が x12m / z14m 残る)
+  //   - `cz < 0` 側だけ作り、点対称の双子を複製する(仕様 §2/§13)
+  //   - `SKIP` に入る格子点は建物を置かず**広場**にする。拠点と、迂回を作る抜けを兼ねる
+  const PITCH_X = 36;
+  const PITCH_Z = 30;
+  const HW = 12;
+  const HD = 8;
+  /** 街区を置く格子点。i は x 方向(±)、j は z 方向(手前から奥へ) */
+  const COLS = [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5];
+  const ROWS = [-4, -3, -2, -1];
+  /** 広場にする格子点 `i:j`。中央広場・左右の広場・迂回のための抜け */
+  const SKIP = new Set(["0:-1", "-3:-2", "3:-2", "0:-3", "-1:-4", "1:-4"]);
+
+  const half: Array<{ cx: number; cz: number; hw: number; hd: number }> = [];
+  for (const j of ROWS) {
+    for (const i of COLS) {
+      if (SKIP.has(`${i}:${j}`)) continue;
+      half.push({ cx: i * PITCH_X, cz: j * PITCH_Z + PITCH_Z / 2, hw: HW, hd: HD });
+    }
+  }
+  // 中央広場(OBJ BRAVO)を塞ぐ庁舎。中央の縦走路を分断して迂回を強いる
+  half.push({ cx: 0, cz: -PITCH_Z / 2 - 6, hw: 16, hd: 6 });
 
   const buildings: Building[] = [];
   const walls: AABB[] = [];
@@ -485,9 +485,10 @@ function symmetricCity(): { walls: AABB[]; buildings: Building[]; objectiveRoom:
     // 火器分隊の展開縦深に低い塀
     { cx: -20, cz: -46, hw: 4, hd: 0.5 },
   ];
+  // 位置だけ2倍に引き伸ばす(遮蔽そのものの大きさは人体スケールのまま)。`[v6.3]`
   for (const w of clutter) {
-    walls.push({ cx: w.cx, cz: w.cz, hw: w.hw, hd: w.hd });
-    walls.push({ cx: -w.cx, cz: -w.cz, hw: w.hw, hd: w.hd });
+    walls.push({ cx: w.cx * 2, cz: w.cz * 2, hw: w.hw, hd: w.hd });
+    walls.push({ cx: -w.cx * 2, cz: -w.cz * 2, hw: w.hw, hd: w.hd });
   }
 
   // 拠点にする部屋: **西の倉庫**(cx=-42, cz=-11)の最奥の部屋。外扉から最も遠い部屋を
@@ -498,8 +499,8 @@ function symmetricCity(): { walls: AABB[]; buildings: Building[]; objectiveRoom:
   // **誰も入らず永久に中立のまま**になる — 実際に置いて確認した。交戦帯の中に置く。
   const flank = buildings.find(
     (b) =>
-      Math.abs((b.bounds.minX + b.bounds.maxX) / 2 + 42) < 0.5 &&
-      Math.abs((b.bounds.minZ + b.bounds.maxZ) / 2 + 11) < 0.5,
+      Math.abs((b.bounds.minX + b.bounds.maxX) / 2 + 72) < 0.5 &&
+      Math.abs((b.bounds.minZ + b.bounds.maxZ) / 2 + 15) < 0.5,
   );
   if (!flank) throw new Error("symmetricCity: 西の倉庫が見つからない");
   return { walls, buildings, objectiveRoom: deepestRoomCenter(flank) };
@@ -723,14 +724,15 @@ export function companyClashScenario(seed = 1): Scenario {
   resetIds();
   // CP(z=±70)とCCP(z=±78)を盤内に収める必要がある。ナビグリッドは bounds から
   // 作られるので、CCPが外に出ると担架班が永久にたどり着けない(実際に描画で発見した)。
-  const bounds: Bounds = { minX: -110, maxX: 110, minZ: -85, maxZ: 85 };
+  // `[v6.3]` 射程を仕様 §10 の本来の値へ戻したので盤面を2倍にした(従来 220×170)。
+  const bounds: Bounds = { minX: -220, maxX: 220, minZ: -170, maxZ: 170 };
   const objective = { x: 0, z: 0 };
   const city = symmetricCity();
   const objRoom = city.objectiveRoom;
   const objRoomMirror = { x: -objRoom.x, z: -objRoom.z };
 
   /** 小隊の初期展開間隔(m)。分隊3個分の正面幅より広く取る */
-  const PLATOON_SPACING = 110;
+  const PLATOON_SPACING = 220;
 
   const soldiers: Soldier[] = [];
   const fireteamPlans: FireteamPlan[] = [];
@@ -751,7 +753,7 @@ export function companyClashScenario(seed = 1): Scenario {
       p,
       [p * 10, p * 10 + 1, p * 10 + 2],
       p * 10 + 3,
-      { x: lateral, z: -58 },
+      { x: lateral, z: -140 },
       { x: 0, z: 1 },
       objective,
       0,
@@ -762,7 +764,7 @@ export function companyClashScenario(seed = 1): Scenario {
       100 + p,
       [1000 + p * 10, 1000 + p * 10 + 1, 1000 + p * 10 + 2],
       1000 + p * 10 + 3,
-      { x: -lateral, z: 58 },
+      { x: -lateral, z: 140 },
       { x: 0, z: -1 },
       objective,
       1,

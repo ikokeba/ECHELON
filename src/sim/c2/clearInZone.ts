@@ -25,9 +25,28 @@ import type { World } from "../world.ts";
  * 作らないため(中断・全滅で分隊が消えても、記録は残った分隊のぶんだけが正しく効く)。
  */
 export function buildingCleared(world: World, side: Side, b: Building): boolean {
+  return buildingClearedIn(clearedDoorSet(world, side), b);
+}
+
+/**
+ * 当該陣営が掃討済みの扉id。`[v6.3]` 建物ごとに分隊を舐め直すと
+ * 建物×分隊×扉 の三重走査になり、78棟・24個分隊では判断周期ごとに20万回を超える。
+ * 呼び出し側で一度作って使い回す。
+ */
+export function clearedDoorSet(world: World, side: Side): Set<number> {
+  const out = new Set<number>();
+  for (const sq of world.squads) {
+    if (sq.side !== side) continue;
+    for (const id of sq.clearedDoorIds) out.add(id);
+  }
+  return out;
+}
+
+/** `clearedDoorSet` を渡す版。 */
+export function buildingClearedIn(cleared: ReadonlySet<number>, b: Building): boolean {
   if (b.doors.length === 0) return true;
-  const squads = world.squads.filter((s) => s.side === side);
-  return b.doors.every((d) => squads.some((sq) => sq.clearedDoorIds.includes(d.id)));
+  for (const d of b.doors) if (!cleared.has(d.id)) return false;
+  return true;
 }
 
 /**
@@ -43,11 +62,13 @@ export function buildingCleared(world: World, side: Side, b: Building): boolean 
  */
 export function nextBuildingToClear(
   world: World,
-  side: Side,
+  _side: Side,
   from: Vec2,
   aim: Vec2,
   radius: number,
   taken: ReadonlySet<number>,
+  /** `clearedDoorSet` の結果。小隊の判断1回につき1度だけ作って使い回す */
+  cleared: ReadonlySet<number>,
 ): Building | null {
   const dx = aim.x - from.x;
   const dz = aim.z - from.z;
@@ -69,7 +90,7 @@ export function nextBuildingToClear(
     if (along < 0 || along > axisLen) continue; // 後方・目標の先は担当外
     const lateral = Math.abs(ax * -fz + az * fx);
     if (lateral > radius) continue;
-    if (buildingCleared(world, side, b)) continue;
+    if (buildingClearedIn(cleared, b)) continue;
     // 最も手前のものから順に潰す(飛ばして奥へ行かない)
     if (along < bestAlong) {
       bestAlong = along;

@@ -183,3 +183,35 @@ export function collidesWallIndexed(idx: WallIndex, x: number, z: number, r = 0.
   }
   return false;
 }
+
+/**
+ * `edgeIsClear` と同じ判定を索引経由で行う。`[v6.3]`
+ * ナビグリッドの構築で辺ごとに3本の線分を飛ばすため、ここも索引を通す。
+ */
+export function edgeIsClearIndexed(
+  idx: WallIndex,
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  margin = 0.18,
+): boolean {
+  if (!hasLineOfSightIndexed(idx, ax, az, bx, bz)) return false;
+  const dx = bx - ax;
+  const dz = bz - az;
+  const d = Math.hypot(dx, dz) || 1;
+  const px = -dz / d;
+  const pz = dx / d;
+  if (
+    !hasLineOfSightIndexed(idx, ax + px * margin, az + pz * margin, bx + px * margin, bz + pz * margin)
+  ) {
+    return false;
+  }
+  return hasLineOfSightIndexed(
+    idx,
+    ax - px * margin,
+    az - pz * margin,
+    bx - px * margin,
+    bz - pz * margin,
+  );
+}

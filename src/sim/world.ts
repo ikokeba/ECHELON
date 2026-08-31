@@ -5,8 +5,8 @@
  * リプレイやヘッドレステストからスナップショットを取れる。
  */
 
-import { buildNavSet, type NavSet } from "./navgrid.ts";
-import { buildCoverPoints, type CoverPoint } from "./cover.ts";
+import { appendBuildingNav, buildNavSet, type NavSet } from "./navgrid.ts";
+import { buildCoverIndex, buildCoverPoints, type CoverIndex, type CoverPoint } from "./cover.ts";
 import { successionSystem } from "./c2/succession.ts";
 import { clamp } from "./geometry.ts";
 import { createRng, type Rng } from "./rng.ts";
@@ -69,8 +69,24 @@ export interface World {
    * 街路から建物内部まで1回のA*で経路が出る。
    */
   nav: NavSet;
+  /**
+   * 屋内の細ナビグリッドを持っている建物のid。`[v6.3]`
+   *
+   * 屋内グリッドは 0.3m 刻みなので、1棟で数千ノードになる。市街地マップが100棟規模に
+   * なると全棟ぶんを常時持つのは現実的でない(ノード数50万超)。**実際に突入する建物だけ**
+   * 遅延して張り、必要になった時点で `nav` を組み直す。
+   *
+   * 屋外の移動は屋外グリッドだけで完結するので、張られていない建物があっても
+   * 誰も困らない — 屋内へ入るのは §7.2 の突入ドリルの担当で、その入口で活性化する。
+   */
+  navBuildings: Set<number>;
   /** C2層が躍進先・射撃位置・側面攻撃位置を選ぶための遮蔽候補点の格子 */
   coverPoints: CoverPoint[];
+  /**
+   * 遮蔽候補点の空間索引。`[v6.3]` 候補点の探索はどれも半径で絞れるのに全点走査
+   * だったため、盤面2倍(候補点3.1万)でFTリーダーAIがティック時間の83%を占めた。
+   */
+  coverIndex: CoverIndex;
   /** どちらの陣営にも帰属しない事象のための汎用ストリーム */
   rng: Rng;
   /**
@@ -372,6 +388,31 @@ export function setBlockers(world: World, walls: AABB[]): void {
   world.wallIndex = buildWallIndex(walls, world.bounds);
 }
 
+/**
+ * この建物の屋内ナビグリッドを張る(まだ無ければ)。`[v6.3]`
+ *
+ * 突入が決まった時点で呼ぶ。屋外の移動は屋外グリッドで完結するので、突入しない建物の
+ * 屋内グリッドは作らない — 市街地マップが100棟規模になると全棟ぶんは持てない。
+ * 兵士が保持している経路はワールド座標の列なので、張り直しても無効化されない。
+ */
+export function activateBuildingNav(world: World, buildingId: number): void {
+  if (world.navBuildings.has(buildingId)) return;
+  const b = world.buildings.find((x) => x.id === buildingId);
+  if (!b) return;
+  world.navBuildings.add(buildingId);
+  // 全体を作り直さない。屋外グリッドは最初から全建物の内部を除いてあるので、
+  // この1棟の細グリッドと継ぎ目を**追記**するだけでよい(`[v6.3]`)。
+  appendBuildingNav(
+    world.nav,
+    world.structuralWalls,
+    world.bounds,
+    b,
+    CQB.NAV_STEP,
+    CQB.NAV_MARGIN,
+    NAV_STEP_OUTDOOR,
+  );
+}
+
 /** 扉の開閉が変わったあとに呼ぶ。視線・移動の判定対象と、その空間索引を組み直す。 */
 export function refreshBlockers(world: World): void {
   setBlockers(world, blockersOf(world.structuralWalls, world.doors));
@@ -390,16 +431,33 @@ function buildWorld(scenario: Scenario): World {
 
   // ナビグリッドは**扉を通れるもの**として作る。閉じた扉は移動を阻むが、それは
   // 経路の有無ではなく通過の可否の問題で、ブリーチすれば通れるようになるため。
+  // `[v6.3]` 起動時に細グリッドを張るのは**拠点を含む建物だけ**。それ以外は
+  // 突入が決まった時点で `activateBuildingNav` が張る。
+  const navBuildings = new Set<number>(
+    buildings
+      .filter((b) =>
+        (scenario.objectives ?? []).some(
+          (o) =>
+            o.pos.x >= b.bounds.minX &&
+            o.pos.x <= b.bounds.maxX &&
+            o.pos.z >= b.bounds.minZ &&
+            o.pos.z <= b.bounds.maxZ,
+        ),
+      )
+      .map((b) => b.id),
+  );
   const nav = buildNavSet(
     structuralWalls,
     scenario.bounds,
     NAV_STEP_OUTDOOR,
     NAV_MARGIN_OUTDOOR,
     buildings,
+    buildings.filter((b) => navBuildings.has(b.id)),
     CQB.NAV_STEP,
     CQB.NAV_MARGIN,
   );
   const coverPoints = buildCoverPoints(structuralWalls, scenario.bounds, buildings);
+  const coverIndex = buildCoverIndex(coverPoints, scenario.bounds);
   const soldiers = scenario.soldiers.map(cloneSoldier);
   const soldierById = new Map(soldiers.map((s) => [s.id, s]));
 
@@ -412,7 +470,9 @@ function buildWorld(scenario: Scenario): World {
     buildings,
     doors,
     nav,
+    navBuildings,
     coverPoints,
+    coverIndex,
     rng: createRng(scenario.seed),
     rngBySide: { blue: createRng(scenario.seed), red: createRng(scenario.seed) },
     soldiers,
