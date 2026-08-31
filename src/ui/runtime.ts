@@ -16,10 +16,14 @@ import { isOffField } from "@sim/systems/litter.ts";
 import { SIM_DT } from "@sim/constants.ts";
 import { isDegraded } from "@sim/c2/succession.ts";
 import { applyDeployment, defaultDeploymentOf } from "@sim/deployment.ts";
+import { beginBattle, beginPlanning, platoonName } from "@sim/c2/planning.ts";
+import type { PlanRouteView } from "@render/renderer.ts";
+import type { Side } from "@sim/types.ts";
 import {
   currentSpeed,
   useSimStore,
   type HudSnapshot,
+  type PlanView,
   type RosterCompany,
   type RosterPlatoon,
   type ThinkingSnapshot,
@@ -97,6 +101,54 @@ function thinkingOf(world: World): ThinkingSnapshot {
     }
   }
   return { fireteams, squads, selected };
+}
+
+/**
+ * 作戦立案フェーズの表示データ(`[v6.5]`)。
+ *
+ * 見せるのは**表示している陣営の作戦だけ**。敵の作戦は敵の中隊長の頭の中にある
+ * ものなので、神視点(仕様 §5 のデバッグ表示)を選んだときにだけ両陣営を出す。
+ */
+function planViewsOf(world: World, side: Side, truth: boolean): {
+  plans: PlanView[];
+  routes: PlanRouteView[];
+} {
+  const plans: PlanView[] = [];
+  const routes: PlanRouteView[] = [];
+  for (const co of world.companies) {
+    if (!co.plan) continue;
+    if (!truth && co.side !== side) continue;
+    plans.push({
+      side: co.side,
+      intent: co.plan.intent,
+      // 命令書の読み順に並べる: 主攻 → 助攻 → 予備、同順位なら小隊番号順
+      tasks: [...co.plan.tasks]
+        .sort(
+          (a, b) =>
+            (a.role === "main" ? 0 : a.role === "supporting" ? 1 : 2) -
+              (b.role === "main" ? 0 : b.role === "supporting" ? 1 : 2) ||
+            a.platoonId - b.platoonId,
+        )
+        .map((t) => ({
+          key: `${co.side}:${t.platoonId}`,
+          name: platoonName(t.platoonId),
+          role: t.role,
+          missionKind: t.mission.kind,
+          order: t.order,
+        })),
+    });
+    for (const t of co.plan.tasks) {
+      routes.push({
+        key: `${co.side}:${t.platoonId}`,
+        side: co.side,
+        main: t.role === "main",
+        points: t.route.map((p) => ({ ...p })),
+      });
+    }
+  }
+  // 自陣営を先に並べる(神視点で敵の作戦が上に来ると読み違える)
+  plans.sort((a, b) => (a.side === side ? -1 : 0) - (b.side === side ? -1 : 0));
+  return { plans, routes };
 }
 
 /** 階層ツリー用の編成一覧を組み立てる。損耗を反映するため定期的に更新する。 */
@@ -217,6 +269,18 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
   const renderer: Renderer = createRenderer(canvas, world);
   const clock = createSimClock(currentSpeed(useSimStore.getState()));
 
+  // `[v6.5]` 世界を作ったら、まず**作戦立案フェーズ**に入る。中隊長が拠点に対する
+  // 計画を立て、プレイヤーがそれを読んで「戦闘開始」を押すまで時間は流れない
+  // (仕様 §3① / §11 — 米陸軍の指揮活動手順 TLP に対応)。
+  beginPlanning(world);
+  {
+    const ui0 = useSimStore.getState();
+    const pv = planViewsOf(world, ui0.viewSide, ui0.viewEchelon === "truth");
+    ui0.enterPlanning(pv.plans, pv.routes);
+  }
+  /** 立案表示の再構築キー(視点を変えたときだけ組み直す) */
+  let planViewKey = "";
+
   let running = true;
   let lastMs = performance.now();
   let lastStepNonce = useSimStore.getState().stepNonce;
@@ -300,14 +364,34 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
     // デバッグスライダーの値をシムへ反映(既定値なら現行挙動と一致)
     syncTuning(world);
 
-    const ticks = drainTicks(clock, elapsed);
+    // ── 作戦立案フェーズ(`[v6.5]`)──
+    if (ui.phase === "battle" && world.phase === "planning") beginBattle(world);
+    if (world.phase === "planning") {
+      // 視点を変えたら見せる作戦も変わる(自陣営のみ / 神視点なら両陣営)
+      const key = `${ui.viewSide}|${ui.viewEchelon === "truth"}`;
+      if (key !== planViewKey) {
+        planViewKey = key;
+        const pv = planViewsOf(world, ui.viewSide, ui.viewEchelon === "truth");
+        useSimStore.getState().setPlanView(pv.plans, pv.routes);
+      }
+      // 時間は流れない。クロックには経過を渡さず、溜まった分も捨てる
+      drainTicks(clock, 0);
+    }
+
+    const ticks = world.phase === "planning" ? 0 : drainTicks(clock, elapsed);
     for (let t = 0; t < ticks; t++) stepWorld(world);
 
     // 描画は「選択した階層が知っていること」だけを見る(仕様 §5)。
     // ここで ground truth を渡してしまうとプレイヤーが全知になり、階層構造が無意味になる。
+    //
+    // 例外は**作戦立案フェーズ**(`[v6.5]`)。ここはまだ戦闘ではなく盤面の設定で、
+    // 敵の初期配置はプレイヤー自身が置いたもの。両軍を見せないと「置いたはずの敵が
+    // 見えない」ことになる。**これはUI(人間の目)だけの扱い**で、中隊長AIの立案は
+    // 敵情を一切参照していない(c2/planning.ts)。戦闘開始と同時に §5 の霧が戻る。
+    const setupView = world.phase === "planning";
     const view = resolveView(world, {
       side: ui.viewSide,
-      echelon: ui.viewEchelon,
+      echelon: setupView ? "truth" : ui.viewEchelon,
       squadId: ui.viewSquadId,
       platoonId: ui.viewPlatoonId,
     });
@@ -316,10 +400,13 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
       selectedId: ui.selectedSoldierId,
       controlledId: controlledSoldierId(world),
       viewSide: ui.viewSide,
-      truth: ui.viewEchelon === "truth",
+      truth: setupView || ui.viewEchelon === "truth",
       // 配置エディタの計画マーカー(まだ戦闘には反映されていない)`[v6.4]`
       setup: ui.setupTool !== null || ui.deployment !== null ? ui.deploymentDraft : null,
       setupTool: ui.setupTool,
+      // 立案フェーズの接近経路(`[v6.5]`)。戦闘に入ったら消える
+      planRoutes: world.phase === "planning" ? ui.planRoutes : null,
+      hoveredPlanKey: ui.hoveredPlanKey,
     });
 
     if (ticks > 0 && (hudCountdown -= 1) <= 0) {

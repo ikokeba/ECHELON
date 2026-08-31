@@ -17,7 +17,16 @@ import {
 } from "@sim/constants.ts";
 import { mirrorPlan, type DeploymentPlan, type ObjectivePlacement } from "@sim/deployment.ts";
 import type { ScenarioKey } from "@sim/scenario.ts";
-import type { Echelon, Posture, Side, Vec2, VictoryState } from "@sim/types.ts";
+import type { PlanRouteView } from "@render/renderer.ts";
+import type {
+  Echelon,
+  PlanTask,
+  Posture,
+  Side,
+  SimPhase,
+  Vec2,
+  VictoryState,
+} from "@sim/types.ts";
 import type { ControlState } from "@sim/control.ts";
 import { postureFromRisk } from "@sim/tuning.ts";
 
@@ -166,6 +175,24 @@ export interface ThinkingSnapshot {
   selected: ThinkingSelected | null;
 }
 
+/**
+ * 作戦立案フェーズの表示用スナップショット(`[v6.5]`)。
+ * シムの `OperationPlan` を、パネルがそのまま並べられる形に均したもの。
+ */
+export interface PlanTaskView {
+  /** 地図の経路と対応づけるキー `${side}:${platoonId}` */
+  key: string;
+  name: string;
+  role: PlanTask["role"];
+  missionKind: PlanTask["mission"]["kind"];
+  order: string;
+}
+export interface PlanView {
+  side: Side;
+  intent: string;
+  tasks: PlanTaskView[];
+}
+
 interface UiState extends HudSnapshot {
   paused: boolean;
   /** 非ポーズ時の速度を指す SPEED_STEPS のindex */
@@ -203,6 +230,18 @@ interface UiState extends HudSnapshot {
   /** 配置パネルを開いているか(キー G / ボタンで切替)。デバッグパネルと同じ枠を使う */
   deployOpen: boolean;
 
+  // ── 作戦立案フェーズ(`[v6.5]`)──
+  /** いまが立案中か戦闘中か。ランタイムがシムの `world.phase` と同期させる */
+  phase: SimPhase;
+  /** 表示している陣営の作戦(神視点なら両陣営ぶん) */
+  plans: PlanView[];
+  /** 地図に重ねる接近経路 */
+  planRoutes: PlanRouteView[];
+  /** パネルでカーソルを乗せている項目。地図側でその1本だけ強調する */
+  hoveredPlanKey: string | null;
+  /** 凡例パネルを開いているか(キー L / ボタンで切替) */
+  legendOpen: boolean;
+
   /** 人間が操作中のノード(仕様 §4)。null なら観戦 */
   control: ControlState | null;
   /** 階層ツリー表示用の編成一覧 */
@@ -232,6 +271,14 @@ interface UiState extends HudSnapshot {
   /** ホットスワップ要求。ランタイムが次フレームでシムへ反映する */
   requestSwap: (c: ControlState | null) => void;
   setRoster: (r: RosterCompany[]) => void;
+  /** ランタイムが立案結果を流し込む(世界を作り直したとき) */
+  enterPlanning: (plans: PlanView[], routes: PlanRouteView[]) => void;
+  /** 立案の表示だけ差し替える(視点を切り替えたとき) */
+  setPlanView: (plans: PlanView[], routes: PlanRouteView[]) => void;
+  setHoveredPlan: (key: string | null) => void;
+  /** 「戦闘開始」。ランタイムが次フレームでシムへ反映する */
+  startBattle: () => void;
+  toggleLegend: () => void;
   pushHud: (snap: HudSnapshot) => void;
   setLastOrder: (o: { target: Vec2; tick: number; echelon: Echelon }) => void;
   pushThinking: (t: ThinkingSnapshot) => void;
@@ -300,6 +347,11 @@ export const useSimStore = create<UiState>((set) => ({
   viewSquadId: null,
   viewPlatoonId: null,
   scenarioKey: "platoon",
+  phase: "battle",
+  plans: [],
+  planRoutes: [],
+  hoveredPlanKey: null,
+  legendOpen: true,
   control: null,
   roster: [],
 
@@ -478,6 +530,21 @@ export const useSimStore = create<UiState>((set) => ({
           },
     ),
   setRoster: (r) => set({ roster: r }),
+  // 立案へ入るときは操作対象と選択を初期化する。世界が作り直されているので
+  // 前の盤面の兵士idを握ったままだと、別人を指したハイライトが残る
+  enterPlanning: (plans, routes) =>
+    set({
+      phase: "planning",
+      plans,
+      planRoutes: routes,
+      hoveredPlanKey: null,
+      control: null,
+      selectedSoldierId: null,
+    }),
+  setPlanView: (plans, routes) => set({ plans, planRoutes: routes }),
+  setHoveredPlan: (key) => set({ hoveredPlanKey: key }),
+  startBattle: () => set({ phase: "battle", planRoutes: [], hoveredPlanKey: null }),
+  toggleLegend: () => set((s) => ({ legendOpen: !s.legendOpen })),
   pushHud: (snap) => set(snap),
   setLastOrder: (o) => set({ lastOrder: o }),
   pushThinking: (t) => set({ thinking: t }),

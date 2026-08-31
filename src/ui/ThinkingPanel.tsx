@@ -24,6 +24,14 @@ const EVAC_JP: Record<string, string> = {
 };
 
 export function ThinkingPanel() {
+  // 立案フェーズは同じ枠に作戦パネルが出る。まだ1ティックも進んでいないので
+  // 表示すべき「思考」も無い(`[v6.5]`)
+  const phase = useSimStore((s) => s.phase);
+  if (phase === "planning") return null;
+  return <ThinkingPanelBody />;
+}
+
+function ThinkingPanelBody() {
   const thinking = useSimStore((s) => s.thinking);
   const viewSide = useSimStore((s) => s.viewSide);
   const sel = thinking.selected;

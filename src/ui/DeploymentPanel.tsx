@@ -86,7 +86,8 @@ export function DeploymentPanel() {
         )}
         <div className="dbg-k">
           地図上の<b className="dep-legend">薄い印</b>が編集中の予定です。濃い緑のリングは
-          いま戦闘中の拠点で、「この配置で開始」を押すまで置き換わりません。
+          いま戦闘中の拠点で、「この配置で立案する」を押すまで置き換わりません。
+          押すと盤面を組み直し、中隊長が<b>作戦を立て直します</b>。
         </div>
       </div>
 
@@ -163,7 +164,7 @@ export function DeploymentPanel() {
           BLUEを点対称に写してRED
         </button>
         <button type="button" className="vc-btn dep-apply" onClick={commit}>
-          この配置で開始
+          この配置で立案する
         </button>
         <button type="button" className="vc-btn" onClick={reset}>
           既定の配置へ戻す

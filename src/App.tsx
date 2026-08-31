@@ -5,13 +5,21 @@ import { useSimStore } from "./ui/store.ts";
 export function App() {
   // グローバルなキーボードショートカット:
   //   Space  ポーズ切替 / "."  1ティック実行 / "H"  デバッグパネル /
-  //   "G"  配置パネル / Esc  選択解除・配置の道具を戻す
+  //   "G"  配置パネル / "L"  凡例 / Enter  戦闘開始(立案中) /
+  //   Esc  選択解除・配置の道具を戻す
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const onBody = e.target === document.body;
       if (e.code === "Space" && onBody) {
         e.preventDefault();
         useSimStore.getState().togglePause();
+      }
+      if (e.code === "Enter" && useSimStore.getState().phase === "planning") {
+        e.preventDefault();
+        useSimStore.getState().startBattle();
+      }
+      if ((e.code === "KeyL" || e.key === "l") && onBody) {
+        useSimStore.getState().toggleLegend();
       }
       if (e.code === "Period" && useSimStore.getState().paused) {
         useSimStore.getState().requestStep();
