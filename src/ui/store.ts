@@ -11,15 +11,23 @@ import {
   FIRE_ALIGN_RAD,
   FOV_HALF_RAD,
   MOVE_SPEED,
+  OBJECTIVE,
   SPEED_STEPS,
   TURN_RATE,
 } from "@sim/constants.ts";
+import { mirrorPlan, type DeploymentPlan, type ObjectivePlacement } from "@sim/deployment.ts";
 import type { ScenarioKey } from "@sim/scenario.ts";
 import type { Echelon, Posture, Side, Vec2, VictoryState } from "@sim/types.ts";
 import type { ControlState } from "@sim/control.ts";
 import { postureFromRisk } from "@sim/tuning.ts";
 
 const RAD2DEG = 180 / Math.PI;
+
+/** 配置エディタで置こうとしているもの(`[v6.4]`)。null なら通常のユニット選択。 */
+export type SetupTool = null | "blueSpawn" | "redSpawn" | "objective";
+
+/** 新しく置く拠点の既定半径(仕様 §12 — 建物内の一室ぶん)。 */
+const OBJECTIVE_RADIUS = OBJECTIVE.ROOM_RADIUS;
 
 /** 階層ツリーUIが表示する編成の一覧。毎フレームではなく編成が変わったときだけ更新する。 */
 export interface RosterSquad {
@@ -178,6 +186,23 @@ interface UiState extends HudSnapshot {
   /** 実行中のシナリオ。変えるとランタイムごと作り直される */
   scenarioKey: ScenarioKey;
 
+  // ── 配置エディタ(`[v6.4]`)──
+  /**
+   * 編集中の配置プラン。ランタイムが起動時にシナリオの既定値を入れる。
+   * 「適用」するまで戦闘には反映されず、画面には計画マーカーとして出るだけ。
+   */
+  deploymentDraft: DeploymentPlan | null;
+  /** 適用済みの配置。null なら既定のシナリオそのまま */
+  deployment: DeploymentPlan | null;
+  /** これが変わるとランタイムごと作り直す(シナリオ切替と同じ扱い) */
+  deploymentNonce: number;
+  /** いま配置エディタで置こうとしているもの。null なら通常の選択操作 */
+  setupTool: SetupTool;
+  /** 編集対象の拠点(拠点リストで選ぶ) */
+  selectedObjectiveIdx: number | null;
+  /** 配置パネルを開いているか(キー G / ボタンで切替)。デバッグパネルと同じ枠を使う */
+  deployOpen: boolean;
+
   /** 人間が操作中のノード(仕様 §4)。null なら観戦 */
   control: ControlState | null;
   /** 階層ツリー表示用の編成一覧 */
@@ -210,6 +235,23 @@ interface UiState extends HudSnapshot {
   pushHud: (snap: HudSnapshot) => void;
   setLastOrder: (o: { target: Vec2; tick: number; echelon: Echelon }) => void;
   pushThinking: (t: ThinkingSnapshot) => void;
+  /** ランタイムがシナリオの既定配置を流し込む(編集の出発点) */
+  initDeployment: (plan: DeploymentPlan) => void;
+  setSetupTool: (t: SetupTool) => void;
+  toggleDeploy: () => void;
+  /** 配置エディタで地図をクリックしたときの着地点 */
+  placeAt: (p: Vec2) => void;
+  setObjectiveField: (idx: number, patch: Partial<ObjectivePlacement>) => void;
+  removeObjective: (idx: number) => void;
+  selectObjective: (idx: number | null) => void;
+  /** 陣営の向きを度で設定する(0° = +Z、時計回り) */
+  setSpawnHeading: (side: Side, deg: number) => void;
+  /** 青の配置を点対称に写して赤へ(仕様 §2/§13 の担保を取り戻す) */
+  mirrorDeployment: () => void;
+  /** 編集中の配置で戦闘を作り直す */
+  commitDeployment: () => void;
+  /** シナリオ既定の配置へ戻して作り直す */
+  resetDeployment: () => void;
   setDebug: (patch: Partial<DebugState>) => void;
   setTuning: (patch: Partial<TuningUi>) => void;
   /** マスター(リスク許容度)。個別値もこの値から一括で再計算する */
@@ -261,6 +303,13 @@ export const useSimStore = create<UiState>((set) => ({
   control: null,
   roster: [],
 
+  deploymentDraft: null,
+  deployment: null,
+  deploymentNonce: 0,
+  setupTool: null,
+  selectedObjectiveIdx: null,
+  deployOpen: false,
+
   lastOrder: null,
   thinking: { fireteams: [], squads: [], selected: null },
   debug: {
@@ -288,7 +337,109 @@ export const useSimStore = create<UiState>((set) => ({
   setViewPlatoonId: (id) => set({ viewPlatoonId: id }),
   /** シナリオを切り替える。世界を作り直すので操作対象と視点も初期化する */
   setScenario: (k) =>
-    set({ scenarioKey: k, control: null, viewSquadId: null, viewPlatoonId: null }),
+    set({
+      scenarioKey: k,
+      control: null,
+      viewSquadId: null,
+      viewPlatoonId: null,
+      // 配置はシナリオごとの座標系に依存するので持ち越さない
+      deployment: null,
+      deploymentDraft: null,
+      setupTool: null,
+      selectedObjectiveIdx: null,
+    }),
+
+  // ── 配置エディタ(`[v6.4]`)──
+  initDeployment: (plan) => set((s) => (s.deploymentDraft ? {} : { deploymentDraft: plan })),
+  setSetupTool: (t) => set({ setupTool: t }),
+  // デバッグパネルと同じ枠に出るので、開いたらもう片方は閉じる
+  toggleDeploy: () =>
+    set((st) => ({
+      deployOpen: !st.deployOpen,
+      setupTool: st.deployOpen ? null : st.setupTool,
+      debug: { ...st.debug, panelOpen: st.deployOpen ? st.debug.panelOpen : false },
+    })),
+  placeAt: (p) =>
+    set((s) => {
+      const d = s.deploymentDraft;
+      if (!d || !s.setupTool) return {};
+      if (s.setupTool === "objective") {
+        const objs = [...(d.objectives ?? [])];
+        const idx = s.selectedObjectiveIdx;
+        // 選択中の拠点があれば動かす。無ければ新規に置く
+        if (idx !== null && objs[idx]) {
+          objs[idx] = { ...objs[idx]!, pos: { ...p } };
+          return { deploymentDraft: { ...d, objectives: objs } };
+        }
+        objs.push({ label: `OBJ ${objs.length + 1}`, pos: { ...p }, radius: OBJECTIVE_RADIUS });
+        return {
+          deploymentDraft: { ...d, objectives: objs },
+          selectedObjectiveIdx: objs.length - 1,
+        };
+      }
+      const side: Side = s.setupTool === "blueSpawn" ? "blue" : "red";
+      const prev = d.spawn[side];
+      // 向きは据え置き。初回だけ「最寄りの拠点(なければ原点)を向く」で決める
+      const facing =
+        prev?.facing ??
+        (() => {
+          const t = (d.objectives ?? [])[0]?.pos ?? { x: 0, z: 0 };
+          const dx = t.x - p.x;
+          const dz = t.z - p.z;
+          const len = Math.hypot(dx, dz) || 1;
+          return { x: dx / len, z: dz / len };
+        })();
+      return {
+        deploymentDraft: { ...d, spawn: { ...d.spawn, [side]: { pos: { ...p }, facing } } },
+      };
+    }),
+  setObjectiveField: (idx, patch) =>
+    set((s) => {
+      const d = s.deploymentDraft;
+      if (!d) return {};
+      const objs = [...(d.objectives ?? [])];
+      if (!objs[idx]) return {};
+      objs[idx] = { ...objs[idx]!, ...patch };
+      return { deploymentDraft: { ...d, objectives: objs } };
+    }),
+  removeObjective: (idx) =>
+    set((s) => {
+      const d = s.deploymentDraft;
+      if (!d) return {};
+      const objs = (d.objectives ?? []).filter((_, i) => i !== idx);
+      return { deploymentDraft: { ...d, objectives: objs }, selectedObjectiveIdx: null };
+    }),
+  selectObjective: (idx) => set({ selectedObjectiveIdx: idx }),
+  setSpawnHeading: (side, deg) =>
+    set((s) => {
+      const d = s.deploymentDraft;
+      const cur = d?.spawn[side];
+      if (!d || !cur) return {};
+      const rad = (deg * Math.PI) / 180;
+      // 0° = +Z(画面下向き)を基準に時計回り
+      const facing = { x: Math.sin(rad), z: Math.cos(rad) };
+      return { deploymentDraft: { ...d, spawn: { ...d.spawn, [side]: { ...cur, facing } } } };
+    }),
+  mirrorDeployment: () =>
+    set((s) => (s.deploymentDraft ? { deploymentDraft: mirrorPlan(s.deploymentDraft) } : {})),
+  commitDeployment: () =>
+    set((s) => ({
+      deployment: s.deploymentDraft,
+      deploymentNonce: s.deploymentNonce + 1,
+      setupTool: null,
+      control: null,
+      selectedSoldierId: null,
+    })),
+  resetDeployment: () =>
+    set((s) => ({
+      deployment: null,
+      deploymentDraft: null,
+      deploymentNonce: s.deploymentNonce + 1,
+      setupTool: null,
+      selectedObjectiveIdx: null,
+      control: null,
+      selectedSoldierId: null,
+    })),
   /**
    * ホットスワップ。操作対象を変えると視点も自動でその階層へ合わせる —
    * 仕様 §5 のとおり、操作している階層が知り得る情報だけが見えるべきなので、
@@ -315,7 +466,12 @@ export const useSimStore = create<UiState>((set) => ({
   pushHud: (snap) => set(snap),
   setLastOrder: (o) => set({ lastOrder: o }),
   pushThinking: (t) => set({ thinking: t }),
-  setDebug: (patch) => set((s) => ({ debug: { ...s.debug, ...patch } })),
+  setDebug: (patch) =>
+    set((s) => ({
+      debug: { ...s.debug, ...patch },
+      // 同じ枠を使うので、デバッグパネルを開いたら配置パネルは閉じる
+      ...(patch.panelOpen ? { deployOpen: false, setupTool: null } : {}),
+    })),
   setTuning: (patch) => set((s) => ({ tuning: { ...s.tuning, ...patch } })),
   setPostureRisk: (side, riskTolerance) =>
     set((s) => ({

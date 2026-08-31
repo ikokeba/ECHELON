@@ -35,6 +35,16 @@ export interface RenderOpts {
   viewSide: Side;
   /** 神視点か(敵も向き付きトークンで描く) */
   truth: boolean;
+  /**
+   * 配置エディタの計画(`[v6.4]`)。まだ戦闘へ反映されていない「予定」を薄く重ねる。
+   * ui/store の DeploymentPlan と構造的に一致していればよい(レンダラは ui/ に依存しない)。
+   */
+  setup?: {
+    spawn: Partial<Record<Side, { pos: Vec2; facing: Vec2 }>>;
+    objectives: { label: string; pos: Vec2; radius: number }[] | null;
+  } | null;
+  /** 配置エディタで選んでいる道具。選択中の対象を強めに描く */
+  setupTool?: null | "blueSpawn" | "redSpawn" | "objective";
 }
 
 const SIDE_COLOR: Record<Side, number> = {
@@ -42,68 +52,6 @@ const SIDE_COLOR: Record<Side, number> = {
   red: 0xff5a4a,
 };
 
-/**
- * 選択した兵士が指揮官なら、その**指揮範囲**を返す(`[v6.4]` 4回目のテストプレイ指摘⑤)。
- *
- * 「指揮官かどうか」は肩書き(`isSquadLeader` 等)ではなく §12 の継承結果
- * (`commanderId`)から引く。分隊長が倒れて次席のFTリーダーが分隊を引き継いだ場合、
- * 彼を選べば分隊全員が強調される — 画面がそのまま指揮系統の現状を示す。
- *
- * `covers` は麾下かどうか、`directIds` は**直属の下位指揮官**の兵士id
- * (中隊長→小隊長、小隊長→分隊長、分隊長→FTリーダー)。線はこちらにだけ引く。
- */
-function commandScopeOf(
-  world: World,
-  sel: Soldier,
-): { covers: (s: Soldier) => boolean; directIds: Set<number> } | null {
-  const directIds = new Set<number>();
-  const sameSide = (s: Soldier): boolean => s.side === sel.side;
-
-  const co = world.companies.find((c) => c.side === sel.side && c.commanderId === sel.id);
-  if (co) {
-    for (const pl of world.platoons) {
-      if (pl.side === sel.side && pl.companyId === co.companyId && pl.commanderId !== null) {
-        directIds.add(pl.commanderId);
-      }
-    }
-    return { covers: (s) => sameSide(s) && s.companyId === co.companyId, directIds };
-  }
-
-  const pl = world.platoons.find((p) => p.side === sel.side && p.commanderId === sel.id);
-  if (pl) {
-    for (const sq of world.squads) {
-      if (sq.side === sel.side && sq.platoonId === pl.platoonId && sq.commanderId !== null) {
-        directIds.add(sq.commanderId);
-      }
-    }
-    return { covers: (s) => sameSide(s) && s.platoonId === pl.platoonId, directIds };
-  }
-
-  const sq = world.squads.find((q) => q.side === sel.side && q.commanderId === sel.id);
-  if (sq) {
-    for (const s of world.soldiers) {
-      if (
-        s.side === sel.side &&
-        s.squadId === sq.squadId &&
-        s.isFireteamLeader &&
-        s.status === "ok"
-      ) {
-        directIds.add(s.id);
-      }
-    }
-    return { covers: (s) => sameSide(s) && s.squadId === sq.squadId, directIds };
-  }
-
-  // FTリーダー(分隊長を継承していない場合)。麾下は自分のファイアチーム
-  if (sel.isFireteamLeader && sel.fireteamId >= 0) {
-    return {
-      covers: (s) =>
-        sameSide(s) && s.squadId === sel.squadId && s.fireteamId === sel.fireteamId,
-      directIds,
-    };
-  }
-  return null;
-}
 const KIA_COLOR = 0x39414f;
 const WIA_COLOR = 0xf0c000;
 const GROUND_COLOR = 0x0f1420;
@@ -188,6 +136,68 @@ const RANK_OFFSET = SOLDIER_RADIUS * 2.4;
 /** 階級章1個ぶんのインスタンス上限(兵士1名あたり最大2個) */
 const MAX_RANK_MARKS = MAX_SOLDIERS * 2;
 
+/**
+ * 選択した兵士が指揮官なら、その**指揮範囲**を返す(`[v6.4]` 4回目のテストプレイ指摘⑤)。
+ *
+ * 「指揮官かどうか」は肩書き(`isSquadLeader` 等)ではなく §12 の継承結果
+ * (`commanderId`)から引く。分隊長が倒れて次席のFTリーダーが分隊を引き継いだ場合、
+ * 彼を選べば分隊全員が強調される — 画面がそのまま指揮系統の現状を示す。
+ *
+ * `covers` は麾下かどうか、`directIds` は**直属の下位指揮官**の兵士id
+ * (中隊長→小隊長、小隊長→分隊長、分隊長→FTリーダー)。線はこちらにだけ引く。
+ */
+function commandScopeOf(
+  world: World,
+  sel: Soldier,
+): { covers: (s: Soldier) => boolean; directIds: Set<number> } | null {
+  const directIds = new Set<number>();
+  const sameSide = (s: Soldier): boolean => s.side === sel.side;
+
+  const co = world.companies.find((c) => c.side === sel.side && c.commanderId === sel.id);
+  if (co) {
+    for (const pl of world.platoons) {
+      if (pl.side === sel.side && pl.companyId === co.companyId && pl.commanderId !== null) {
+        directIds.add(pl.commanderId);
+      }
+    }
+    return { covers: (s) => sameSide(s) && s.companyId === co.companyId, directIds };
+  }
+
+  const pl = world.platoons.find((p) => p.side === sel.side && p.commanderId === sel.id);
+  if (pl) {
+    for (const sq of world.squads) {
+      if (sq.side === sel.side && sq.platoonId === pl.platoonId && sq.commanderId !== null) {
+        directIds.add(sq.commanderId);
+      }
+    }
+    return { covers: (s) => sameSide(s) && s.platoonId === pl.platoonId, directIds };
+  }
+
+  const sq = world.squads.find((q) => q.side === sel.side && q.commanderId === sel.id);
+  if (sq) {
+    for (const s of world.soldiers) {
+      if (
+        s.side === sel.side &&
+        s.squadId === sq.squadId &&
+        s.isFireteamLeader &&
+        s.status === "ok"
+      ) {
+        directIds.add(s.id);
+      }
+    }
+    return { covers: (s) => sameSide(s) && s.squadId === sq.squadId, directIds };
+  }
+
+  // FTリーダー(分隊長を継承していない場合)。麾下は自分のファイアチーム
+  if (sel.isFireteamLeader && sel.fireteamId >= 0) {
+    return {
+      covers: (s) =>
+        sameSide(s) && s.squadId === sel.squadId && s.fireteamId === sel.fireteamId,
+      directIds,
+    };
+  }
+  return null;
+}
 interface TickSnapshot {
   tick: number;
   pos: Map<number, { x: number; z: number; fx: number; fz: number }>;
@@ -491,6 +501,53 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   linkLines.visible = false;
   scene.add(linkLines);
   const linkPos = linkGeo.getAttribute("position") as THREE.BufferAttribute;
+
+  // ── 配置エディタの計画マーカー(`[v6.4]`)──
+  // 「これから作り直す盤面の予定」を薄く重ねる。実際の兵士・拠点とは別物なので、
+  // 塗りつぶさず輪郭だけにして、現在の戦況の上に重なっても読み取りを邪魔しない。
+  const setupRing = (color: number, inner: number, outer: number, seg: number) => {
+    const g = new THREE.RingGeometry(inner, outer, seg);
+    g.rotateX(-Math.PI / 2);
+    const m = new THREE.Mesh(
+      g,
+      new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.5,
+        side: THREE.DoubleSide,
+        depthTest: false,
+      }),
+    );
+    m.renderOrder = 24;
+    m.visible = false;
+    scene.add(m);
+    return m;
+  };
+  const spawnMarks: Record<Side, THREE.Mesh> = {
+    blue: setupRing(SIDE_COLOR.blue, 5.2, 6.4, 40),
+    red: setupRing(SIDE_COLOR.red, 5.2, 6.4, 40),
+  };
+  /** 展開点の正面を示す矢羽根(三角) */
+  const spawnArrow = (color: number) => {
+    const g = new THREE.CircleGeometry(2.6, 3);
+    g.rotateX(-Math.PI / 2);
+    const m = new THREE.Mesh(
+      g,
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.6, depthTest: false }),
+    );
+    m.renderOrder = 24;
+    m.visible = false;
+    scene.add(m);
+    return m;
+  };
+  const spawnArrows: Record<Side, THREE.Mesh> = {
+    blue: spawnArrow(SIDE_COLOR.blue),
+    red: spawnArrow(SIDE_COLOR.red),
+  };
+  const MAX_SETUP_OBJ = 16;
+  const setupObjMarks = Array.from({ length: MAX_SETUP_OBJ }, () =>
+    setupRing(NEUTRAL_OBJ_COLOR, 0.86, 1.0, 32),
+  );
 
   // ── 移動命令の可視化(指摘: 移動命令が出せているか分からない) ──
   const orderMarkerGeo = new THREE.RingGeometry(0.7, 1.05, 4);
@@ -950,6 +1007,46 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     linkPos.needsUpdate = true;
     linkLines.visible = linkN > 0;
 
+    // ── 配置エディタの計画マーカー(`[v6.4]`)──
+    const setup = opts.setup ?? null;
+    for (const side of ["blue", "red"] as const) {
+      const sp = setup?.spawn[side];
+      const mark = spawnMarks[side]!;
+      const arrow = spawnArrows[side]!;
+      if (!sp) {
+        mark.visible = false;
+        arrow.visible = false;
+        continue;
+      }
+      const armed =
+        (side === "blue" && opts.setupTool === "blueSpawn") ||
+        (side === "red" && opts.setupTool === "redSpawn");
+      mark.position.set(sp.pos.x, 0.12, sp.pos.z);
+      (mark.material as THREE.MeshBasicMaterial).opacity = armed ? 0.95 : 0.5;
+      mark.visible = true;
+      const len = Math.hypot(sp.facing.x, sp.facing.z) || 1;
+      const fx = sp.facing.x / len;
+      const fz = sp.facing.z / len;
+      arrow.position.set(sp.pos.x + fx * 8.5, 0.12, sp.pos.z + fz * 8.5);
+      arrow.rotation.set(0, Math.atan2(fx, fz), 0);
+      (arrow.material as THREE.MeshBasicMaterial).opacity = armed ? 0.95 : 0.6;
+      arrow.visible = true;
+    }
+    const planObjs = setup?.objectives ?? null;
+    for (let k = 0; k < MAX_SETUP_OBJ; k++) {
+      const m = setupObjMarks[k]!;
+      const o = planObjs ? planObjs[k] : undefined;
+      if (!o) {
+        m.visible = false;
+        continue;
+      }
+      m.position.set(o.pos.x, 0.12, o.pos.z);
+      m.scale.set(o.radius, 1, o.radius);
+      (m.material as THREE.MeshBasicMaterial).opacity =
+        opts.setupTool === "objective" ? 0.95 : 0.45;
+      m.visible = true;
+    }
+
     // ── 移動命令の可視化(指摘: 移動命令が出せているか分からない) ──
     const obj = opts.debug.showOrders ? controlObjective() : null;
     if (obj && ctl) {
@@ -1186,6 +1283,10 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       selectRing.geometry.dispose();
       subRingGeo.dispose();
       subRingMesh.dispose();
+      for (const m of [spawnMarks.blue, spawnMarks.red, spawnArrows.blue, spawnArrows.red, ...setupObjMarks]) {
+        m.geometry.dispose();
+        (m.material as THREE.Material).dispose();
+      }
       linkGeo.dispose();
       (linkLines.material as THREE.Material).dispose();
       orderMarkerGeo.dispose();

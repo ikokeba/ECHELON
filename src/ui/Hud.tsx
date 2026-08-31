@@ -7,6 +7,7 @@ import { ControlBanner } from "./ControlBanner.tsx";
 import { OrderToast } from "./OrderToast.tsx";
 import { ThinkingPanel } from "./ThinkingPanel.tsx";
 import { DebugPanel } from "./DebugPanel.tsx";
+import { DeploymentPanel } from "./DeploymentPanel.tsx";
 
 function fmtClock(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -68,10 +69,11 @@ export function Hud() {
       <EchelonTree />
       <ThinkingPanel />
       <DebugPanel />
+      <DeploymentPanel />
 
       <div className="hud-hint">
         ドラッグ: 移動 · ホイール: 拡大縮小 · Space: 一時停止 · . : 1ティック · 左クリック:
-        ユニット選択 · H: デバッグ
+        ユニット選択 · H: デバッグ · G: 配置
         {control && " · 右クリック: 移動命令"}
       </div>
     </div>

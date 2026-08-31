@@ -28,6 +28,8 @@ export function ViewControls() {
   const stale = useSimStore((s) => s.staleContacts);
   const scenarioKey = useSimStore((s) => s.scenarioKey);
   const setScenario = useSimStore((s) => s.setScenario);
+  const deployOpen = useSimStore((s) => s.deployOpen);
+  const toggleDeploy = useSimStore((s) => s.toggleDeploy);
 
   return (
     <div className="view-controls">
@@ -76,6 +78,18 @@ export function ViewControls() {
           onClick={() => setViewSide("red")}
         >
           RED
+        </button>
+      </div>
+
+      <div className="vc-row">
+        <span className="vc-label">配置</span>
+        <button
+          type="button"
+          className={deployOpen ? "vc-btn vc-on" : "vc-btn"}
+          onClick={toggleDeploy}
+          title="陣営の初期展開位置と拠点を決める (G)"
+        >
+          初期配置・拠点を編集
         </button>
       </div>
 

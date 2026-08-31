@@ -15,6 +15,7 @@ import { orderControlledTo } from "@sim/playerOrders.ts";
 import { isOffField } from "@sim/systems/litter.ts";
 import { SIM_DT } from "@sim/constants.ts";
 import { isDegraded } from "@sim/c2/succession.ts";
+import { applyDeployment, defaultDeploymentOf } from "@sim/deployment.ts";
 import {
   currentSpeed,
   useSimStore,
@@ -207,7 +208,12 @@ function hudOf(world: World, view: ViewResult): HudSnapshot {
 }
 
 export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey): () => void {
-  const world = createWorld(SCENARIOS[scenarioKey].make());
+  // `[v6.4]` 配置プランを適用してから世界を作る。未設定なら既定のシナリオそのまま。
+  // 既定値を編集の出発点としてストアへ返し、パネルがそこから触れるようにする。
+  const base = SCENARIOS[scenarioKey].make();
+  useSimStore.getState().initDeployment(defaultDeploymentOf(base));
+  const plan = useSimStore.getState().deployment;
+  const world = createWorld(plan ? applyDeployment(base, plan) : base);
   const renderer: Renderer = createRenderer(canvas, world);
   const clock = createSimClock(currentSpeed(useSimStore.getState()));
 
@@ -253,6 +259,11 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
     if (Math.hypot(e.clientX - downX, e.clientY - downY) > 5) return; // ドラッグはパン
     const p = renderer.screenToWorld(e.clientX, e.clientY);
     const ui = useSimStore.getState();
+    // 配置エディタが有効な間は、クリックはユニット選択ではなく配置になる(`[v6.4]`)
+    if (ui.setupTool) {
+      ui.placeAt(p);
+      return;
+    }
     const truth = ui.viewEchelon === "truth";
     let best: number | null = null;
     let bestD = 6 * 6; // 6m 以内で最も近い1名
@@ -306,6 +317,9 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
       controlledId: controlledSoldierId(world),
       viewSide: ui.viewSide,
       truth: ui.viewEchelon === "truth",
+      // 配置エディタの計画マーカー(まだ戦闘には反映されていない)`[v6.4]`
+      setup: ui.setupTool !== null || ui.deployment !== null ? ui.deploymentDraft : null,
+      setupTool: ui.setupTool,
     });
 
     if (ticks > 0 && (hudCountdown -= 1) <= 0) {

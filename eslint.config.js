@@ -5,7 +5,8 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import prettier from "eslint-config-prettier";
 
 export default tseslint.config(
-  { ignores: ["dist", "node_modules", "coverage"] },
+  // `.tmp/` は .gitignore 済みの作業用置き場(計測スクリプトなど)。lint の対象外。
+  { ignores: ["dist", "node_modules", "coverage", ".tmp"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

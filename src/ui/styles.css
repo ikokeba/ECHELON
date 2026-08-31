@@ -635,3 +635,66 @@ span.obj-contested { background: none; flex: none; }
 .lg-swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; display: inline-block; }
 /* 階級章の凡例マーク。地図上の白っぽい標に合わせる */
 .lg-rank { width: 10px; flex: none; display: inline-block; text-align: center; color: #cfe0f5; }
+
+/* ── 配置エディタ(`[v6.4]`)。デバッグパネルと同じ枠に出る ── */
+.deploy-panel {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  width: 300px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  backdrop-filter: blur(6px);
+}
+.dep-sym { color: #6de0a0; font-size: 11px; font-weight: 600; }
+.dep-asym { color: #f5c451; font-size: 11px; font-weight: 600; }
+.dep-spawn {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dep-spawn-head { display: flex; justify-content: space-between; align-items: baseline; }
+.dep-obj {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 4px 6px;
+}
+.dep-obj-on { border-color: #7ff0ff; background: #14323a; }
+.dep-obj-pick {
+  flex: 1;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dep-obj-r { display: flex; align-items: center; gap: 3px; }
+.dep-obj-r input {
+  width: 44px;
+  background: #1a2233;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 11px;
+}
+.dep-apply { border-color: #6de0a0; color: #6de0a0; }
