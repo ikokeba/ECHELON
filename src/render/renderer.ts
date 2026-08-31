@@ -76,6 +76,12 @@ const SELECT_RING_COLOR = 0x7ff0ff;
 const SUBORDINATE_COLOR = 0x7ff0ff;
 /** 指揮線の最大本数。中隊長でも小隊3+本部数名なので十分 */
 const MAX_COMMAND_LINKS = 64;
+/**
+ * 配置エディタの「予定」の色(`[v6.4]`)。実際の拠点(緑)や陣営色と**必ず変えること**。
+ * 同じ緑で描いていたときは、拠点を動かしても元の位置に実物のリングが残るので
+ * 「動かせていない」ように見えた(4回目のテストプレイ指摘)。
+ */
+const PLAN_COLOR = 0xc9d6ea;
 /** 発砲線: 命中 / 外れ */
 const TRACER_HIT_COLOR = 0xffe08a;
 const TRACER_MISS_COLOR = 0x8a939c;
@@ -545,9 +551,23 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     red: spawnArrow(SIDE_COLOR.red),
   };
   const MAX_SETUP_OBJ = 16;
+  // 予定の拠点は「細いリング + 中心の菱形」。実際の拠点(太いリング + 確保の塗り)と
+  // 形でも色でも区別できるようにする
   const setupObjMarks = Array.from({ length: MAX_SETUP_OBJ }, () =>
-    setupRing(NEUTRAL_OBJ_COLOR, 0.86, 1.0, 32),
+    setupRing(PLAN_COLOR, 0.93, 1.0, 32),
   );
+  const setupObjPins = Array.from({ length: MAX_SETUP_OBJ }, () => {
+    const g = new THREE.CircleGeometry(1.1, 4);
+    g.rotateX(-Math.PI / 2);
+    const m = new THREE.Mesh(
+      g,
+      new THREE.MeshBasicMaterial({ color: PLAN_COLOR, transparent: true, opacity: 0.75, depthTest: false }),
+    );
+    m.renderOrder = 24;
+    m.visible = false;
+    scene.add(m);
+    return m;
+  });
 
   // ── 移動命令の可視化(指摘: 移動命令が出せているか分からない) ──
   const orderMarkerGeo = new THREE.RingGeometry(0.7, 1.05, 4);
@@ -1035,16 +1055,21 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     const planObjs = setup?.objectives ?? null;
     for (let k = 0; k < MAX_SETUP_OBJ; k++) {
       const m = setupObjMarks[k]!;
+      const pin = setupObjPins[k]!;
       const o = planObjs ? planObjs[k] : undefined;
       if (!o) {
         m.visible = false;
+        pin.visible = false;
         continue;
       }
-      m.position.set(o.pos.x, 0.12, o.pos.z);
+      const armed = opts.setupTool === "objective";
+      m.position.set(o.pos.x, 0.13, o.pos.z);
       m.scale.set(o.radius, 1, o.radius);
-      (m.material as THREE.MeshBasicMaterial).opacity =
-        opts.setupTool === "objective" ? 0.95 : 0.45;
+      (m.material as THREE.MeshBasicMaterial).opacity = armed ? 0.95 : 0.45;
       m.visible = true;
+      pin.position.set(o.pos.x, 0.13, o.pos.z);
+      (pin.material as THREE.MeshBasicMaterial).opacity = armed ? 0.95 : 0.5;
+      pin.visible = true;
     }
 
     // ── 移動命令の可視化(指摘: 移動命令が出せているか分からない) ──
@@ -1283,7 +1308,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       selectRing.geometry.dispose();
       subRingGeo.dispose();
       subRingMesh.dispose();
-      for (const m of [spawnMarks.blue, spawnMarks.red, spawnArrows.blue, spawnArrows.red, ...setupObjMarks]) {
+      for (const m of [spawnMarks.blue, spawnMarks.red, spawnArrows.blue, spawnArrows.red, ...setupObjMarks, ...setupObjPins]) {
         m.geometry.dispose();
         (m.material as THREE.Material).dispose();
       }

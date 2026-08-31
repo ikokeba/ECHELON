@@ -365,6 +365,21 @@ export const useSimStore = create<UiState>((set) => ({
       if (!d || !s.setupTool) return {};
       if (s.setupTool === "objective") {
         const objs = [...(d.objectives ?? [])];
+        // `[v6.4]` **既存の拠点の上をクリックしたら、それを掴んで動かす**。
+        // 以前はリストで選んでからでないと動かせず、そのままクリックすると
+        // 新しい拠点が増えるだけだったので、元の拠点が「動かない」ように見えた
+        // (4回目のテストプレイ指摘)。
+        let grabbed = -1;
+        let bestD = Infinity;
+        objs.forEach((o, i) => {
+          const dd = Math.hypot(o.pos.x - p.x, o.pos.z - p.z);
+          if (dd <= Math.max(o.radius, 6) && dd < bestD) {
+            bestD = dd;
+            grabbed = i;
+          }
+        });
+        if (grabbed >= 0) return { selectedObjectiveIdx: grabbed };
+
         const idx = s.selectedObjectiveIdx;
         // 選択中の拠点があれば動かす。無ければ新規に置く
         if (idx !== null && objs[idx]) {

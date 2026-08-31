@@ -80,10 +80,14 @@ export function DeploymentPanel() {
         {tool === "objective" && (
           <div className="dbg-k">
             {selIdx === null
-              ? "クリックで新しい拠点を追加します"
-              : `「${objectives[selIdx]?.label ?? ""}」を移動します(下で選択解除)`}
+              ? "既存の拠点の上をクリック = その拠点を掴む / 何もない所をクリック = 新規追加"
+              : `「${objectives[selIdx]?.label ?? ""}」を移動します(もう一度名前を押すと選択解除)`}
           </div>
         )}
+        <div className="dbg-k">
+          地図上の<b className="dep-legend">薄い印</b>が編集中の予定です。濃い緑のリングは
+          いま戦闘中の拠点で、「この配置で開始」を押すまで置き換わりません。
+        </div>
       </div>
 
       <div className="dbg-sec">
