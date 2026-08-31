@@ -37,6 +37,7 @@ import type {
   Report,
   Scenario,
   Side,
+  SimPhase,
   Soldier,
   SquadState,
   Tuning,
@@ -46,6 +47,12 @@ import type {
 
 export interface World {
   tick: number;
+  /**
+   * 局面(`[v6.5]`)。既定は `battle` — ヘッドレステストとバランスハーネスは
+   * 立案を挟まず即座に戦闘を始める。UIは `beginPlanning` で `planning` にしてから
+   * プレイヤーの「戦闘開始」を待つ。`planning` の間 `stepWorld` は何もしない。
+   */
+  phase: SimPhase;
   bounds: Bounds;
   /**
    * 視線と移動を遮るもの。構造物の壁に加え、**閉じている扉**の板も含む(仕様 §7.6)。
@@ -327,6 +334,8 @@ function buildCompanies(scenario: Scenario, soldiers: Soldier[]): CompanyState[]
         id: assetId++,
         arriveTick: null,
       })),
+      // 立案フェーズを踏んだときだけ `beginPlanning` が入れる(`[v6.5]`)
+      plan: null,
       commanderId: null,
       degradedSinceTick: null,
     });
@@ -463,6 +472,7 @@ function buildWorld(scenario: Scenario): World {
 
   return {
     tick: 0,
+    phase: "battle",
     bounds: { ...scenario.bounds },
     walls,
     wallIndex: buildWallIndex(walls, scenario.bounds),

@@ -22,6 +22,11 @@ import { radioSystem } from "./radio.ts";
 import type { World } from "./world.ts";
 
 export function stepWorld(world: World): void {
+  // 作戦立案フェーズ(`[v6.5]`)では時間が流れない。中隊長が計画を立て、プレイヤーが
+  // それを読んで「戦闘開始」を押すまでの間。ここで弾いておくことで、UI側が
+  // 呼び分けを間違えても盤面が動き出すことはない(既定は `battle` なので
+  // テストとバランスハーネスには影響しない)。
+  if (world.phase === "planning") return;
   // 0. 前ティックの描画用エフェクトを捨てる(`[v6.1]`)。ここに溜まるのはこのティックに
   //    起きた発砲・擲弾着弾だけで、シムの判断には一切使わない。
   world.fx.length = 0;

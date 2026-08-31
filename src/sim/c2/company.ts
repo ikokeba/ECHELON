@@ -33,6 +33,7 @@ import { clamp } from "../geometry.ts";
 import { next } from "../rng.ts";
 import { commandFactor } from "./succession.ts";
 import { assignHolders, clampToObjective } from "./objectiveHold.ts";
+import { activeTaskOf } from "./planning.ts";
 import type { CompanyState, Contact, Mission, Soldier, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
@@ -293,6 +294,9 @@ export function companyAI(world: World): void {
       };
       let bestD = Infinity;
       for (const pl of living) {
+        // 作戦(`[v6.5]`)で任務が決まっている小隊は引き抜かない。攻勢分遣は
+        // 「手が空いている小隊を追加で差し向ける」判断であって、主攻の付け替えではない
+        if (activeTaskOf(world, co, pl.platoonId)) continue;
         const c = plCentroid(pl);
         for (const o of openObj) {
           const dd = dist(c, o.pos);
@@ -345,8 +349,14 @@ export function companyAI(world: World): void {
     );
     const claimed = new Map<number, Vec2>(); // platoonId → 拠点位置
     const takenObj = new Set<number>();
+    // 作戦(`[v6.5]`)で既に割り当て済みの拠点は、他の小隊に二重に claim させない
+    for (const pl of living) {
+      const t = activeTaskOf(world, co, pl.platoonId);
+      if (t?.objectiveId != null) takenObj.add(t.objectiveId);
+    }
     living.forEach((pl, i) => {
       if (holders.has(pl.platoonId)) return; // すでに守備に付いている小隊は動かさない
+      if (activeTaskOf(world, co, pl.platoonId)) return; // 計画で任務が決まっている
       const sector = sectorOf(i);
       let best: (typeof unclaimed)[number] | null = null;
       let bestD = Infinity;
@@ -364,7 +374,14 @@ export function companyAI(world: World): void {
     });
 
     living.forEach((pl, i) => {
-      let objective: Vec2 = claimed.get(pl.platoonId) ?? sectorOf(i);
+      // 戦闘前に立てた作戦(`[v6.5]` c2/planning.ts)。対象の拠点を取り終えるまでは
+      // 計画の割り当てを維持する — 接敵のたびに担当区域が脅威の方向へ振れて、
+      // 側面の拠点が最後まで誰の担当にもならない、という問題(F-9)への答えでもある。
+      // 完了した任務は `activeTaskOf` が null を返し、以後は従来の割り当てへ戻る。
+      const task = activeTaskOf(world, co, pl.platoonId);
+      let objective: Vec2 = task
+        ? { ...task.mission.target }
+        : (claimed.get(pl.platoonId) ?? sectorOf(i));
 
       const held = holders.get(pl.platoonId) ?? null;
       // 0.7: 守備の小隊を拠点中心に固めず、拠点内の遮蔽へ広めに散らす(`[v6.1]`)。
@@ -375,11 +392,12 @@ export function companyAI(world: World): void {
       //   攻勢分遣に指名された小隊 → 未確保拠点へ seize
       //   担当区域に脅威も拠点も無い側面の小隊 → screen(掩護・監視)
       //   それ以外 → seize(担当区域の確保 / 保持)
-      let mkind: Mission["kind"] = "seize";
+      let mkind: Mission["kind"] = task ? task.mission.kind : "seize";
       if (pl.platoonId === detachPlatoonId && detachTarget) {
         objective = detachTarget;
         mkind = "seize";
       } else if (
+        !task &&
         living.length >= 3 &&
         !held &&
         !threat &&

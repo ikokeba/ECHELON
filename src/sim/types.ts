@@ -88,6 +88,59 @@ export interface Mission {
 }
 
 /**
+ * シミュレーションの局面(`[v6.5]`)。
+ *
+ * `planning` = 戦闘開始前の作戦立案。時間は止まっており、`stepWorld` は何もしない。
+ * 中隊長が拠点に対する計画を立て、プレイヤーがそれを見てから戦闘を始める
+ * (仕様 §3① / §11 — 米陸軍の指揮活動手順 TLP に対応)。
+ */
+export type SimPhase = "planning" | "battle";
+
+/**
+ * 作戦計画の1項目 = 1個小隊に与える任務(`[v6.5]`)。
+ *
+ * 中隊長が下ろすのは「どこへ行け」ではなく**任務(WHAT)**である、という §3① /
+ * OQ-3 の方針をそのまま形にしたもの。目標地点は任務に付随する情報にすぎない。
+ */
+export interface PlanTask {
+  platoonId: number;
+  /**
+   * 戦闘序列上の位置づけ(ADP 3-90)。
+   *   main       = 主攻。勝敗を決める拠点に充てる1個小隊
+   *   supporting = 助攻。自正面の拠点確保、または主攻への支援射撃
+   *   reserve    = 予備。拠点より小隊が多いときに後方で待機する
+   */
+  role: "main" | "supporting" | "reserve";
+  mission: Mission;
+  /** 対象の拠点id(拠点に紐づかない任務は null) */
+  objectiveId: number | null;
+  /**
+   * 接近経路(axis of advance)。出発地点から目標までの折れ線。
+   * ナビグリッド上の実経路を単純化したもので、UIの矢印であると同時に
+   * 小隊の初期前進軸(`advanceDir`)の出どころでもある。
+   */
+  route: Vec2[];
+  /** 命令の一文(日本語)。UIにそのまま出す */
+  order: string;
+}
+
+/**
+ * 中隊長が戦闘前に立てる作戦(`[v6.5]`)。
+ *
+ * **敵情は一切使わない。** 立案時点で belief は空であり、そこを覗く実装にすると
+ * 仕様 §5 の情報階層が最初の1手で崩れる。地形・拠点・自軍の配置だけで組む。
+ */
+export interface OperationPlan {
+  side: Side;
+  companyId: number;
+  /** 主効の対象拠点id(拠点が無ければ null) */
+  mainObjectiveId: number | null;
+  tasks: PlanTask[];
+  /** 企図(commander's intent)の一文。UIの見出しに使う */
+  intent: string;
+}
+
+/**
  * 生存状態のみを表す。制圧は status ではない — 余韻を持たない一律の命中率低下効果
  * (仕様 §8.6)であり、`suppressedUntilTick` で管理する。
  */
@@ -525,6 +578,14 @@ export interface CompanyState {
 
   /** 後送アセット(仕様 §9)。中隊長が限られた台数を配分する */
   assets: CasevacAsset[];
+
+  /**
+   * 戦闘前に立てた作戦(`[v6.5]`)。null なら立案フェーズを踏んでいない
+   * (テストやヘッドレス実行の既定)。作戦がある間、麾下小隊への任務割り当ては
+   * 幾何的な担当区域ではなくこの計画から引く — 計画は FRAGO(=拠点の確保完了や
+   * 攻勢分遣の判断)まで有効、という指揮の作法をそのまま実装している。
+   */
+  plan: OperationPlan | null;
 
   commanderId: number | null;
   degradedSinceTick: number | null;
