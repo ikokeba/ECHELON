@@ -15,7 +15,18 @@ export function EchelonTree() {
   const roster = useSimStore((s) => s.roster);
   const control = useSimStore((s) => s.control);
   const swap = useSimStore((s) => s.requestSwap);
+  const select = useSimStore((s) => s.select);
   const viewSide = useSimStore((s) => s.viewSide);
+
+  /**
+   * ノードを押したら、交代すると同時にその指揮官本人を**選択**する。`[v6.4]`
+   * 選択すると麾下ユニットが画面上で強調される(4回目のテストプレイ指摘⑤)ので、
+   * 「誰が誰の下にいるのか」をツリーと戦場の両方で同時に確かめられる。
+   */
+  const pick = (c: Parameters<typeof swap>[0], commanderId: number | null): void => {
+    swap(c);
+    select(commanderId);
+  };
 
   const companies = roster.filter((r) => r.side === viewSide);
 
@@ -26,7 +37,7 @@ export function EchelonTree() {
       <button
         type="button"
         className={control === null ? "et-node et-on" : "et-node"}
-        onClick={() => swap(null)}
+        onClick={() => pick(null, null)}
         title="全ユニットをAIに任せる"
       >
         観戦(全AI)
@@ -41,7 +52,9 @@ export function EchelonTree() {
                 ? "et-node et-on"
                 : "et-node"
             }
-            onClick={() => swap({ echelon: "company", side: viewSide, unitId: co.companyId })}
+            onClick={() =>
+              pick({ echelon: "company", side: viewSide, unitId: co.companyId }, co.commanderId)
+            }
             title="指揮所(CP)から無線で統制する(仕様 §11)"
           >
             <span className="et-rank">中隊長</span>
@@ -67,7 +80,12 @@ export function EchelonTree() {
                     ? "et-node et-child et-on"
                     : "et-node et-child"
                 }
-                onClick={() => swap({ echelon: "platoon", side: viewSide, unitId: pl.platoonId })}
+                onClick={() =>
+                  pick(
+                    { echelon: "platoon", side: viewSide, unitId: pl.platoonId },
+                    pl.commanderId,
+                  )
+                }
               >
                 <span className="et-rank">小隊長</span>
                 <span className="et-name">
@@ -88,7 +106,12 @@ export function EchelonTree() {
                       ? "et-node et-grandchild et-on"
                       : "et-node et-grandchild"
                   }
-                  onClick={() => swap({ echelon: "squad", side: viewSide, unitId: sq.squadId })}
+                  onClick={() =>
+                    pick(
+                      { echelon: "squad", side: viewSide, unitId: sq.squadId },
+                      sq.commanderId,
+                    )
+                  }
                 >
                   <span className="et-rank">分隊長</span>
                   <span className="et-name">

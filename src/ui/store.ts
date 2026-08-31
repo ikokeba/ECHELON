@@ -24,6 +24,8 @@ const RAD2DEG = 180 / Math.PI;
 /** 階層ツリーUIが表示する編成の一覧。毎フレームではなく編成が変わったときだけ更新する。 */
 export interface RosterSquad {
   squadId: number;
+  /** 現在の指揮官の兵士id(§12 の継承結果)。麾下の強調表示に使う `[v6.4]` */
+  commanderId: number | null;
   effective: number;
   total: number;
   /** 指揮継承直後で判断が鈍っている(仕様 §12) */
@@ -33,6 +35,7 @@ export interface RosterSquad {
 export interface RosterPlatoon {
   side: Side;
   platoonId: number;
+  commanderId: number | null;
   effective: number;
   total: number;
   /** 指揮継承直後で判断が鈍っている(仕様 §12) */
@@ -43,6 +46,7 @@ export interface RosterPlatoon {
 export interface RosterCompany {
   side: Side;
   companyId: number;
+  commanderId: number | null;
   effective: number;
   total: number;
   degraded: boolean;

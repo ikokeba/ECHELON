@@ -113,6 +113,7 @@ function rosterOf(world: World): RosterCompany[] {
             );
             return {
               squadId: sq.squadId,
+              commanderId: sq.commanderId,
               effective: men.filter((s) => s.status === "ok").length,
               total: men.length,
               degraded: isDegraded(sq),
@@ -125,6 +126,7 @@ function rosterOf(world: World): RosterCompany[] {
         return {
           side: pl.side,
           platoonId: pl.platoonId,
+          commanderId: pl.commanderId,
           effective:
             squads.reduce((a, s) => a + s.effective, 0) +
             hq.filter((s) => s.status === "ok").length,
@@ -139,6 +141,7 @@ function rosterOf(world: World): RosterCompany[] {
     out.push({
       side: co.side,
       companyId: co.companyId,
+      commanderId: co.commanderId,
       effective:
         platoons.reduce((a, p) => a + p.effective, 0) +
         coHq.filter((s) => s.status === "ok").length,

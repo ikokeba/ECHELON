@@ -41,6 +41,69 @@ const SIDE_COLOR: Record<Side, number> = {
   blue: 0x4aa3ff,
   red: 0xff5a4a,
 };
+
+/**
+ * 選択した兵士が指揮官なら、その**指揮範囲**を返す(`[v6.4]` 4回目のテストプレイ指摘⑤)。
+ *
+ * 「指揮官かどうか」は肩書き(`isSquadLeader` 等)ではなく §12 の継承結果
+ * (`commanderId`)から引く。分隊長が倒れて次席のFTリーダーが分隊を引き継いだ場合、
+ * 彼を選べば分隊全員が強調される — 画面がそのまま指揮系統の現状を示す。
+ *
+ * `covers` は麾下かどうか、`directIds` は**直属の下位指揮官**の兵士id
+ * (中隊長→小隊長、小隊長→分隊長、分隊長→FTリーダー)。線はこちらにだけ引く。
+ */
+function commandScopeOf(
+  world: World,
+  sel: Soldier,
+): { covers: (s: Soldier) => boolean; directIds: Set<number> } | null {
+  const directIds = new Set<number>();
+  const sameSide = (s: Soldier): boolean => s.side === sel.side;
+
+  const co = world.companies.find((c) => c.side === sel.side && c.commanderId === sel.id);
+  if (co) {
+    for (const pl of world.platoons) {
+      if (pl.side === sel.side && pl.companyId === co.companyId && pl.commanderId !== null) {
+        directIds.add(pl.commanderId);
+      }
+    }
+    return { covers: (s) => sameSide(s) && s.companyId === co.companyId, directIds };
+  }
+
+  const pl = world.platoons.find((p) => p.side === sel.side && p.commanderId === sel.id);
+  if (pl) {
+    for (const sq of world.squads) {
+      if (sq.side === sel.side && sq.platoonId === pl.platoonId && sq.commanderId !== null) {
+        directIds.add(sq.commanderId);
+      }
+    }
+    return { covers: (s) => sameSide(s) && s.platoonId === pl.platoonId, directIds };
+  }
+
+  const sq = world.squads.find((q) => q.side === sel.side && q.commanderId === sel.id);
+  if (sq) {
+    for (const s of world.soldiers) {
+      if (
+        s.side === sel.side &&
+        s.squadId === sq.squadId &&
+        s.isFireteamLeader &&
+        s.status === "ok"
+      ) {
+        directIds.add(s.id);
+      }
+    }
+    return { covers: (s) => sameSide(s) && s.squadId === sq.squadId, directIds };
+  }
+
+  // FTリーダー(分隊長を継承していない場合)。麾下は自分のファイアチーム
+  if (sel.isFireteamLeader && sel.fireteamId >= 0) {
+    return {
+      covers: (s) =>
+        sameSide(s) && s.squadId === sel.squadId && s.fireteamId === sel.fireteamId,
+      directIds,
+    };
+  }
+  return null;
+}
 const KIA_COLOR = 0x39414f;
 const WIA_COLOR = 0xf0c000;
 const GROUND_COLOR = 0x0f1420;
@@ -61,6 +124,10 @@ const GHOST_COLOR = 0x6b7280;
 const CONTROL_RING_COLOR = 0xf5d84a;
 /** クリック選択した兵士を囲むリング(デバッグ表示の基準) */
 const SELECT_RING_COLOR = 0x7ff0ff;
+/** 選択した指揮官の麾下ユニット(`[v6.4]` 4回目のテストプレイ指摘⑤) */
+const SUBORDINATE_COLOR = 0x7ff0ff;
+/** 指揮線の最大本数。中隊長でも小隊3+本部数名なので十分 */
+const MAX_COMMAND_LINKS = 64;
 /** 発砲線: 命中 / 外れ */
 const TRACER_HIT_COLOR = 0xffe08a;
 const TRACER_MISS_COLOR = 0x8a939c;
@@ -382,6 +449,48 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   };
   const controlRing = makeHiRing(CONTROL_RING_COLOR, 40, 2.4, 3.0);
   const selectRing = makeHiRing(SELECT_RING_COLOR, 4, 2.7, 3.3);
+
+  // ── 麾下ユニットの強調(`[v6.4]` 4回目のテストプレイ指摘⑤)──
+  // 選択した指揮官の指揮下にある兵士へリングを敷き、直属の下位指揮官へは線を引く。
+  // 誰が誰の下にいるのかは §12 の継承結果(commanderId)から引くので、
+  // 指揮官が倒れて次席が引き継げば強調範囲もそのまま移る。
+  const subRingGeo = new THREE.RingGeometry(SOLDIER_RADIUS * 1.9, SOLDIER_RADIUS * 2.25, 20);
+  subRingGeo.rotateX(-Math.PI / 2);
+  const subRingMesh = new THREE.InstancedMesh(
+    subRingGeo,
+    new THREE.MeshBasicMaterial({
+      color: SUBORDINATE_COLOR,
+      transparent: true,
+      opacity: 0.85,
+      side: THREE.DoubleSide,
+      depthTest: false,
+    }),
+    MAX_SOLDIERS,
+  );
+  subRingMesh.renderOrder = 17;
+  subRingMesh.frustumCulled = false;
+  subRingMesh.count = 0;
+  scene.add(subRingMesh);
+
+  const linkGeo = new THREE.BufferGeometry();
+  linkGeo.setAttribute(
+    "position",
+    new THREE.BufferAttribute(new Float32Array(MAX_COMMAND_LINKS * 2 * 3), 3),
+  );
+  const linkLines = new THREE.LineSegments(
+    linkGeo,
+    new THREE.LineBasicMaterial({
+      color: SUBORDINATE_COLOR,
+      transparent: true,
+      opacity: 0.55,
+      depthTest: false,
+    }),
+  );
+  linkLines.renderOrder = 17;
+  linkLines.frustumCulled = false;
+  linkLines.visible = false;
+  scene.add(linkLines);
+  const linkPos = linkGeo.getAttribute("position") as THREE.BufferAttribute;
 
   // ── 移動命令の可視化(指摘: 移動命令が出せているか分からない) ──
   const orderMarkerGeo = new THREE.RingGeometry(0.7, 1.05, 4);
@@ -812,6 +921,35 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       selectRing.visible = false;
     }
 
+    // ── 麾下ユニットの強調(`[v6.4]` 指摘⑤)──
+    const scope = sel ? commandScopeOf(world, sel) : null;
+    let subN = 0;
+    let linkN = 0;
+    if (scope && selIp) {
+      for (const s of tokens) {
+        if (s.id === sel!.id || s.status === "kia") continue;
+        if (!scope.covers(s)) continue;
+        const ip = interp(s.id);
+        if (!ip || subN >= MAX_SOLDIERS) continue;
+        dummy.position.set(ip.x, 0.065, ip.z);
+        dummy.rotation.set(0, 0, 0);
+        dummy.updateMatrix();
+        subRingMesh.setMatrixAt(subN, dummy.matrix);
+        subN++;
+        // 直属の下位指揮官へだけ線を引く。全員へ引くと束になって読めない
+        if (scope.directIds.has(s.id) && linkN < MAX_COMMAND_LINKS) {
+          linkPos.setXYZ(2 * linkN, selIp.x, 0.06, selIp.z);
+          linkPos.setXYZ(2 * linkN + 1, ip.x, 0.06, ip.z);
+          linkN++;
+        }
+      }
+    }
+    subRingMesh.count = subN;
+    subRingMesh.instanceMatrix.needsUpdate = true;
+    linkGeo.setDrawRange(0, linkN * 2);
+    linkPos.needsUpdate = true;
+    linkLines.visible = linkN > 0;
+
     // ── 移動命令の可視化(指摘: 移動命令が出せているか分からない) ──
     const obj = opts.debug.showOrders ? controlObjective() : null;
     if (obj && ctl) {
@@ -1046,6 +1184,10 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       wedgeMesh.dispose();
       controlRing.geometry.dispose();
       selectRing.geometry.dispose();
+      subRingGeo.dispose();
+      subRingMesh.dispose();
+      linkGeo.dispose();
+      (linkLines.material as THREE.Material).dispose();
       orderMarkerGeo.dispose();
       orderLine.geometry.dispose();
       controlPathLine.geometry.dispose();
