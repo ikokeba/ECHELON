@@ -5,7 +5,9 @@ import { urbanCqbFixture } from "../src/sim/scenario.ts";
 import {
   cornerAssignments,
   insideBounds,
+  makeCorridorBuilding,
   makeSimpleBuilding,
+  selectAssaultDoor,
   stackPositions,
 } from "../src/sim/cqb.ts";
 import { findPathSet } from "../src/sim/navgrid.ts";
@@ -325,5 +327,38 @@ describe("ビハインドカメラ(仕様 §7.5)", () => {
 
     expect(b.blue.eye).toEqual(aiEye);
     expect(b.blue.peeking).toBe(a.blue.peeking);
+  });
+});
+
+/**
+ * 突入する扉の選定(`[v6.4]` 4回目のテストプレイ指摘③「全部屋探索せず終わっています」)。
+ *
+ * 「屋内にいるか」を分隊の重心ひとつで判定していたため、突入FTが室内にいても
+ * 支援FTが扉の外にいれば重心は建物の外に落ち、内扉が候補から消えていた。
+ * 外扉は掃討済みなので候補ゼロ = 廊下だけ取って立ち去る、という挙動になる。
+ */
+describe("突入する扉の選定(仕様 §7.2)", () => {
+  const { building } = makeCorridorBuilding(1, { minX: -12, maxX: 12, minZ: -8, maxZ: 8 }, "south");
+  const inner = building.doors.filter((d) => !d.exterior);
+  const outer = building.doors.find((d) => d.exterior)!;
+  const aim = { x: 0, z: 4 }; // 建物の奥(部屋の中)
+  const outsideFrom = { x: 0, z: -12 };
+
+  it("外から見えるのは外扉だけ", () => {
+    expect(inner.length).toBeGreaterThan(0);
+    const d = selectAssaultDoor([building], outsideFrom, aim, []);
+    expect(d!.exterior).toBe(true);
+  });
+
+  it("重心が建物の外でも、隊員が1名でも中にいれば内扉を選べる", () => {
+    // 外扉は掃討済み。重心は外(支援FTが扉の外で射撃位置についている状態)
+    const excl = [outer.id];
+    expect(selectAssaultDoor([building], outsideFrom, aim, excl)).toBeNull();
+
+    // 突入FTが廊下にいる = 建物内に隊員がいる
+    const occupants = [{ x: 0, z: -6 }];
+    const d = selectAssaultDoor([building], outsideFrom, aim, excl, occupants);
+    expect(d).not.toBeNull();
+    expect(d!.exterior).toBe(false);
   });
 });

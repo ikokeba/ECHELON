@@ -14,7 +14,7 @@
 import { CQB, LITTER, SIM_HZ } from "../constants.ts";
 import { aiSuppressed } from "../control.ts";
 import { bearersNeeded, isCommittedToLitter } from "../systems/litter.ts";
-import { buildingAt, doorById, selectAssaultDoor } from "../cqb.ts";
+import { buildingAt, doorById, insideBounds, selectAssaultDoor } from "../cqb.ts";
 import { commandFactor } from "./succession.ts";
 import { activateBuildingNav } from "../world.ts";
 import { exitCqb } from "./cqbDrill.ts";
@@ -109,7 +109,12 @@ function directFireteams(world: World, sq: SquadState, idx: LivingIndex): void {
     // 経路は扉を通るが閉じた扉が移動を阻むので、そのまま渡すとFTは扉に張り付いて止まる。
     // 接近の経由地は外扉にしておき、屋内へ入るのは突入ドリル(仕様 §7.2)に任せる。
     const host = buildingAt(world.buildings, sq.objective);
-    if (host) {
+    // `[v6.4]` ただし既に建物へ取り付いている分隊は、外の接近地点へ戻さない。
+    // 屋内の掃討は突入ドリルが扉ごとに指揮しており、その合間(再編成〜次の扉の選定)に
+    // 目標を屋外へ振ると、部屋を1つ潰すたびにFTが建物から出ていってしまう。
+    const men = idx.bySquad.get(`${sq.side}:${sq.squadId}`) ?? [];
+    const engaged = host !== null && men.some((m) => insideBounds(host.bounds, m.pos));
+    if (host && !engaged) {
       const entry = host.doors.find((d) => d.exterior) ?? host.doors[0];
       // 扉の真上ではなく手前に置く。真上だとFT全員が戸口に群がってスタックが組めない
       if (entry) {
@@ -254,11 +259,12 @@ function directBuildingAssault(world: World, sq: SquadState, idx: LivingIndex): 
   // どちらも分隊長の world picture 経由で、実際の敵位置は覗かない(仕様 §5)
   const threat = primaryThreat(sq.belief);
   const aims = [sq.objective, ...(threat ? [threat.pos] : [])];
+  const occupants = members.map((m) => m.pos);
   let door: Door | null = null;
   for (const aim of aims) {
     // `[v6.2]` 掃討済みの扉を除いて選ばせる。中廊下+区画の建物では、これで
     // 廊下 → 区画1 → 区画2 … と部屋を1つずつ潰していく動きになる(仕様 §7.2)
-    const d = selectAssaultDoor(world.buildings, from, aim, sq.clearedDoorIds);
+    const d = selectAssaultDoor(world.buildings, from, aim, sq.clearedDoorIds, occupants);
     if (d) {
       door = d;
       break;

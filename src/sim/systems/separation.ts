@@ -15,7 +15,7 @@
  */
 
 import { collidesWallIndexed } from "../wallIndex.ts";
-import { SOLDIER_RADIUS } from "../constants.ts";
+import { ENTRY_SPEED_MUL, MOVE_SPEED, SIM_DT, SOLDIER_RADIUS } from "../constants.ts";
 import { clearHash, createSpatialHash, forEachNear, insert } from "../spatial.ts";
 import type { Soldier } from "../types.ts";
 import type { World } from "../world.ts";
@@ -27,6 +27,17 @@ const MIN_SEPARATION = SOLDIER_RADIUS * 2;
  * 数ティックかけてほぐす。
  */
 const RELAX = 0.25;
+/**
+ * 1ティックに1名へ加えてよい押し出しの上限 m。`[v6.4]`
+ *
+ * これが無いと、**押し出しが命令された移動をそのまま打ち消す**。実測では
+ * 室内進入速度(0.7倍 = 0.063m/tick)の隊員が、隣接1名からの押し 0.053m/tick と
+ * 釣り合って完全に停止していた(4回目のテストプレイ指摘「ユニット間で押しあって、
+ * 移動が無限ループになっている」)。分離はあくまで重なりをほぐすための補正であって、
+ * 移動と張り合うものではないので、最も遅い移動(室内進入速度)の3割で頭打ちにする。
+ * 重なり0.7mの解消には0.6秒ほどかかるが、見た目には十分速い。
+ */
+const MAX_PUSH = MOVE_SPEED * SIM_DT * ENTRY_SPEED_MUL * 0.3;
 
 const hash = createSpatialHash<Soldier>(MIN_SEPARATION * 2);
 
@@ -89,8 +100,16 @@ export function separationSystem(world: World): void {
     const dx = pushX.get(s.id);
     const dz = pushZ.get(s.id);
     if (dx === undefined && dz === undefined) continue;
-    const nx = s.pos.x + (dx ?? 0);
-    const nz = s.pos.z + (dz ?? 0);
+    let ox = dx ?? 0;
+    let oz = dz ?? 0;
+    // 上限で頭打ちにする(向きは保つ)。移動を打ち消させないため
+    const mag = Math.hypot(ox, oz);
+    if (mag > MAX_PUSH) {
+      ox = (ox / mag) * MAX_PUSH;
+      oz = (oz / mag) * MAX_PUSH;
+    }
+    const nx = s.pos.x + ox;
+    const nz = s.pos.z + oz;
     // 押し出しで壁へめり込ませない
     if (!collidesWallIndexed(world.wallIndex, nx, nz, SOLDIER_RADIUS)) {
       s.pos = { x: nx, z: nz };

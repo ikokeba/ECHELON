@@ -104,6 +104,7 @@ export function makeSoldier(seed: SoldierSeed): Soldier {
       : { kind: "hold", facing: { ...facing }, issuedTick: 0 },
     path: [],
     pathIdx: 0,
+    stuckTicks: 0,
     sees: [],
     suppressor: false,
     assignedTarget: null,

@@ -50,6 +50,41 @@ export function buildingClearedIn(cleared: ReadonlySet<number>, b: Building): bo
 }
 
 /**
+ * **取り付いたが終わっていない**建物か(扉を1つ以上掃討済み、かつ未完)。`[v6.4]`
+ *
+ * ATP 3-06.11 では、建物は全室を掃討して初めて cleared になる。途中で離れるのは
+ * 「bypass」であって、bypass は指揮官の明示的な判断と、監視を残すこと・報告することを
+ * 伴う。破孔だけ開けて未確認の部屋を側背に残して進むのは、どちらでもない最悪の形。
+ */
+export function buildingStarted(cleared: ReadonlySet<number>, b: Building): boolean {
+  if (b.doors.length === 0) return false;
+  let done = 0;
+  for (const d of b.doors) if (cleared.has(d.id)) done++;
+  return done > 0 && done < b.doors.length;
+}
+
+/**
+ * この分隊が自分で取り付いて、まだ終わっていない建物。`[v6.4]`
+ *
+ * 状態は持たず `sq.clearedDoorIds` から毎回導出する(このモジュールの他の判定と同じ)。
+ * 「自分が破った建物は自分で終わらせる」ためのもので、接敵で前進軸がずれた瞬間に
+ * 掃討途中の建物が担当区域の外へ落ちて二度と戻らない、という取りこぼしを塞ぐ。
+ */
+export function unfinishedBuildingOf(
+  world: World,
+  cleared: ReadonlySet<number>,
+  ownDoorIds: readonly number[],
+): Building | null {
+  if (ownDoorIds.length === 0) return null;
+  const own = new Set(ownDoorIds);
+  for (const b of world.buildings) {
+    if (!buildingStarted(cleared, b)) continue;
+    if (b.doors.some((d) => own.has(d.id))) return b;
+  }
+  return null;
+}
+
+/**
  * 担当区域内で、まだ掃討していない建物のうち**前進軸に沿って最も手前**のもの。
  *
  * 「手前」= 分隊の現在地から見て、目標へ向かう軸上で前方にあり、かつ近い建物。
@@ -79,6 +114,8 @@ export function nextBuildingToClear(
 
   let best: Building | null = null;
   let bestAlong = Infinity;
+  /** 取り付き済みの建物を優先する(0 = 途中、1 = 手つかず)。`[v6.4]` */
+  let bestRank = 2;
   for (const b of world.buildings) {
     if (taken.has(b.id)) continue;
     const cx = (b.bounds.minX + b.bounds.maxX) / 2;
@@ -91,8 +128,12 @@ export function nextBuildingToClear(
     const lateral = Math.abs(ax * -fz + az * fx);
     if (lateral > radius) continue;
     if (buildingClearedIn(cleared, b)) continue;
+    // `[v6.4]` 誰かが破孔を開けて未完のまま残した建物を最優先で拾う。手つかずの
+    // 建物より危険度が高い(中に敵が残っていることが分かっていて、扉も開いている)。
+    const rank = buildingStarted(cleared, b) ? 0 : 1;
     // 最も手前のものから順に潰す(飛ばして奥へ行かない)
-    if (along < bestAlong) {
+    if (rank < bestRank || (rank === bestRank && along < bestAlong)) {
+      bestRank = rank;
       bestAlong = along;
       best = b;
     }

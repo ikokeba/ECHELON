@@ -19,6 +19,8 @@ import type { World } from "../world.ts";
 const PATH_RECHECK_TICKS = Math.round(SIM_HZ * 0.5);
 /** 目的地に十分近く、経路探索が不要とみなす距離 */
 const ARRIVE_EPS = 0.4;
+/** 追従(隊形位置)に迂回路を与えるまでの、詰まり連続ティック数(1秒)。`[v6.4]` */
+const FOLLOW_DETOUR_TICKS = SIM_HZ;
 
 export function pathingSystem(world: World): void {
   for (const s of world.soldiers) {
@@ -27,7 +29,9 @@ export function pathingSystem(world: World): void {
     // `suppress` も「この射撃位置へ移動して制圧しろ」という意味を持ちうる。
     // 集合・追従(仕様 §6.5)は経路探索を通さない。目標が毎ティック動くため、
     // 経路を張っても即座に陳腐化する。移動システムが直接近づける。
-    if (s.order.kind === "follow") continue;
+    // `[v6.4]` ただし追従者が壁を押し続けている場合だけは例外で、迂回路を1本渡す。
+    // 隊形位置が内壁の向こう側に来ると直進では永久に届かないため(移動システム側を参照)。
+    if (s.order.kind === "follow" && s.stuckTicks < FOLLOW_DETOUR_TICKS) continue;
     const goal = s.order.target;
     if (!goal) continue;
     if (s.pathIdx < s.path.length) continue; // すでに経路を追従中

@@ -21,12 +21,28 @@
  * 応急手当のみ自律実施」と整合する。
  */
 
-import { LITTER, MOVE_SPEED, SIM_DT, SOLDIER_RADIUS } from "../constants.ts";
-import { collidesWallIndexed } from "../wallIndex.ts";
+import { LITTER, MOVE_SPEED, SIM_DT, SIM_HZ, SOLDIER_RADIUS } from "../constants.ts";
+import { collidesWallIndexed, type WallIndex } from "../wallIndex.ts";
 import { findPathSet } from "../navgrid.ts";
 import { advanceAlongPath } from "../pathfollow.ts";
+import { buildingAt } from "../cqb.ts";
+import { activateBuildingNav } from "../world.ts";
 import type { Side, Soldier, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
+
+/**
+ * 担架が進めていないと判定する1ティックあたりの移動量 m。`[v6.4]`
+ * 4名編成でも 0.085m/tick 進むので、その1割強を下回れば止まっているとみなす。
+ */
+const LITTER_STUCK_EPS = 0.01;
+/** 担架が詰まったまま**ウェイポイントを1つ諦める**までの連続ティック数(0.5秒)。`[v6.4]` */
+const LITTER_SKIP_TICKS = Math.round(SIM_HZ * 0.5);
+/** 担架が詰まったまま経路を張り直すまでの連続ティック数(1.5秒)。`[v6.4]` */
+const LITTER_REPATH_TICKS = Math.round(SIM_HZ * 1.5);
+/** 経路要求を試みる周期(ティック)。失敗する探索は成功するものより高くつく */
+const LITTER_REQUEST_EVERY = SIM_HZ;
+/** 収容(要員が負傷者へ集まる段階)を諦めて班を解散するまでの秒数。`[v6.4]` */
+const PICKUP_TIMEOUT_TICKS = SIM_HZ * 20;
 
 /** 担架要員が「搬送に拘束されている」か。C2層はこの隊員へ命令を出さない。 */
 export function isCommittedToLitter(s: Soldier): boolean {
@@ -65,7 +81,25 @@ function release(world: World, bearerId: number): void {
 function disband(world: World, patient: Soldier): void {
   for (const id of [...patient.bearers]) release(world, id);
   patient.bearers = [];
+  patient.stuckTicks = 0;
   if (patient.evac === "carrying") patient.evac = "requested";
+}
+
+/**
+ * 担架そのものの移動。壁に当たったら壁沿いへ逃がす(`[v6.4]`)。
+ *
+ * 従来は「壁に当たる位置なら採用しない」だけで、壁沿いスライドも詰まりの検出も
+ * 無かった。担架班は剛体なので一度角に噛むと自力では絶対に抜けられず、実測で
+ * **153秒動かない**担架班が出ていた(4回目のテストプレイ指摘「搬送中に壁で詰まる」)。
+ * 移動システムと同じスライド規則を使う。
+ */
+function slide(idx: WallIndex, from: Vec2, to: Vec2): Vec2 {
+  if (!collidesWallIndexed(idx, to.x, to.z, SOLDIER_RADIUS)) return to;
+  const sx = { x: to.x, z: from.z };
+  if (!collidesWallIndexed(idx, sx.x, sx.z, SOLDIER_RADIUS)) return sx;
+  const sz = { x: from.x, z: to.z };
+  if (!collidesWallIndexed(idx, sz.x, sz.z, SOLDIER_RADIUS)) return sz;
+  return { ...from };
 }
 
 /**
@@ -120,6 +154,14 @@ export function litterSystem(world: World): void {
     }
     if (p.bearers.length === 0) {
       p.evac = "requested";
+      continue;
+    }
+    // `[v6.4]` 欠員が出て所要人数(2名/4名)を割った班は、その場でいったん降ろして
+    // 組み直す。仕様 §9 の編成は2名か4名で、1名で担架は担げない。欠けたまま
+    // 走らせると、いつまでも収容が成立しない班が戦場に残る(実測で確認した)。
+    if (p.bearers.length < bearersNeeded(p, world.ccp[p.side])) {
+      disband(world, p);
+      p.evac = "requested";
     }
   }
 
@@ -149,11 +191,18 @@ export function litterSystem(world: World): void {
 
     if (cands.length < need) continue; // 人が足りない。命令は残るので条件が整えば再試行される
 
+    // `[v6.4]` 屋内で倒れた負傷者は、その建物の屋内ナビグリッドが張られていないと
+    // 担架要員が経路を引けない(屋外グリッドは建物内部を除いてある)。突入した建物なら
+    // 既に張られているが、掃討済みの建物から後で搬出する場合に落ちる。ここで保証する。
+    const host = buildingAt(world.buildings, patient.pos);
+    if (host) activateBuildingNav(world, host.id);
+
     for (let i = 0; i < need; i++) {
       const b = cands[i]!.c;
       b.bearing = patient.id;
       patient.bearers.push(b.id);
     }
+    patient.stuckTicks = 0;
   }
 
   // ── 3. 収容と搬送 ──
@@ -172,6 +221,11 @@ export function litterSystem(world: World): void {
       // まだ収容前 — 全員が負傷者のそばへ集まるまでは通常速度で近づく
       const allNear = bearers.every((b) => dist(b.pos, patient.pos) <= LITTER.PICKUP_RADIUS);
       if (!allNear) {
+        // `[v6.4]` 収容にも時間の上限を置く。要員がどうしても負傷者へ到達できない
+        // 場合(瓦礫の奥・扉の向こう)に班を張り付かせたままにすると、健常兵が
+        // 2〜4名まるごと戦闘から消える。いったん解散して分隊へ返し、命令だけ残す。
+        patient.stuckTicks += 1;
+        if (patient.stuckTicks > PICKUP_TIMEOUT_TICKS) disband(world, patient);
         for (const b of bearers) {
           b.speedMul = 1;
           b.order = {
@@ -184,6 +238,7 @@ export function litterSystem(world: World): void {
         continue;
       }
       patient.evac = "carrying";
+      patient.stuckTicks = 0;
     }
 
     // ── 搬送中 ──
@@ -200,7 +255,12 @@ export function litterSystem(world: World): void {
       continue;
     }
 
-    if (patient.pathIdx >= patient.path.length) {
+    // 経路要求は毎ティックではなく間引く(pathing.ts と同じ理由 — 失敗する探索は
+    // 成功するものより高くつく)。位相は鏡像で一致する `ordinal` でずらす。
+    if (
+      patient.pathIdx >= patient.path.length &&
+      (world.tick + patient.ordinal) % LITTER_REQUEST_EVERY === 0
+    ) {
       const p = findPathSet(world.nav, patient.pos.x, patient.pos.z, ccp.x, ccp.z);
       if (p) {
         patient.path = p;
@@ -210,10 +270,26 @@ export function litterSystem(world: World): void {
 
     // 搬送速度倍率(仕様 §9: 2名0.5倍 / 4名0.85倍)。全体がここに律速される
     const step = advanceAlongPath(patient.pos, patient.path, patient.pathIdx, maxStep * speedMul);
-    if (!collidesWallIndexed(world.wallIndex, step.pos.x, step.pos.z, SOLDIER_RADIUS)) {
-      patient.pos = step.pos;
-    }
+    const accepted = slide(world.wallIndex, patient.pos, step.pos);
+    const progressed = Math.hypot(accepted.x - patient.pos.x, accepted.z - patient.pos.z);
+    patient.pos = accepted;
     patient.pathIdx = step.pathIdx;
+    // 壁沿いへ逃がしても進めないなら、まずウェイポイントを1つ諦め、それでも
+    // 駄目なら経路ごと捨てて張り直す(移動システムの詰まり復帰と同じ段取り)。
+    // 張り直しだけでは足りない — A*は同じ始点終点から同じ経路を返すので、
+    // 通れないウェイポイントを飛ばす段が要る(実測で27秒の停止が残っていた)。
+    if (progressed > LITTER_STUCK_EPS) {
+      patient.stuckTicks = 0;
+    } else {
+      patient.stuckTicks += 1;
+      if (patient.stuckTicks >= LITTER_REPATH_TICKS) {
+        patient.path = [];
+        patient.pathIdx = 0;
+        patient.stuckTicks = 0;
+      } else if (patient.stuckTicks % LITTER_SKIP_TICKS === 0) {
+        patient.pathIdx += 1;
+      }
+    }
     const dir = step.dir ?? { x: patient.facing.x, z: patient.facing.z };
     patient.facing = { ...dir };
 

@@ -120,6 +120,7 @@ function joinReplacement(world: World, casualty: Soldier): void {
     order: { kind: "hold", facing: { ...casualty.facing }, issuedTick: world.tick },
     path: [],
     pathIdx: 0,
+    stuckTicks: 0,
     sees: [],
     suppressor: false,
     assignedTarget: null,

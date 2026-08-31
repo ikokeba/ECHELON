@@ -158,6 +158,18 @@ export function selectAssaultDoor(
   aim: Vec2,
   /** すでに掃討済みの扉。次の部屋へ進むため候補から外す。`[v6.2]` */
   exclude: readonly number[] = [],
+  /**
+   * 分隊の各隊員の位置。`[v6.4]`
+   *
+   * 「屋内にいるか」の判定を**重心ひとつ**で行っていたのが、部屋を残したまま
+   * 建物を離れる原因だった。突入FTが室内にいても、支援FTが扉の外で射撃位置に
+   * ついていれば重心は建物の外に落ちる。すると内扉が候補から消え、外扉は掃討済み
+   * なので候補が無くなり、分隊は**廊下だけ掃討して立ち去る**(実測: 進入した建物の
+   * 8割が扉1/3のまま放棄。4回目のテストプレイ指摘「全部屋探索せず終わっています」)。
+   * ATP 3-06.11 では建物は全室を掃討して初めて cleared なので、
+   * **1名でも中にいれば屋内**として扱い、次の部屋へ進ませる。
+   */
+  occupants: readonly Vec2[] = [],
 ): Door | null {
   const target = buildingAt(buildings, aim);
   if (!target) return null;
@@ -165,14 +177,24 @@ export function selectAssaultDoor(
   // `[v6.2]` 中廊下+区画の建物では、外にいる分隊は**外扉からしか入れない**。
   // 内扉は建物内部にあり、そこへのスタック位置は壁の向こう側になってしまう。
   // 建物に入ってから初めて内扉が候補になり、部屋を1つずつ潰す動きになる(仕様 §7.2)。
-  const inside = insideBounds(target.bounds, from);
+  const inside =
+    insideBounds(target.bounds, from) ||
+    occupants.some((p) => insideBounds(target.bounds, p));
+
+  // 扉までの距離は「分隊の重心」と「各隊員」のうち最も近いもので測る。重心だけで
+  // 測ると、室内にいる突入FTのすぐ隣の内扉が発動距離の外に出てしまうことがある。
+  const nearestTo = (p: Vec2): number => {
+    let d = Math.hypot(p.x - from.x, p.z - from.z);
+    for (const o of occupants) d = Math.min(d, Math.hypot(p.x - o.x, p.z - o.z));
+    return d;
+  };
 
   let best: Door | null = null;
   let bestD = Infinity;
   for (const d of target.doors) {
     if (exclude.includes(d.id)) continue;
     if (!inside && !d.exterior) continue;
-    const dist = Math.hypot(d.pos.x - from.x, d.pos.z - from.z);
+    const dist = nearestTo(d.pos);
     if (dist > CQB.ASSAULT_TRIGGER_DIST) continue;
     if (dist < bestD) {
       bestD = dist;

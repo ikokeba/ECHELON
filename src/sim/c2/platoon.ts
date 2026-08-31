@@ -17,7 +17,12 @@ import { SIM_HZ } from "../constants.ts";
 import { aiSuppressed } from "../control.ts";
 import { commandFactor } from "./succession.ts";
 import { assignHolders, clampToObjective } from "./objectiveHold.ts";
-import { clearedDoorSet, clearingObjective, nextBuildingToClear } from "./clearInZone.ts";
+import {
+  clearedDoorSet,
+  clearingObjective,
+  nextBuildingToClear,
+  unfinishedBuildingOf,
+} from "./clearInZone.ts";
 import type { Contact, Mission, MovementTechnique, PlatoonState, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
@@ -227,7 +232,14 @@ export function platoonAI(world: World): void {
         if (isWeaponsSquad(sq)) continue; // 火器分隊は支援射撃。突入させない
         const c = sqCentroidOf(sq);
         if (!c) continue;
-        const b = nextBuildingToClear(world, pl.side, c, aim, CLEAR_ZONE_RADIUS, taken, cleared);
+        // `[v6.4]` 自分が破孔を開けた建物が未完なら、まずそれを終わらせる
+        // (ATP 3-06.11: 未掃討の部屋を側背に残さない)。接敵で前進軸が振れると
+        // 掃討途中の建物が担当区域から外れ、二度と戻らないまま放置されていた。
+        const own = unfinishedBuildingOf(world, cleared, sq.clearedDoorIds);
+        const b =
+          own && !taken.has(own.id)
+            ? own
+            : nextBuildingToClear(world, pl.side, c, aim, CLEAR_ZONE_RADIUS, taken, cleared);
         if (!b) continue;
         taken.add(b.id);
         clearAssign.set(sq.squadId, clearingObjective(b));
