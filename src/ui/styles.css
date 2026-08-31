@@ -1,12 +1,32 @@
+/*
+ * 配色(`[v6.5]`)。地図を中東の市街地(乾いた土と日に焼けた漆喰)に合わせたので、
+ * HUDも冷たい紺から**温かい炭色**へ寄せてある。明るい砂地の上に青灰色のパネルを
+ * 置くと、UIだけが別の作品から持ってきたように浮く。
+ *
+ * `--map-blue` / `--map-red` は **render/renderer.ts の SIDE_COLOR と同値**。
+ * 凡例の色見本など、地図と一致していなければ意味が無いものだけがこれを使う。
+ * `--blue` / `--red` は暗いパネルの上の文字用に一段明るくした派生色。
+ */
 :root {
   color-scheme: dark;
   font-family: system-ui, "Segoe UI", "Yu Gothic UI", sans-serif;
-  --blue: #4aa3ff;
-  --red: #ff5a4a;
-  --panel: rgba(14, 20, 32, 0.82);
-  --border: #2a3446;
-  --text: #d7dde8;
-  --muted: #8b97a8;
+  --blue: #4a8ce6;
+  --red: #e8483c;
+  --map-blue: #2f74d8;
+  --map-red: #d8342f;
+  --panel: rgba(26, 21, 14, 0.86);
+  --border: #4c4133;
+  --text: #ece2cf;
+  --muted: #a3947a;
+  /* ボタン・入れ子パネルの面。数字が散らばると調色できないので変数に寄せる */
+  --btn: #2b2419;
+  --btn-hover: #3d3324;
+  --btn-alt: #241e14;
+  --btn-alt2: #1d180f;
+  /* 統制手段・強調の色。地図側の定数と対で決めている */
+  --accent: #ffc21e;
+  --cyan: #00e0ff;
+  --green: #18a86e;
 }
 
 * {
@@ -22,7 +42,7 @@ body,
 }
 
 body {
-  background: #0b0e14;
+  background: #15110b;
   color: var(--text);
 }
 
@@ -96,7 +116,7 @@ body {
 }
 
 .tc-btn {
-  background: #1a2233;
+  background: var(--btn);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -106,12 +126,19 @@ body {
 }
 
 .tc-btn:hover:not(:disabled) {
-  background: #24304a;
+  background: var(--btn-hover);
 }
 
 .tc-btn:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+.tc-planning {
+  color: var(--accent);
+  font-size: 12px;
+  padding: 6px 10px;
+  letter-spacing: 0.04em;
 }
 
 .tc-active {
@@ -166,8 +193,10 @@ body {
   position: absolute;
   left: 12px;
   bottom: 12px;
+  width: 232px;
+  line-height: 1.6;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -205,7 +234,7 @@ body {
 
 .vc-btn {
   flex: 1;
-  background: #1a2233;
+  background: var(--btn);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -215,13 +244,13 @@ body {
 }
 
 .vc-btn:hover {
-  background: #24304a;
+  background: var(--btn-hover);
 }
 
 .vc-on {
-  border-color: #7aa2d8;
-  color: #cfe0ff;
-  background: #24304a;
+  border-color: #c2a86a;
+  color: #f3e6c6;
+  background: var(--btn-hover);
 }
 
 .vc-on.vc-blue {
@@ -292,7 +321,7 @@ body {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  background: #1a2233;
+  background: var(--btn);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -303,17 +332,17 @@ body {
 }
 
 .et-node:hover {
-  background: #24304a;
+  background: var(--btn-hover);
 }
 
 .et-child {
   margin-left: 10px;
-  background: #151c2b;
+  background: var(--btn-alt);
 }
 
 .et-grandchild {
   margin-left: 20px;
-  background: #121826;
+  background: var(--btn-alt2);
 }
 
 /* 後送アセットの稼働状況(仕様 §9)。ノードではなく中隊の付帯情報 */
@@ -336,9 +365,9 @@ body {
 }
 
 .et-on {
-  border-color: #f5c451;
-  color: #f5c451;
-  background: #2a2718;
+  border-color: var(--accent);
+  color: var(--accent);
+  background: #3a2f14;
 }
 
 .et-rank {
@@ -348,7 +377,7 @@ body {
 }
 
 .et-on .et-rank {
-  color: #c9a740;
+  color: #d0ab48;
 }
 
 .et-name {
@@ -369,7 +398,7 @@ body {
 .objectives {
   position: absolute;
   left: 12px;
-  bottom: 44px;
+  bottom: 96px;
   width: 232px;
   display: flex;
   flex-direction: column;
@@ -406,7 +435,7 @@ body {
   flex: 1;
   height: 5px;
   border-radius: 3px;
-  background: #1a2233;
+  background: var(--btn);
   overflow: hidden;
 }
 
@@ -416,11 +445,11 @@ body {
   transition: width 0.2s linear;
 }
 
-.obj-neutral { background: #6de0a0; }
+.obj-neutral { background: var(--green); }
 .obj-blue { background: var(--blue); }
 .obj-red { background: var(--red); }
 /* 係争中は確保カウントが完全に停止している(仕様 §12) */
-.obj-contested { background: #f5c451; color: #f5c451; font-size: 10px; }
+.obj-contested { background: #f0a81c; color: #f0a81c; font-size: 10px; }
 span.obj-contested { background: none; flex: none; }
 
 .obj-victory {
@@ -435,8 +464,8 @@ span.obj-contested { background: none; flex: none; }
   gap: 8px;
 }
 
-.obj-victory-blue { background: #16304d; color: var(--blue); }
-.obj-victory-red { background: #4a1f1c; color: var(--red); }
+.obj-victory-blue { background: #1a2a44; color: var(--blue); }
+.obj-victory-red { background: #45201b; color: var(--red); }
 
 .obj-reason {
   font-size: 10px;
@@ -462,8 +491,8 @@ span.obj-contested { background: none; flex: none; }
   font-size: 13px;
   white-space: nowrap;
 }
-.control-banner.cb-blue { border-color: var(--blue); box-shadow: 0 0 0 1px rgba(74, 163, 255, 0.35); }
-.control-banner.cb-red { border-color: var(--red); box-shadow: 0 0 0 1px rgba(255, 90, 74, 0.35); }
+.control-banner.cb-blue { border-color: var(--blue); box-shadow: 0 0 0 1px rgba(74, 140, 230, 0.35); }
+.control-banner.cb-red { border-color: var(--red); box-shadow: 0 0 0 1px rgba(232, 72, 60, 0.35); }
 .control-banner.cb-idle { opacity: 0.7; }
 .cb-side { font-weight: 800; letter-spacing: 0.14em; font-size: 11px; }
 .cb-blue .cb-side { color: var(--blue); }
@@ -497,8 +526,8 @@ span.obj-contested { background: none; flex: none; }
   transition: opacity 0.4s;
 }
 .order-toast.ot-flash {
-  border-color: #f5d84a;
-  color: #f5d84a;
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .ot-head { font-weight: 700; }
 .ot-dest { color: var(--muted); }
@@ -509,7 +538,7 @@ span.obj-contested { background: none; flex: none; }
   left: 12px;
   top: 292px;
   width: 240px;
-  max-height: calc(100vh - 520px);
+  max-height: calc(100vh - 580px);
   min-height: 120px;
   overflow-y: auto;
   display: flex;
@@ -533,7 +562,7 @@ span.obj-contested { background: none; flex: none; }
   padding: 0 4px;
   border-radius: 3px;
 }
-.tp-cqb { background: #2a2718; color: #f5c451; }
+.tp-cqb { background: #3a2f14; color: #f0a81c; }
 .tp-deg { background: #4a2020; color: #ff9a8a; }
 .tp-ft {
   display: flex;
@@ -576,7 +605,7 @@ span.obj-contested { background: none; flex: none; }
   letter-spacing: 0.06em;
 }
 .dbg-x {
-  background: #1a2233;
+  background: var(--btn);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -592,7 +621,7 @@ span.obj-contested { background: none; flex: none; }
 .dbg-seg { display: flex; gap: 4px; }
 .dbg-seg-btn {
   flex: 1;
-  background: #1a2233;
+  background: var(--btn);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -600,11 +629,11 @@ span.obj-contested { background: none; flex: none; }
   font-size: 11px;
   cursor: pointer;
 }
-.dbg-seg-btn.dbg-on { border-color: #7ff0ff; color: #7ff0ff; background: #14323a; }
+.dbg-seg-btn.dbg-on { border-color: var(--cyan); color: var(--cyan); background: #133038; }
 .dbg-chk { display: flex; align-items: center; gap: 7px; cursor: pointer; }
 .dbg-slider { display: flex; flex-direction: column; gap: 3px; }
 .dbg-slider-head { display: flex; justify-content: space-between; color: var(--muted); }
-.dbg-slider input[type="range"] { width: 100%; accent-color: #f5c451; }
+.dbg-slider input[type="range"] { width: 100%; accent-color: var(--accent); }
 .dbg-posture { border: 1px solid var(--border); border-radius: 5px; padding: 5px 7px; }
 .dbg-posture > summary {
   display: flex;
@@ -614,14 +643,14 @@ span.obj-contested { background: none; flex: none; }
   font-weight: 600;
 }
 .dbg-posture > summary::-webkit-details-marker { display: none; }
-.dbg-posture > input[type="range"] { width: 100%; accent-color: #f5c451; margin: 4px 0; }
+.dbg-posture > input[type="range"] { width: 100%; accent-color: var(--accent); margin: 4px 0; }
 .dbg-slider-sub { margin-left: 8px; font-size: 11px; }
-.dbg-slider-sub input[type="range"] { accent-color: #7aa2d8; }
+.dbg-slider-sub input[type="range"] { accent-color: #c2a86a; }
 .dbg-note, .dbg-legend div { font-size: 10px; color: var(--muted); line-height: 1.5; }
 .dbg-blue { color: var(--blue); }
 .dbg-red { color: var(--red); }
 .dbg-reset {
-  background: #1a2233;
+  background: var(--btn);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -629,12 +658,12 @@ span.obj-contested { background: none; flex: none; }
   cursor: pointer;
   font-size: 12px;
 }
-.dbg-reset:hover { background: #24304a; }
+.dbg-reset:hover { background: var(--btn-hover); }
 .dbg-legend { display: flex; flex-direction: column; gap: 3px; border-top: 1px solid var(--border); padding-top: 8px; }
 .dbg-legend div { display: flex; align-items: center; gap: 6px; }
 .lg-swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; display: inline-block; }
 /* 階級章の凡例マーク。地図上の白っぽい標に合わせる */
-.lg-rank { width: 10px; flex: none; display: inline-block; text-align: center; color: #cfe0f5; }
+.lg-rank { width: 10px; flex: none; display: inline-block; text-align: center; color: #f0e2c2; }
 
 /* ── 配置エディタ(`[v6.4]`)。デバッグパネルと同じ枠に出る ── */
 .deploy-panel {
@@ -654,8 +683,8 @@ span.obj-contested { background: none; flex: none; }
   font-size: 12px;
   backdrop-filter: blur(6px);
 }
-.dep-sym { color: #6de0a0; font-size: 11px; font-weight: 600; }
-.dep-asym { color: #f5c451; font-size: 11px; font-weight: 600; }
+.dep-sym { color: #35c98c; font-size: 11px; font-weight: 600; }
+.dep-asym { color: #f0a81c; font-size: 11px; font-weight: 600; }
 .dep-spawn {
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -673,7 +702,7 @@ span.obj-contested { background: none; flex: none; }
   border-radius: 5px;
   padding: 4px 6px;
 }
-.dep-obj-on { border-color: #7ff0ff; background: #14323a; }
+.dep-obj-on { border-color: var(--cyan); background: #133038; }
 .dep-obj-pick {
   flex: 1;
   text-align: left;
@@ -690,12 +719,165 @@ span.obj-contested { background: none; flex: none; }
 .dep-obj-r { display: flex; align-items: center; gap: 3px; }
 .dep-obj-r input {
   width: 44px;
-  background: #1a2233;
+  background: var(--btn);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 2px 4px;
   font-size: 11px;
 }
-.dep-apply { border-color: #6de0a0; color: #6de0a0; }
-.dep-legend { color: #c9d6ea; }
+.dep-apply { border-color: var(--green); color: #35c98c; }
+.dep-legend { color: #f2ecdd; }
+
+/* ── 作戦立案パネル(`[v6.5]` 仕様 §3① / §11)── 画面下中央、凡例の上 */
+/*
+ * 左の列に置く。中央下に置くと、下側の陣営(RED)の初期配置がパネルの裏に隠れる —
+ * 立案フェーズで一番見たいものがそれなので致命的だった。左の列は 16:9 では
+ * 盤面の外側に来るので、何も隠さない。
+ */
+.plan-panel {
+  position: absolute;
+  left: 12px;
+  top: 292px;
+  width: 300px;
+  max-height: calc(100vh - 420px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  padding: 12px 14px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+  z-index: 6;
+}
+.plan-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.plan-title {
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  color: var(--accent);
+  font-size: 13px;
+}
+.plan-sub { color: var(--muted); font-size: 11px; }
+.plan-body { display: flex; flex-direction: column; gap: 10px; }
+.plan-force { display: flex; flex-direction: column; gap: 3px; }
+.plan-force-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.plan-peek {
+  font-size: 9px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--btn-hover);
+  color: var(--muted);
+}
+.plan-intent { color: var(--muted); font-size: 11px; }
+/* 行にカーソルを乗せると、地図側でその小隊の接近経路だけが濃くなる */
+.plan-task {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 4px 6px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  cursor: default;
+}
+.plan-task:hover { background: var(--btn-alt); border-color: var(--border); }
+.plan-role {
+  flex: none;
+  width: 34px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 3px;
+  padding: 1px 0;
+}
+.plan-role-main { background: #5a3a10; color: var(--accent); }
+.plan-role-supporting { background: var(--btn-hover); color: var(--text); }
+.plan-role-reserve { background: var(--btn-alt); color: var(--muted); }
+.plan-mission { flex: none; color: var(--muted); font-size: 11px; }
+.plan-order { flex: 1 1 100%; min-width: 0; line-height: 1.5; }
+.plan-foot { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+.plan-start {
+  background: #5a3a10;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.plan-start:hover { background: #6d4713; }
+.plan-key {
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.75;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  padding: 0 4px;
+  margin-left: 4px;
+}
+
+/* ── 凡例(`[v6.5]`)── 画面下中央。色見本は renderer.ts の定数と同値 */
+.legend {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  max-width: min(900px, calc(100vw - 540px));
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  backdrop-filter: blur(6px);
+  font-size: 11px;
+}
+.lg-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+.lg-head .dbg-x { width: 18px; height: 18px; font-size: 11px; }
+.lg-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.lg-cap {
+  flex: none;
+  width: 28px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.lg-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.lg-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; display: inline-block; }
+.lg-diamond { border-radius: 2px; transform: rotate(45deg); width: 8px; height: 8px; }
+.lg-ring { background: none; border: 2px solid currentColor; }
+.lg-bar { border-radius: 2px; width: 4px; height: 11px; }
+.lg-rankmark {
+  flex: none;
+  color: #f0e2c2;
+  letter-spacing: -1px;
+  font-size: 10px;
+}
+/* 凡例を閉じているときの再表示ボタン */
+.lg-open {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  background: var(--panel);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: 11px;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+.lg-open:hover { color: var(--text); }

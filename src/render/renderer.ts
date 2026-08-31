@@ -45,35 +45,84 @@ export interface RenderOpts {
   } | null;
   /** 配置エディタで選んでいる道具。選択中の対象を強めに描く */
   setupTool?: null | "blueSpawn" | "redSpawn" | "objective";
+  /**
+   * 作戦立案フェーズの接近経路(`[v6.5]`)。中隊長が各小隊へ与えた接近軸を、
+   * 矢印付きの折れ線として盤面に重ねる。`hovered` はパネル側でカーソルを
+   * 乗せている項目のキーで、その1本だけを強調する(地図に文字を出さずに
+   * パネルの行と経路を対応づけるための手段)。
+   */
+  planRoutes?: PlanRouteView[] | null;
+  hoveredPlanKey?: string | null;
 }
 
+/** レンダラが描く接近経路1本。ui/store の PlanTask と構造的に一致していればよい。 */
+export interface PlanRouteView {
+  /** `${side}:${platoonId}` */
+  key: string;
+  side: Side;
+  main: boolean;
+  points: Vec2[];
+}
+
+/**
+ * ── 配色(`[v6.5]`)──
+ *
+ * 中東の市街地を想定した昼間の配色にしてある。地は乾いた土と砂、建物は日に焼けた
+ * 日干し煉瓦とコンクリート、室内は日陰。以前の暗い紺色の盤面から変えた理由は
+ * 2つあって、ひとつは題材(市街地戦)に合うこと、もうひとつは**明るい地の上では
+ * 兵士トークンに影と縁が付けられる**こと — 暗い地の上では影が沈んで見えないので、
+ * 224名が重なる中隊戦で1人ずつを見分ける手がかりが色しか無かった。
+ *
+ * 明るい地に合わせて陣営色を一段濃くしてある(以前の水色・朱色は砂の上で沈む)。
+ * HUDのCSS側(`--map-blue` / `--map-red`)と必ず揃えること — 凡例の色見本が
+ * 地図と食い違うと凡例の意味が無くなる。
+ */
 const SIDE_COLOR: Record<Side, number> = {
-  blue: 0x4aa3ff,
-  red: 0xff5a4a,
+  blue: 0x2f74d8,
+  red: 0xd8342f,
 };
 
-const KIA_COLOR = 0x39414f;
-const WIA_COLOR = 0xf0c000;
-const GROUND_COLOR = 0x0f1420;
-const WALL_COLOR = 0x39435a;
-/** 建物の床。屋外と区別がつく程度に明るくする(仕様 §7.1) */
-const ROOM_FLOOR_COLOR = 0x1a2233;
-/** 閉じた扉 — 視線も移動も遮っている(仕様 §7.6) */
-const DOOR_CLOSED_COLOR = 0xc98a3a;
-/** 開いた扉 — この瞬間から室内が見える(仕様 §7.6) */
-const DOOR_OPEN_COLOR = 0x3f6b52;
-/** 中立の拠点(仕様 §12) */
-const NEUTRAL_OBJ_COLOR = 0x6de0a0;
+/** 戦死。土に還る手前の色。彩度を落として「もう動かないもの」に見せる */
+const KIA_COLOR = 0x3a352b;
+/** 出血中のWIA。砂の上で埋もれないよう、彩度の高い黄にする(仕様 §9) */
+const WIA_COLOR = 0xffcc17;
+/** 屋外の地面 — 乾いた土。テクスチャの下地でもある */
+const GROUND_COLOR = 0x9c8763;
+/** 盤外。play area の外側を一段落として、盤面そのものを額装する */
+const OUT_OF_PLAY_COLOR = 0x453c2e;
+/** 建物の壁の天端 — 日に焼けた漆喰・コンクリート。真上から見ると最も明るい面 */
+const WALL_COLOR = 0xd9c9a4;
+/** 街路の低い遮蔽(塀・土嚢・車列)。建物の壁と区別できるよう一段暗い土壁色 */
+const CLUTTER_COLOR = 0x6a5230;
+/** 建物の床 — 屋根の下なので日陰(仕様 §7.1) */
+const ROOM_FLOOR_COLOR = 0x6d5f47;
+/** 建物が落とす影。太陽は高いので短い(`[v6.5]`) */
+const SHADOW_COLOR = 0x2b2318;
+const SHADOW_OPACITY = 0.3;
+/** 影のずれ m。全ての影で共通にしないと光源が2つあるように見える */
+const SHADOW_DX = 2.4;
+const SHADOW_DZ = 3.2;
+/** 閉じた扉 — 視線も移動も遮っている(仕様 §7.6)。木の扉に見立てた濃い茶 */
+const DOOR_CLOSED_COLOR = 0x7c4a1e;
+/** 開いた扉 — この瞬間から室内が見える(仕様 §7.6)。抜けた開口部 */
+const DOOR_OPEN_COLOR = 0x413524;
+/** 中立の拠点(仕様 §12)。砂の上で最も目立つ補色として緑を当てる */
+const NEUTRAL_OBJ_COLOR = 0x22c07f;
 /** コンテスト状態 — 確保カウントが完全に停止している(仕様 §12) */
-const CONTESTED_OBJ_COLOR = 0xf5c451;
+const CONTESTED_OBJ_COLOR = 0xf0a81c;
 /** 確度が尽きた最終目撃情報(ゴースト)の色。仕様 §5 `[v6]` */
-const GHOST_COLOR = 0x6b7280;
-/** 人間が操作中のノードを囲むリング(指摘: いまどのユニットを操作しているか分からない) */
-const CONTROL_RING_COLOR = 0xf5d84a;
+const GHOST_COLOR = 0x6a6252;
+/**
+ * 人間が操作中のノードを囲むリング。地が明るくなったので金では沈む — 白にした
+ * (`[v6.5]`)。地図上で白を使うのはこれとCCPの十字だけ。
+ */
+const CONTROL_RING_COLOR = 0xffffff;
+/** 移動命令のマーカーと線。操作中リングと対にして琥珀色 */
+const ORDER_COLOR = 0xffc21e;
 /** クリック選択した兵士を囲むリング(デバッグ表示の基準) */
-const SELECT_RING_COLOR = 0x7ff0ff;
+const SELECT_RING_COLOR = 0x00e0ff;
 /** 選択した指揮官の麾下ユニット(`[v6.4]` 4回目のテストプレイ指摘⑤) */
-const SUBORDINATE_COLOR = 0x7ff0ff;
+const SUBORDINATE_COLOR = 0x00e0ff;
 /** 指揮線の最大本数。中隊長でも小隊3+本部数名なので十分 */
 const MAX_COMMAND_LINKS = 64;
 /**
@@ -81,10 +130,10 @@ const MAX_COMMAND_LINKS = 64;
  * 同じ緑で描いていたときは、拠点を動かしても元の位置に実物のリングが残るので
  * 「動かせていない」ように見えた(4回目のテストプレイ指摘)。
  */
-const PLAN_COLOR = 0xc9d6ea;
+const PLAN_COLOR = 0xf2ecdd;
 /** 発砲線: 命中 / 外れ */
-const TRACER_HIT_COLOR = 0xffe08a;
-const TRACER_MISS_COLOR = 0x8a939c;
+const TRACER_HIT_COLOR = 0xfff0a0;
+const TRACER_MISS_COLOR = 0x5c5341;
 /** 発砲線の寿命(秒)。短く光ってすぐ消える */
 const TRACER_LIFE = 0.11;
 /** 擲弾の着弾円の寿命(秒) */
@@ -111,9 +160,11 @@ interface Blast {
   life: number;
 }
 /** 止血済みWIA。出血は止まったが行動不能で後送待ち(仕様 §9) */
-const STABILIZED_COLOR = 0x4fb477;
+const STABILIZED_COLOR = 0x2fbf72;
 /** 担架搬送中(負傷者本人と担架要員の両方)。仕様 §9 */
-const CARRYING_COLOR = 0x8fd6ff;
+const CARRYING_COLOR = 0x7ad3ff;
+/** 制圧を受けている兵士へ寄せる色。砂埃を浴びて白茶けた見え方(仕様 §8.6) */
+const SUPPRESSED_TINT = 0xf3e8cf;
 const MAX_SOLDIERS = 512;
 const MAX_CONTACTS = 512;
 
@@ -204,6 +255,47 @@ function commandScopeOf(
   }
   return null;
 }
+/**
+ * 砂地のテクスチャを手続き的に作る(`[v6.5]`)。
+ *
+ * 外部アセットを持ち込まない方針(design AD-4/AD-5)なので、canvas に描いて
+ * そのまま貼る。単色の平面は「地面」ではなく「背景」に見えてしまい、部隊が
+ * どれだけ進んだのかが読み取れない — 色むらがあるだけでスケール感が出る。
+ *
+ * 種を固定しているのは、再読み込みのたびに地面の模様が変わると「同じ盤面」に
+ * 見えなくなるため(シムの決定性とは無関係。ここはレンダラの都合)。
+ */
+function makeGroundTexture(): THREE.CanvasTexture {
+  const S = 256;
+  const cv = document.createElement("canvas");
+  cv.width = S;
+  cv.height = S;
+  const g = cv.getContext("2d")!;
+  g.fillStyle = "#9c8763";
+  g.fillRect(0, 0, S, S);
+  let seed = 0x2f6b3c1d;
+  const rnd = (): number => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+  // 乾いた土の色むら(踏み固められた地面と砂だまり)。
+  // 濃い斑をわずかに散らす程度に留める — 強くすると雲が浮いているように見え、
+  // タイルの継ぎ目も目立つ(1タイル16mなので盤面には十数回繰り返される)
+  for (let i = 0; i < 300; i++) {
+    const r = 3 + rnd() * 13;
+    g.fillStyle = rnd() < 0.5 ? "rgba(198,178,140,0.07)" : "rgba(102,86,58,0.07)";
+    g.beginPath();
+    g.arc(rnd() * S, rnd() * S, r, 0, Math.PI * 2);
+    g.fill();
+  }
+  // 砂粒。1px の粒を撒くと拡大したときの解像感が出る
+  for (let i = 0; i < 2800; i++) {
+    g.fillStyle = rnd() < 0.5 ? "rgba(255,242,214,0.05)" : "rgba(58,46,28,0.05)";
+    g.fillRect(Math.floor(rnd() * S), Math.floor(rnd() * S), 1, 1);
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
 interface TickSnapshot {
   tick: number;
   pos: Map<number, { x: number; z: number; fx: number; fz: number }>;
@@ -236,7 +328,19 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(GROUND_COLOR);
+  // 盤外は一段落とす。play area の輪郭が見えると「盤面」として読める(`[v6.5]`)
+  scene.background = new THREE.Color(OUT_OF_PLAY_COLOR);
+  /** 起動時に作る静的ジオメトリ。破棄時にまとめて解放する */
+  const staticGeos: THREE.BufferGeometry[] = [];
+  const staticMats: THREE.Material[] = [];
+  const keepGeo = <T extends THREE.BufferGeometry>(g: T): T => {
+    staticGeos.push(g);
+    return g;
+  };
+  const keepMat = <T extends THREE.Material>(m: T): T => {
+    staticMats.push(m);
+    return m;
+  };
 
   // カメラ: 画面に収まるワールド高さ(m)が `viewSpan`。パンは target を動かす。
   // 初期値はマップ全体が収まる高さにする(マップが大きくなっても勝手に見切れない)。
@@ -250,12 +354,17 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   camera.position.set(0, 100, 0);
   camera.up.set(0, 0, -1);
 
-  // 地面
+  // 地面 — 砂地のテクスチャを敷く(`[v6.5]`)
   const groundW = world.bounds.maxX - world.bounds.minX;
   const groundH = world.bounds.maxZ - world.bounds.minZ;
+  const groundTex = makeGroundTexture();
+  // 1タイル = 16m。粗くすると引きの絵で「雲が浮いている」ように見え、細かくすると
+  // 寄ったときに繰り返しが見える。異方性フィルタは斜めから見ない正射影でも効く
+  groundTex.repeat.set(groundW / 16, groundH / 16);
+  groundTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(groundW, groundH),
-    new THREE.MeshBasicMaterial({ color: GROUND_COLOR }),
+    keepGeo(new THREE.PlaneGeometry(groundW, groundH)),
+    keepMat(new THREE.MeshBasicMaterial({ color: GROUND_COLOR, map: groundTex })),
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(
@@ -267,20 +376,71 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
 
   // マップ境界
   const border = new THREE.LineSegments(
-    new THREE.EdgesGeometry(new THREE.PlaneGeometry(groundW, groundH)),
-    new THREE.LineBasicMaterial({ color: 0x2a3446 }),
+    keepGeo(new THREE.EdgesGeometry(new THREE.PlaneGeometry(groundW, groundH))),
+    keepMat(new THREE.LineBasicMaterial({ color: 0x6b5d45 })),
   );
   border.rotation.x = -Math.PI / 2;
   border.position.copy(ground.position);
   scene.add(border);
 
+  // 建物の影(`[v6.5]`)。真上から見た平面図に高さの手がかりを与える唯一の要素で、
+  // これが入るだけで街区が「地面に描かれた模様」から「建っているもの」に変わる。
+  // 建物の床より先に描くので、床の外へはみ出した分だけが見える。
+  const shadowMat = keepMat(
+    new THREE.MeshBasicMaterial({
+      color: SHADOW_COLOR,
+      transparent: true,
+      opacity: SHADOW_OPACITY,
+      depthWrite: false,
+    }),
+  );
+  for (const b of world.buildings) {
+    const m = new THREE.Mesh(
+      keepGeo(
+        new THREE.PlaneGeometry(b.bounds.maxX - b.bounds.minX, b.bounds.maxZ - b.bounds.minZ),
+      ),
+      shadowMat,
+    );
+    m.rotation.x = -Math.PI / 2;
+    m.position.set(
+      (b.bounds.minX + b.bounds.maxX) / 2 + SHADOW_DX,
+      0.001,
+      (b.bounds.minZ + b.bounds.maxZ) / 2 + SHADOW_DZ,
+    );
+    scene.add(m);
+  }
+
+  /**
+   * 建物ごとの色味のばらつき(`[v6.5]`)。
+   *
+   * 街区34棟が完全に同じ色だと、盤面が「同じ図形の反復」に見えて、どの建物にいるのか
+   * 分からなくなる。実際の市街も、日干し煉瓦・塗り壁・コンクリートが混ざっている。
+   * **建物idから決めるので、点対称の双子どうしは色が違う** — 対称性の担保は
+   * シムの側(壁・扉・ナビ)にあり、見た目の色はそれに関与しない。
+   */
+  const tintScratch = new THREE.Color();
+  const buildingTint = (id: number, base: number, spread: number): number => {
+    const h = ((id * 2654435761) >>> 0) / 4294967296;
+    return tintScratch
+      .setHex(base)
+      .offsetHSL(0, (h - 0.5) * 0.05, (h - 0.5) * spread)
+      .getHex();
+  };
+
   // 建物の床(仕様 §7.1: 屋外と屋内はシームレスな1つのマップ)。
   // 壁より先に描いて、部屋の広がりが分かるようにする
+  const floorMats = new Map<number, THREE.MeshBasicMaterial>();
   for (const b of world.buildings) {
+    const floorMat = keepMat(
+      new THREE.MeshBasicMaterial({ color: buildingTint(b.id, ROOM_FLOOR_COLOR, 0.1) }),
+    );
+    floorMats.set(b.id, floorMat);
     for (const r of b.rooms) {
       const floor = new THREE.Mesh(
-        new THREE.PlaneGeometry(r.bounds.maxX - r.bounds.minX, r.bounds.maxZ - r.bounds.minZ),
-        new THREE.MeshBasicMaterial({ color: ROOM_FLOOR_COLOR }),
+        keepGeo(
+          new THREE.PlaneGeometry(r.bounds.maxX - r.bounds.minX, r.bounds.maxZ - r.bounds.minZ),
+        ),
+        floorMat,
       );
       floor.rotation.x = -Math.PI / 2;
       floor.position.set(
@@ -292,20 +452,56 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     }
   }
 
-  // 壁 — 数が少ないので個別メッシュで足りる。
-  // world.walls は扉の開閉で変化するので、**構造物の壁だけ**を描く
-  const wallMat = new THREE.MeshBasicMaterial({ color: WALL_COLOR });
+  /**
+   * 壁 — 数が少ないので個別メッシュで足りる。
+   * world.walls は扉の開閉で変化するので、**構造物の壁だけ**を描く。
+   *
+   * `[v6.5]` 建物の壁と街路の低い遮蔽(塀・土嚢・車列)を色で分ける。同じ色だと
+   * 街区の輪郭と街路の遮蔽が地続きに見えて、どこが建物でどこが通りかが読めない。
+   * 建物に属するかは所属テーブルを持たないので、外周に触れているかで判定する。
+   */
+  const clutterMat = keepMat(new THREE.MeshBasicMaterial({ color: CLUTTER_COLOR }));
+  const wallMats = new Map<number, THREE.MeshBasicMaterial>();
+  for (const b of world.buildings) {
+    wallMats.set(
+      b.id,
+      keepMat(new THREE.MeshBasicMaterial({ color: buildingTint(b.id, WALL_COLOR, 0.12) })),
+    );
+  }
+  const buildingIdOfWall = (w: { cx: number; cz: number }): number | null =>
+    world.buildings.find(
+      (b) =>
+        w.cx >= b.bounds.minX - 0.8 &&
+        w.cx <= b.bounds.maxX + 0.8 &&
+        w.cz >= b.bounds.minZ - 0.8 &&
+        w.cz <= b.bounds.maxZ + 0.8,
+    )?.id ?? null;
   for (const w of world.structuralWalls) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w.hw * 2, 2, w.hd * 2), wallMat);
+    const bid = buildingIdOfWall(w);
+    const building = bid !== null;
+    const m = new THREE.Mesh(
+      keepGeo(new THREE.BoxGeometry(w.hw * 2, 2, w.hd * 2)),
+      (bid !== null ? wallMats.get(bid) : undefined) ?? clutterMat,
+    );
     m.position.set(w.cx, 1, w.cz);
     scene.add(m);
+    // 街路の遮蔽にも短い影を落とす。建物と同じ方向にずらして光源を1つに保つ
+    if (!building) {
+      const sh = new THREE.Mesh(
+        keepGeo(new THREE.PlaneGeometry(w.hw * 2, w.hd * 2)),
+        shadowMat,
+      );
+      sh.rotation.x = -Math.PI / 2;
+      sh.position.set(w.cx + SHADOW_DX * 0.4, 0.0015, w.cz + SHADOW_DZ * 0.4);
+      scene.add(sh);
+    }
   }
 
   // 扉(仕様 §7.6): 開閉が視界の境界線になるので、状態が一目で分かるようにする
   const doorMeshes = world.doors.map((d) => {
     const alongX = Math.abs(d.normal.x) > Math.abs(d.normal.z);
     const m = new THREE.Mesh(
-      new THREE.BoxGeometry(alongX ? 0.35 : d.width, 1.8, alongX ? d.width : 0.35),
+      keepGeo(new THREE.BoxGeometry(alongX ? 0.35 : d.width, 1.8, alongX ? d.width : 0.35)),
       new THREE.MeshBasicMaterial({ color: DOOR_CLOSED_COLOR }),
     );
     m.position.set(d.pos.x, 0.9, d.pos.z);
@@ -316,11 +512,11 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   // 拠点(仕様 §12)。所有と確保進捗が一目で分かるよう、外周リングと進捗リングを分ける
   const objectiveRings = world.objectives.map((o) => {
     const outer = new THREE.Mesh(
-      new THREE.RingGeometry(o.radius - 0.4, o.radius, 48),
+      keepGeo(new THREE.RingGeometry(o.radius - 0.5, o.radius, 48)),
       new THREE.MeshBasicMaterial({
         color: NEUTRAL_OBJ_COLOR,
         transparent: true,
-        opacity: 0.6,
+        opacity: 0.85,
         side: THREE.DoubleSide,
       }),
     );
@@ -330,39 +526,64 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
 
     // 進捗は内側の円盤の大きさで示す(0 で消え、1 で外周に届く)
     const fill = new THREE.Mesh(
-      new THREE.CircleGeometry(1, 32),
+      keepGeo(new THREE.CircleGeometry(1, 32)),
       new THREE.MeshBasicMaterial({
         color: NEUTRAL_OBJ_COLOR,
         transparent: true,
-        opacity: 0.18,
+        opacity: 0.26,
         side: THREE.DoubleSide,
       }),
     );
     fill.rotation.x = -Math.PI / 2;
     fill.position.set(o.pos.x, 0.015, o.pos.z);
     scene.add(fill);
-    return { outer, fill };
+
+    /**
+     * 拠点の標(`[v6.5]`)。**画面上の大きさを一定に保つ**ため、毎フレーム
+     * `viewSpan` に比例させて拡大する。拠点は建物の一室(半径3m)まで絞ってあるので、
+     * 盤面全体を見ているとリングが十数ピクセルになり、どこが拠点か分からなかった。
+     */
+    const pin = new THREE.Mesh(
+      keepGeo(new THREE.CircleGeometry(1, 4)),
+      new THREE.MeshBasicMaterial({
+        color: NEUTRAL_OBJ_COLOR,
+        transparent: true,
+        opacity: 0.95,
+        side: THREE.DoubleSide,
+        depthTest: false,
+      }),
+    );
+    pin.rotation.x = -Math.PI / 2;
+    // 立案の接近経路(renderOrder 23)より上。矢羽根が目標に重なるので、
+    // 標が下敷きになると「どこが拠点か」が読めなくなる
+    pin.renderOrder = 25;
+    scene.add(pin);
+    return { outer, fill, pin };
   });
+  /** 標の大きさ = `viewSpan` × これ。画面高さに対する比になる */
+  const OBJ_PIN_SCREEN_FRAC = 0.016;
 
   // 負傷者集合点(CCP、仕様 §9)。担架班の搬送先なので、常に両陣営分を描く。
   for (const side of ["blue", "red"] as Side[]) {
     const p = world.ccp[side];
     const ring = new THREE.Mesh(
-      new THREE.RingGeometry(LITTER.EVAC_RADIUS - 0.35, LITTER.EVAC_RADIUS, 32),
-      new THREE.MeshBasicMaterial({
-        color: SIDE_COLOR[side],
-        transparent: true,
-        opacity: 0.35,
-        side: THREE.DoubleSide,
-      }),
+      keepGeo(new THREE.RingGeometry(LITTER.EVAC_RADIUS - 0.45, LITTER.EVAC_RADIUS, 32)),
+      keepMat(
+        new THREE.MeshBasicMaterial({
+          color: SIDE_COLOR[side],
+          transparent: true,
+          opacity: 0.6,
+          side: THREE.DoubleSide,
+        }),
+      ),
     );
     ring.rotation.x = -Math.PI / 2;
     ring.position.set(p.x, 0.02, p.z);
     scene.add(ring);
     // CCPだと分かるよう十字を重ねる(衛生標識の見立て)
     const cross = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.6, 0.5),
-      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 }),
+      keepGeo(new THREE.PlaneGeometry(1.6, 0.5)),
+      keepMat(new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 })),
     );
     cross.rotation.x = -Math.PI / 2;
     cross.position.set(p.x, 0.021, p.z);
@@ -371,6 +592,27 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     cross2.rotation.z = Math.PI / 2;
     scene.add(cross2);
   }
+
+  /**
+   * 兵士の影(`[v6.5]`)。円盤の下に少しずらした暗い円を敷く。
+   *
+   * 目的は雰囲気ではなく**可読性**で、明るい砂地の上ではトークンの縁が地に溶ける。
+   * 建物の影と同じ方向・同じ色にしてあるので、盤面全体で光源が1つに見える。
+   */
+  const soldierShadowGeo = new THREE.CircleGeometry(SOLDIER_RADIUS * 1.7, 12);
+  soldierShadowGeo.rotateX(-Math.PI / 2);
+  const soldierShadowMesh = new THREE.InstancedMesh(
+    soldierShadowGeo,
+    new THREE.MeshBasicMaterial({
+      color: SHADOW_COLOR,
+      transparent: true,
+      opacity: 0.42,
+      depthWrite: false,
+    }),
+    MAX_SOLDIERS,
+  );
+  soldierShadowMesh.frustumCulled = false;
+  scene.add(soldierShadowMesh);
 
   // 兵士 — インスタンス化した円盤 + 向きを示すくさび形
   const discGeo = new THREE.CircleGeometry(SOLDIER_RADIUS * 1.6, 16);
@@ -575,9 +817,9 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   const orderMarker = new THREE.Mesh(
     orderMarkerGeo,
     new THREE.MeshBasicMaterial({
-      color: CONTROL_RING_COLOR,
+      color: ORDER_COLOR,
       transparent: true,
-      opacity: 0.9,
+      opacity: 0.95,
       side: THREE.DoubleSide,
       depthTest: false,
     }),
@@ -599,9 +841,59 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     scene.add(l);
     return l;
   };
-  const orderLine = makePolyline(CONTROL_RING_COLOR, 0.7); // 操作中ユニット → 目的地
-  const controlPathLine = makePolyline(CONTROL_RING_COLOR, 0.5); // 操作中ユニットの計画経路
+  const orderLine = makePolyline(ORDER_COLOR, 0.85); // 操作中ユニット → 目的地
+  const controlPathLine = makePolyline(ORDER_COLOR, 0.6); // 操作中ユニットの計画経路
   const selectPathLine = makePolyline(SELECT_RING_COLOR, 0.7); // 選択ユニットの計画経路
+
+  // ── 作戦の接近経路(`[v6.5]`)── 立案フェーズにだけ出る。折れ線 + 先端の矢羽根。
+  const MAX_PLAN_ROUTES = 12;
+  const planRouteLines = Array.from({ length: MAX_PLAN_ROUTES }, () => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(16 * 3), 3));
+    const l = new THREE.Line(
+      g,
+      new THREE.LineBasicMaterial({ transparent: true, opacity: 0.9, depthTest: false }),
+    );
+    l.renderOrder = 23;
+    l.frustumCulled = false;
+    l.visible = false;
+    scene.add(l);
+    return l;
+  });
+  const planArrows = Array.from({ length: MAX_PLAN_ROUTES }, () => {
+    const g = new THREE.CircleGeometry(3.2, 3);
+    g.rotateX(-Math.PI / 2);
+    const m = new THREE.Mesh(
+      g,
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.9, depthTest: false }),
+    );
+    m.renderOrder = 23;
+    m.visible = false;
+    scene.add(m);
+    return m;
+  });
+  /**
+   * 接近経路に沿って撒く小さな山形(シェブロン)。
+   * `LineBasicMaterial` の線幅はほとんどのブラウザで1pxに固定されるので、
+   * 折れ線だけだと引きの絵で経路が読めない。進行方向を向いた印を等間隔で置く。
+   */
+  const CHEVRON_SPACING = 14;
+  const MAX_CHEVRONS = 360;
+  const chevronGeo = new THREE.CircleGeometry(1.5, 3);
+  chevronGeo.rotateX(-Math.PI / 2);
+  const chevronMesh = new THREE.InstancedMesh(
+    chevronGeo,
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.85, depthTest: false }),
+    MAX_CHEVRONS,
+  );
+  chevronMesh.instanceColor = new THREE.InstancedBufferAttribute(
+    new Float32Array(MAX_CHEVRONS * 3),
+    3,
+  );
+  chevronMesh.renderOrder = 23;
+  chevronMesh.frustumCulled = false;
+  chevronMesh.count = 0;
+  scene.add(chevronMesh);
 
   // ── 発砲線(指摘: 撃った時の線) ── 1本のLineSegmentsを毎フレーム詰め替える
   const tracerGeo = new THREE.BufferGeometry();
@@ -792,8 +1084,13 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
           : NEUTRAL_OBJ_COLOR;
       (r.outer.material as THREE.MeshBasicMaterial).color.setHex(color);
       (r.fill.material as THREE.MeshBasicMaterial).color.setHex(color);
+      (r.pin.material as THREE.MeshBasicMaterial).color.setHex(color);
       const s = Math.max(0.001, o.progress * o.radius);
       r.fill.scale.set(s, 1, s);
+      // 標は画面上で一定の大きさ。拠点が1室でも引きの絵で見つけられるように
+      const pinR = viewSpan * OBJ_PIN_SCREEN_FRAC;
+      r.pin.position.set(o.pos.x, 0.14, o.pos.z);
+      r.pin.scale.set(pinR, 1, pinR);
     });
 
     if (world.tick !== lastTick) {
@@ -868,7 +1165,15 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       const heading = Math.atan2(fx, fz);
 
       const dead = s.status === "kia";
-      dummy.position.set(x, dead ? 0.02 : 0.05, z);
+      // 影を先に置く。戦死者は伏せているので影も薄く小さくする(`[v6.5]`)
+      dummy.position.set(x + SHADOW_DX * 0.09, 0.04, z + SHADOW_DZ * 0.09);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.setScalar(dead ? 0.6 : 1);
+      dummy.updateMatrix();
+      dummy.scale.setScalar(1);
+      soldierShadowMesh.setMatrixAt(i, dummy.matrix);
+
+      dummy.position.set(x, dead ? 0.045 : 0.05, z);
       dummy.rotation.set(0, 0, 0);
       dummy.scale.setScalar(dead ? 0.7 : 1);
       dummy.updateMatrix();
@@ -888,7 +1193,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
               ? CARRYING_COLOR // 担架要員: 搬送に専念していて射撃できない
               : SIDE_COLOR[s.side];
       if (s.status === "ok" && s.suppressedUntilTick > world.tick) {
-        color = col.setHex(color).lerp(col2.setHex(0xe8edf5), 0.55).getHex();
+        color = col.setHex(color).lerp(col2.setHex(SUPPRESSED_TINT), 0.55).getHex();
       }
       discMesh.setColorAt(i, col.setHex(color));
 
@@ -904,7 +1209,9 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       dummy.updateMatrix();
       dummy.scale.setScalar(1);
       wedgeMesh.setMatrixAt(i, dummy.matrix);
-      wedgeMesh.setColorAt(i, col.setHex(SIDE_COLOR[s.side]));
+      // 陣営色のまま少しだけ明度を上げる。同色だと円盤に溶けて向きが読めず、
+      // 白にすると「プレイヤーの向き三角」に見える(`[v6.2]` の指摘)
+      wedgeMesh.setColorAt(i, col.setHex(SIDE_COLOR[s.side]).lerp(col2.setHex(0xffffff), 0.3));
 
       // ── 階級章(`[v6.2]`)。戦闘可能な指揮官にのみ。陣営色を明るく振って、
       // どちらの軍かを保ったまま地の色から浮かせる。
@@ -912,7 +1219,8 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
         ? (rankOf.get(s.id) ?? (s.isFireteamLeader ? RANK_FIRETEAM : RANK_NONE))
         : RANK_NONE;
       if (rank !== RANK_NONE) {
-        const hex = col2.setHex(SIDE_COLOR[s.side]).lerp(col.setHex(0xffffff), 0.6).getHex();
+        // 砂地の上では白へ寄せすぎると沈む。陣営色を保ったまま明度だけ上げる(`[v6.5]`)
+        const hex = col2.setHex(SIDE_COLOR[s.side]).lerp(col.setHex(0xffffff), 0.42).getHex();
         if (rank === RANK_FIRETEAM || rank === RANK_SQUAD) {
           const pips = rank === RANK_SQUAD ? 2 : 1;
           for (let q = 0; q < pips; q++) {
@@ -929,7 +1237,9 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     }
     discMesh.count = i;
     wedgeMesh.count = i;
+    soldierShadowMesh.count = i;
     rankMesh.count = rankN;
+    soldierShadowMesh.instanceMatrix.needsUpdate = true;
     discMesh.instanceMatrix.needsUpdate = true;
     wedgeMesh.instanceMatrix.needsUpdate = true;
     rankMesh.instanceMatrix.needsUpdate = true;
@@ -1071,6 +1381,61 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       (pin.material as THREE.MeshBasicMaterial).opacity = armed ? 0.95 : 0.5;
       pin.visible = true;
     }
+
+    // ── 作戦の接近経路(`[v6.5]`)──
+    // カーソルの乗っている1本だけを濃く、他は薄くする。地図に文字を出さずに
+    // 「パネルのこの行が地図のこの矢印」を伝えるための表現。
+    const routes = opts.planRoutes ?? null;
+    let chevN = 0;
+    for (let r = 0; r < MAX_PLAN_ROUTES; r++) {
+      const line = planRouteLines[r]!;
+      const arrow = planArrows[r]!;
+      const rt = routes ? routes[r] : undefined;
+      if (!rt || rt.points.length < 2) {
+        line.visible = false;
+        arrow.visible = false;
+        continue;
+      }
+      const hot = opts.hoveredPlanKey == null || opts.hoveredPlanKey === rt.key;
+      const shade = rt.main ? 1 : 0.72;
+      col.setHex(SIDE_COLOR[rt.side]).lerp(col2.setHex(0xffffff), rt.main ? 0.3 : 0.05);
+      const alpha = hot ? 0.95 * shade : 0.2;
+      (line.material as THREE.LineBasicMaterial).color.copy(col);
+      (line.material as THREE.LineBasicMaterial).opacity = alpha;
+      setPolyline(line, rt.points, 0.16);
+      const a = rt.points[rt.points.length - 2]!;
+      const b = rt.points[rt.points.length - 1]!;
+      const len = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+      arrow.position.set(b.x, 0.16, b.z);
+      arrow.rotation.set(0, Math.atan2((b.x - a.x) / len, (b.z - a.z) / len), 0);
+      (arrow.material as THREE.MeshBasicMaterial).color.copy(col);
+      (arrow.material as THREE.MeshBasicMaterial).opacity = alpha;
+      arrow.scale.setScalar(rt.main ? 1.4 : 1);
+      arrow.visible = true;
+
+      // 経路に沿って山形を等間隔で撒く。最後の脚は矢羽根が立つので少し手前で止める
+      for (let seg = 0; seg + 1 < rt.points.length; seg++) {
+        const p0 = rt.points[seg]!;
+        const p1 = rt.points[seg + 1]!;
+        const segLen = Math.hypot(p1.x - p0.x, p1.z - p0.z);
+        const heading = Math.atan2((p1.x - p0.x) / (segLen || 1), (p1.z - p0.z) / (segLen || 1));
+        for (let d = CHEVRON_SPACING; d < segLen - 4; d += CHEVRON_SPACING) {
+          if (chevN >= MAX_CHEVRONS) break;
+          const t = d / segLen;
+          dummy.position.set(p0.x + (p1.x - p0.x) * t, 0.155, p0.z + (p1.z - p0.z) * t);
+          dummy.rotation.set(0, heading, 0);
+          dummy.scale.setScalar(rt.main ? 1.15 : 0.9);
+          dummy.updateMatrix();
+          dummy.scale.setScalar(1);
+          chevronMesh.setMatrixAt(chevN, dummy.matrix);
+          chevronMesh.setColorAt(chevN, col2.copy(col).multiplyScalar(alpha));
+          chevN++;
+        }
+      }
+    }
+    chevronMesh.count = chevN;
+    chevronMesh.instanceMatrix.needsUpdate = true;
+    if (chevronMesh.instanceColor) chevronMesh.instanceColor.needsUpdate = true;
 
     // ── 移動命令の可視化(指摘: 移動命令が出せているか分からない) ──
     const obj = opts.debug.showOrders ? controlObjective() : null;
@@ -1298,6 +1663,24 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       canvas.removeEventListener("pointerup", onUp);
       canvas.removeEventListener("pointercancel", onUp);
       canvas.removeEventListener("wheel", onWheel);
+      // 起動時に作った静的ジオメトリ・マテリアル(地面・影・壁・床・拠点)`[v6.5]`。
+      // シナリオ切替と配置適用のたびにレンダラごと作り直すので、ここを怠ると
+      // 遊んでいる間ずっとGPUメモリが積み上がる
+      for (const g of staticGeos) g.dispose();
+      for (const m of staticMats) m.dispose();
+      groundTex.dispose();
+      for (const l of planRouteLines) {
+        l.geometry.dispose();
+        (l.material as THREE.Material).dispose();
+      }
+      for (const a of planArrows) {
+        a.geometry.dispose();
+        (a.material as THREE.Material).dispose();
+      }
+      chevronGeo.dispose();
+      chevronMesh.dispose();
+      soldierShadowGeo.dispose();
+      soldierShadowMesh.dispose();
       discGeo.dispose();
       wedgeGeo.dispose();
       rankGeo.dispose();
