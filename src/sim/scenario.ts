@@ -723,8 +723,8 @@ export function platoonClashScenario(seed = 1): Scenario {
  */
 export function companyClashScenario(seed = 1): Scenario {
   resetIds();
-  // CP(z=±70)とCCP(z=±78)を盤内に収める必要がある。ナビグリッドは bounds から
-  // 作られるので、CCPが外に出ると担架班が永久にたどり着けない(実際に描画で発見した)。
+  // CPとCCPを盤内に収める必要がある。ナビグリッドは bounds から作られるので、
+  // CCPが外に出ると担架班が永久にたどり着けない(実際に描画で発見した)。
   // `[v6.3]` 射程を仕様 §10 の本来の値へ戻したので盤面を2倍にした(従来 220×170)。
   const bounds: Bounds = { minX: -220, maxX: 220, minZ: -170, maxZ: 170 };
   const objective = { x: 0, z: 0 };
@@ -740,12 +740,23 @@ export function companyClashScenario(seed = 1): Scenario {
   const squadPlans: SquadPlan[] = [];
   const platoonPlans: PlatoonPlan[] = [];
 
-  // 指揮所(CP)と負傷者集合点(CCP)は中隊の後方に置く(仕様 §11)。
+  /** 小隊の初期展開線(自陣側からの深さ m)。 */
+  const SPAWN_Z = 140;
+
+  // 指揮所(CP)と負傷者集合点(CCP)は中隊の**後方**に置く(仕様 §11)。
   // 点対称を保つため両陣営で符号を反転させる。
-  const blueCcp = { x: 0, z: -78 };
-  const redCcp = { x: 0, z: 78 };
-  const blueCp = { x: 0, z: -70 };
-  const redCp = { x: 0, z: 70 };
+  //
+  // `[v6.4]` **展開線から導出する**。`[v6.3]` で盤面を2倍にしたとき、小隊の展開を
+  // ∓140へ動かしたのにCP(∓70)とCCP(∓78)を据え置いたため、中隊長・XO・無線手が
+  // 自軍より**70m前方**に立ち、担架班は負傷者を敵側へ運んでいた
+  // (4回目のテストプレイ指摘「中隊長が一番前にポンと置かれてるのは不自然じゃない?」)。
+  // 直値で置くと盤面を触るたびに同じ事故が起きるので、以後は展開線に紐づける。
+  const CP_TRAIL = 12;
+  const CCP_TRAIL = 20;
+  const blueCcp = { x: 0, z: -(SPAWN_Z + CCP_TRAIL) };
+  const redCcp = { x: 0, z: SPAWN_Z + CCP_TRAIL };
+  const blueCp = { x: 0, z: -(SPAWN_Z + CP_TRAIL) };
+  const redCp = { x: 0, z: SPAWN_Z + CP_TRAIL };
 
   for (let p = 0; p < 3; p++) {
     const lateral = (p - 1) * PLATOON_SPACING * 0.5;
@@ -754,7 +765,7 @@ export function companyClashScenario(seed = 1): Scenario {
       p,
       [p * 10, p * 10 + 1, p * 10 + 2],
       p * 10 + 3,
-      { x: lateral, z: -140 },
+      { x: lateral, z: -SPAWN_Z },
       { x: 0, z: 1 },
       objective,
       0,
@@ -765,7 +776,7 @@ export function companyClashScenario(seed = 1): Scenario {
       100 + p,
       [1000 + p * 10, 1000 + p * 10 + 1, 1000 + p * 10 + 2],
       1000 + p * 10 + 3,
-      { x: -lateral, z: 140 },
+      { x: -lateral, z: SPAWN_Z },
       { x: 0, z: -1 },
       objective,
       1,

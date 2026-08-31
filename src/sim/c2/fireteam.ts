@@ -19,6 +19,8 @@ import {
   bestCoverPoint,
   bestFlankPoint,
   bestNearbyCover,
+  bestOverwatchPoint,
+  nearestCoverNow,
   nearestCoverTowards,
   pickSupportedBoundTarget,
 } from "../cover.ts";
@@ -665,6 +667,17 @@ export function fireteamAI(world: World): void {
         ft.baseElement = base === alpha ? "alpha" : "bravo";
       }
 
+      // `[v6.4]` 選抜射手は**支援側に置く**(ATP 3-21.8 / TC 3-22.9)。
+      // SDMは分隊長が運用する分隊の資産で、観測と長射程の射界が取れる位置から
+      // 支援するのが役目であって、突撃線に混ざって前へ出る要員ではない。
+      // 計測では分隊の重心より前に出ている時間が4割あり、敵の視認率は一般兵と
+      // ほとんど変わらなかった(=300mの索敵距離を使えていなかった)。
+      if (maneuver.some((u) => u.quals.designatedMarksman)) {
+        const dms = maneuver.filter((u) => u.quals.designatedMarksman);
+        maneuver = maneuver.filter((u) => !u.quals.designatedMarksman);
+        base = [...base, ...dms];
+      }
+
       // 接敵反応ドクトリン(F-6, 仕様 §6 `[v6.1]`)。
       // ベース組は常に即応射撃。deliberate な溜めが許されるのは「FT内の誰も敵の視界に
       // 入っておらず、まだ撃たれてもいない」機動組が側面へ回り込む間だけ。
@@ -675,8 +688,50 @@ export function fireteamAI(world: World): void {
       const volleyHold = Math.round(CONTACT_DRILL.VOLLEY_SETUP_SEC * SIM_HZ);
       const assaultTicks = Math.round(CONTACT_DRILL.ASSAULT_SEC * SIM_HZ);
 
+      /**
+       * この兵士は遮蔽を取れているか。壁の空間索引への1問い合わせで済ませる
+       * (`coverBonus` は全壁走査なので交戦中の全兵士ぶんは呼べない)。
+       * 慎重な兵ほど半径を小さく取る = より壁に密着していないと納得しない。
+       */
+      const shelteredNow = (u: Soldier): boolean =>
+        collidesWallIndexed(
+          world.wallIndex,
+          u.pos.x,
+          u.pos.z,
+          COVER_SEEK.IN_COVER_DIST * traitMul(1 - u.traits.caution, 0.4),
+        );
+
+      // `[v6.4]` 接敵直後の即応(ATP 3-21.8 Battle Drill 2 React to Contact)。
+      // 火力と機動の分担より先に、**応射しつつ遮蔽へ入る**のが即応行動。
+      // 数秒で終わらせる — 長く続けると全員が壁に貼り付いて前進が止まる。
+      const reacting =
+        world.tick - ft.modeSince < Math.round(CONTACT_DRILL.TAKE_COVER_SEC * SIM_HZ);
+      /**
+       * 即応で遮蔽へ入る。入るべき遮蔽が見つかった場合だけ true を返し、
+       * 呼び出し側はその隊員の通常処理を飛ばす。
+       */
+      const reactToContact = (u: Soldier): boolean => {
+        if (!reacting || shelteredNow(u)) return false;
+        const c = cachedDest(world, ft, u, () =>
+          nearestCoverNow(
+            world.wallIndex,
+            world.coverIndex,
+            u.pos,
+            enemy,
+            COVER_SEEK.REACT_MAX_MOVE,
+            COVER_SEEK.TARGET_COVER,
+            COVER_SEEK.MAX_YIELD,
+          ),
+        );
+        if (!c) return false;
+        // 移動中も撃ち続ける。制圧を切らすと §8 の交戦で不利になる(AD-28)
+        issue(world, u, "suppress", c, dirTo(u.pos, enemy));
+        return true;
+      };
+
       for (const u of base) {
         u.holdFireUntilTick = 0;
+        if (reactToContact(u)) continue;
         const d = dist(u.pos, enemy);
         const los = hasLineOfSightIndexed(world.wallIndex, u.pos.x, u.pos.z, enemy.x, enemy.z);
         // 選抜射手(仕様 §10): 射線が通っていれば交戦距離帯の外からでもその場で撃つ。
@@ -691,19 +746,11 @@ export function fireteamAI(world: World): void {
           // (仕様 §6。2回目のテストプレイ指摘「敵を見つけたら即座にカバーを探す」)。
           // 露出判定は「近くに壁があるか」の1問い合わせで済ませる。`coverBonus` は
           // 全壁走査なので、交戦中の全兵士ぶん毎周期呼ぶと市街地マップで破綻する
-          const sheltered = collidesWallIndexed(
-            world.wallIndex,
-            u.pos.x,
-            u.pos.z,
-            // `[v6.2]` OQ-6: この半径内に壁があれば「遮蔽が取れている」とみなす。
-            // 慎重な兵ほど**半径を小さく**取る = より壁に密着していないと納得せず、
-            // 結果として早めに遮蔽へ寄る。t=0.5 で倍率1.0(=定数どおり)。
-            COVER_SEEK.IN_COVER_DIST * traitMul(1 - u.traits.caution, 0.4),
-          );
+          const sheltered = shelteredNow(u);
           const shelter = sheltered
             ? null
-            : cachedDest(world, ft, u, () =>
-                bestNearbyCover(
+            : cachedDest(world, ft, u, () => {
+                const near = bestNearbyCover(
                   world.wallIndex,
                   world.coverIndex,
                   u.pos,
@@ -713,14 +760,66 @@ export function fireteamAI(world: World): void {
                   COVER_SEEK.MAX_MOVE,
                   COVER_SEEK.TARGET_COVER,
                   COVER_SEEK.MAX_YIELD,
-                ),
-              );
+                );
+                if (near) return near;
+                // `[v6.4]` 見つからなければ**探索半径だけを広げて**もう一度。
+                // 交差点や広場では9m以内に遮蔽が無いことが普通にあり、その場合
+                // 従来は「開豁地に立ったまま撃ち合う」に落ちていた(実測で、交戦中の
+                // 屋外兵の1割前後が静止したまま露出していた)。射線・交戦距離帯・
+                // 「地歩を譲らない」上限はそのままなので、後退には転じない。
+                return bestNearbyCover(
+                  world.wallIndex,
+                  world.coverIndex,
+                  u.pos,
+                  enemy,
+                  engageMin,
+                  eMax,
+                  COVER_SEEK.REACT_MAX_MOVE,
+                  COVER_SEEK.TARGET_COVER,
+                  COVER_SEEK.MAX_YIELD,
+                );
+              });
           if (shelter) {
             // 移動中も撃ち続ける。制圧を切らすと §8 の交戦で不利になる(AD-28)
             issue(world, u, "suppress", shelter, dirTo(u.pos, enemy));
           } else {
             ft.unitDest.delete(u.id);
             issue(world, u, "suppress", null, dirTo(u.pos, enemy));
+          }
+        } else if (u.quals.designatedMarksman) {
+          // `[v6.4]` 射線が通っていない選抜射手は、**距離を詰めずに射点を探す**。
+          // 一般兵と同じ「交戦距離帯(60m)まで前へ」を適用すると長射程の利が消える。
+          const ow = cachedDest(world, ft, u, () =>
+            bestOverwatchPoint(
+              world.wallIndex,
+              world.coverIndex,
+              u.pos,
+              enemy,
+              COVER_SEEK.OVERWATCH_MIN_RANGE,
+              WEAPON_RANGE.dm.effective,
+              COVER_SEEK.OVERWATCH_MAX_MOVE,
+              COVER_SEEK.TARGET_COVER,
+            ),
+          );
+          if (ow) {
+            issue(world, u, "suppress", ow, dirTo(u.pos, enemy));
+          } else {
+            // 射界の取れる遮蔽が近くに無い。**その場に留まらせない** — 動かないと
+            // 射線が回復せず、長射程どころか敵を見ることすらできなくなる
+            // (この分岐を hold にしたら選抜射手の敵視認率が15%→11%へ落ちた)。
+            // 一般兵と違い、詰めるのは自分の有効射程までで、最低交戦距離は割らない。
+            const toEnemy = dirTo(u.pos, enemy);
+            const want = Math.max(
+              COVER_SEEK.OVERWATCH_MIN_RANGE,
+              Math.min(d * 0.8, WEAPON_RANGE.dm.effective),
+            );
+            issue(
+              world,
+              u,
+              "maneuver",
+              { x: enemy.x - toEnemy.x * want, z: enemy.z - toEnemy.z * want },
+              toEnemy,
+            );
           }
         } else {
           const p = cachedDest(world, ft, u, () =>
@@ -764,6 +863,7 @@ export function fireteamAI(world: World): void {
           ) &&
         dist(mc, ft.objective) > engageMax;
       for (const u of maneuver) {
+        if (reactToContact(u)) continue;
         const p = pushing
           ? // 目標へ向けた躍進。オーバーウォッチ(ベース組)の支援内に留まる(仕様 §6)
             cachedDest(world, ft, u, () =>

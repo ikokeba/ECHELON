@@ -294,6 +294,97 @@ export function bestNearbyCover(
 }
 
 /**
+ * **接敵直後にとりあえず身を隠すための遮蔽**(`[v6.4]`)。
+ *
+ * ATP 3-21.8 Battle Drill 2「React to Contact」の即応行動は
+ * 「応射しつつ遮蔽へ入る」であって、交戦距離帯へ詰めることではない。
+ * したがって `bestNearbyCover` と違い、**交戦距離帯を条件にしない**し、射線も
+ * 必須にしない(射線が通る遮蔽のほうが望ましいので加点はする)。
+ *
+ * 「地歩を譲らない」制約だけは残す。これが無いと、接敵のたびに後方の遮蔽へ
+ * 下がって前線が後ろへずり続ける(`bestNearbyCover` で実際に踏んだ)。
+ */
+export function nearestCoverNow(
+  idx: WallIndex,
+  cover: CoverIndex,
+  from: Vec2,
+  enemy: Vec2,
+  maxMove: number,
+  minCover: number,
+  maxYield: number,
+): Vec2 | null {
+  const dNow = Math.hypot(from.x - enemy.x, from.z - enemy.z);
+  let best: Vec2 | null = null;
+  let bestScore = -Infinity;
+
+  forEachCoverNear(cover, from, maxMove, (p) => {
+    if (p.cover < minCover) return;
+    const dx = p.x - from.x;
+    const dz = p.z - from.z;
+    const travel2 = dx * dx + dz * dz;
+    if (travel2 > maxMove * maxMove) return;
+    const dToEnemy = Math.hypot(p.x - enemy.x, p.z - enemy.z);
+    if (dToEnemy > dNow + maxYield) return;
+    const los = hasLineOfSightIndexed(idx, p.x, p.z, enemy.x, enemy.z);
+    // 近さを最優先(即応なので遠くまで走らない)。射線が通るなら加点
+    const score = p.cover * 2 - Math.sqrt(travel2) * 0.6 + (los ? 1.2 : 0);
+    if (score > bestScore) {
+      bestScore = score;
+      best = p;
+    }
+  });
+  return best;
+}
+
+/**
+ * 選抜射手の**射撃位置(overwatch)**(`[v6.4]`)。
+ *
+ * ATP 3-21.8 / TC 3-22.9: SDM は分隊長が運用する分隊の資産で、観測と長射程の
+ * 射界が取れる位置に就いて支援する。突撃線に混ざって前へ出る要員ではない。
+ *
+ * `bestNearbyCover` との違いは距離の扱い。あちらは交戦距離帯(≒60m)に収めようと
+ * するが、こちらは**遠いほうが良い**として、射線の通る限り離れた遮蔽を選ぶ。
+ * 4回目のテストプレイ指摘「マークスマンはちゃんと射界のとおる有利な場所に
+ * 陣取ってる?」への答えで、計測では選抜射手が分隊の重心より前に出ている時間が
+ * 4割あった(=長射程の利を捨てて突撃線にいた)。
+ */
+export function bestOverwatchPoint(
+  idx: WallIndex,
+  cover: CoverIndex,
+  from: Vec2,
+  enemy: Vec2,
+  /** この距離より近い位置は選ばない m(近づきすぎない) */
+  minRange: number,
+  /** 有効射程 m。これを超える位置からは撃てない */
+  maxRange: number,
+  maxMove: number,
+  minCover: number,
+): Vec2 | null {
+  let best: Vec2 | null = null;
+  let bestScore = -Infinity;
+
+  forEachCoverNear(cover, from, maxMove, (p) => {
+    if (p.cover < minCover) return;
+    const dx = p.x - from.x;
+    const dz = p.z - from.z;
+    const travel2 = dx * dx + dz * dz;
+    if (travel2 > maxMove * maxMove) return;
+    const dToEnemy = Math.hypot(p.x - enemy.x, p.z - enemy.z);
+    if (dToEnemy < minRange || dToEnemy > maxRange) return;
+    // 射線は必須。射界の通らない「良い遮蔽」は選抜射手には無価値
+    if (!hasLineOfSightIndexed(idx, p.x, p.z, enemy.x, enemy.z)) return;
+
+    // 遮蔽と「遠さ」を評価する。移動距離は軽い減点に留め、良い射点なら動く
+    const score = p.cover * 2 + dToEnemy * 0.03 - Math.sqrt(travel2) * 0.15;
+    if (score > bestScore) {
+      bestScore = score;
+      best = p;
+    }
+  });
+  return best;
+}
+
+/**
  * 最良の側面攻撃位置: bestCoverPoint と同様だが、敵から見たときのベース・オブ・
  * ファイア組との角度差を加点する — 機動組は別の軸から攻撃すべきであるため。
  */
