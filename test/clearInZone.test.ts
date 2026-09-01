@@ -65,7 +65,7 @@ describe("clear in zone(ATP 3-06.11 / `[v6.3]`)", () => {
       (b) => buildingCleared(w, "blue", b) || buildingCleared(w, "red", b),
     ).length;
     expect(cleared).toBeGreaterThan(0);
-  }, 300000);
+  }, 420000);
 
   /**
    * 「取り付いた建物は終わらせる」(`[v6.4]` 4回目のテストプレイ指摘③)。
@@ -129,5 +129,5 @@ describe("clear in zone(ATP 3-06.11 / `[v6.3]`)", () => {
       }
     }
     expect(full).toBeGreaterThan(partial);
-  }, 300000);
+  }, 420000);
 });

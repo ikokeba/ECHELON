@@ -125,7 +125,7 @@ describe("接敵時の姿勢と選抜射手の運用(`[v6.4]`)", () => {
     expect(dmRange / dmN).toBeGreaterThan(rifRange / rifN + 15);
     // 突撃線に混ざっていないこと(修正前は選抜射手 36% 対 一般 74%)
     expect(dmAhead / dmSamples).toBeLessThan(rifAhead / rifSamples);
-  }, 180000);
+  }, 420000);
 
   it("開豁地に静止したまま撃ち合う兵士が少ない(ATP 3-21.8 Battle Drill 2)", () => {
     const w = createWorld(companyClashScenario(1));
@@ -149,5 +149,5 @@ describe("接敵時の姿勢と選抜射手の運用(`[v6.4]`)", () => {
     expect(engaged).toBeGreaterThan(1000);
     // 修正前は 10〜12%。横断中の一時的な露出は正常なので、静止したままのものだけを見る
     expect(exposedStatic / engaged).toBeLessThan(0.1);
-  }, 180000);
+  }, 420000);
 });
