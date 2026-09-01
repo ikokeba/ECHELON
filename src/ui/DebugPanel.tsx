@@ -77,24 +77,24 @@ export function DebugPanel() {
   );
 
   return (
-    <div className="debug-panel">
-      <div className="dbg-head">
+    <div className="panel overlay-panel">
+      <div className="ov-head">
         <span>デバッグ</span>
-        <button type="button" className="dbg-x" onClick={() => setDebug({ panelOpen: false })}>
+        <button type="button" className="btn-x" onClick={() => setDebug({ panelOpen: false })}>
           ×
         </button>
       </div>
 
-      <div className="dbg-sec">
-        <div className="dbg-sec-title">デバッグ表示</div>
-        <div className="dbg-row">
+      <div className="ov-sec">
+        <div className="ov-sec-title">デバッグ表示</div>
+        <div className="dbg-slider">
           <span className="dbg-k">視界(FOV)</span>
-          <div className="dbg-seg">
+          <div className="seg">
             {FOV_MODES.map((m) => (
               <button
                 key={m.v}
                 type="button"
-                className={debug.fov === m.v ? "dbg-seg-btn dbg-on" : "dbg-seg-btn"}
+                className={debug.fov === m.v ? "seg-btn seg-on" : "seg-btn"}
                 onClick={() => setDebug({ fov: m.v })}
               >
                 {m.label}
@@ -109,8 +109,8 @@ export function DebugPanel() {
         {chk("showContactRings", "敵接触の不確度円")}
       </div>
 
-      <div className="dbg-sec">
-        <div className="dbg-sec-title">両陣営共通パラメータ</div>
+      <div className="ov-sec">
+        <div className="ov-sec-title">両陣営共通パラメータ</div>
         {COMMON_SLIDERS.map((s) => (
           <div key={s.key} className="dbg-slider">
             <div className="dbg-slider-head">
@@ -129,9 +129,9 @@ export function DebugPanel() {
         ))}
       </div>
 
-      <div className="dbg-sec">
-        <div className="dbg-sec-title">陣営別 性格パラメータ</div>
-        <div className="dbg-note">
+      <div className="ov-sec">
+        <div className="ov-sec-title">陣営別 性格パラメータ</div>
+        <div className="dbg-k">
           リスク許容度はマスター(高いほど交戦距離を詰め、前進歩幅が大きく、劣勢でも粘り、
           露出を厭わない)。動かすと下の個別値も一括で再計算。0.5 で全て既定。
         </div>
@@ -171,7 +171,7 @@ export function DebugPanel() {
         ))}
       </div>
 
-      <button type="button" className="dbg-reset" onClick={resetTuning}>
+      <button type="button" className="btn" onClick={resetTuning}>
         パラメータを既定へ戻す
       </button>
 
@@ -180,13 +180,13 @@ export function DebugPanel() {
         (`[v6.5]`)。ここにはデバッグ表示だけで使う記号を残す — 2箇所に同じ凡例が
         あると、色を変えたときに片方だけ直して食い違う。
       */}
-      <div className="dbg-legend">
+      <div className="ov-sec hint">
         <div>
-          <span className="lg-swatch" style={{ background: "#fff0a0" }} />
+          <span className="lg-g lg-fill" style={{ background: "var(--rank)" }} />
           発砲線（明=命中 / 暗=外れ）・擲弾は橙の拡大円
         </div>
         <div>
-          <span className="lg-swatch" style={{ background: "#f04a38" }} />
+          <span className="lg-g lg-fill" style={{ background: "var(--red)" }} />
           隠蔽グリッド: 赤=選択ユニットから見える / 緑=見えない
         </div>
         <div>他の記号は画面下の凡例（キー L）を参照。</div>

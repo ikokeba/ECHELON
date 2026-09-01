@@ -95,6 +95,9 @@ export interface HudSnapshot {
   simSeconds: number;
   blueAlive: number;
   redAlive: number;
+  /** 編成上の総員(補充兵を含む)。残存率のバーの分母 `[v6.6]` */
+  blueTotal: number;
+  redTotal: number;
   blueEffective: number;
   redEffective: number;
   /** 現在の視点階層が把握している敵接触の件数 */
@@ -107,6 +110,9 @@ export interface HudSnapshot {
   /** 戦場に倒れたまま後送を待っている人数 */
   blueAwaitingEvac: number;
   redAwaitingEvac: number;
+  /** いま担架で運ばれている人数(仕様 §9)。損耗の内訳表示に使う `[v6.6]` */
+  blueCarrying: number;
+  redCarrying: number;
   /** 争奪中の拠点(仕様 §12) */
   objectives: HudObjective[];
   /** 決着。null なら戦闘継続中 */
@@ -261,6 +267,8 @@ interface UiState extends HudSnapshot {
 
   togglePause: () => void;
   cycleSpeed: () => void;
+  /** 速度を直接選ぶ(倍率ボタンを横並びにしたので `[v6.6]`)。選ぶとポーズも解ける */
+  setSpeedIdx: (i: number) => void;
   requestStep: () => void;
   select: (id: number | null) => void;
   setViewSide: (side: Side) => void;
@@ -326,6 +334,8 @@ export const useSimStore = create<UiState>((set) => ({
   simSeconds: 0,
   blueAlive: 0,
   redAlive: 0,
+  blueTotal: 0,
+  redTotal: 0,
   blueEffective: 0,
   redEffective: 0,
   knownContacts: 0,
@@ -334,6 +344,8 @@ export const useSimStore = create<UiState>((set) => ({
   redEvacuated: 0,
   blueAwaitingEvac: 0,
   redAwaitingEvac: 0,
+  blueCarrying: 0,
+  redCarrying: 0,
   objectives: [],
   victory: null,
 
@@ -381,6 +393,7 @@ export const useSimStore = create<UiState>((set) => ({
 
   togglePause: () => set((s) => ({ paused: !s.paused })),
   cycleSpeed: () => set((s) => ({ speedIdx: (s.speedIdx + 1) % RUN_SPEEDS.length })),
+  setSpeedIdx: (i) => set({ speedIdx: Math.max(0, Math.min(RUN_SPEEDS.length - 1, i)), paused: false }),
   requestStep: () => set((s) => ({ stepNonce: s.stepNonce + 1 })),
   select: (id) => set({ selectedSoldierId: id }),
   setViewSide: (side) => set({ viewSide: side }),

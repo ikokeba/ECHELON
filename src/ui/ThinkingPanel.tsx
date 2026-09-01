@@ -37,12 +37,15 @@ function ThinkingPanelBody() {
   const sel = thinking.selected;
 
   return (
-    <div className="thinking-panel">
-      <div className="tp-title">分隊 / FT の思考（{viewSide.toUpperCase()}）</div>
+    <div className="panel panel-scroll">
+      <div className="panel-cap">
+        <span>CONTEXT / 分隊の思考</span>
+        <span>{viewSide.toUpperCase()}</span>
+      </div>
 
       <div className="tp-list">
         {thinking.squads.map((sq) => (
-          <div key={sq.label} className="tp-squad">
+          <div key={sq.label} className={sq.cqb ? "tp-squad tp-squad-hot" : "tp-squad"}>
             <div className="tp-squad-head">
               <span className="tp-name">{sq.label}</span>
               <span className="tp-tech">{sq.technique}</span>
@@ -66,9 +69,11 @@ function ThinkingPanelBody() {
       </div>
 
       <div className="tp-selected">
-        <div className="tp-title">選択ユニット</div>
+        <div className="panel-cap">
+          <span>SELECTED</span>
+        </div>
         {sel ? (
-          <div className="tp-sel-body mono">
+          <div className="mono">
             <div>
               #{sel.id} {sel.hqRole ?? sel.role} · {sel.squadId}分隊
               {sel.fireteamId >= 0 ? ` FT${sel.fireteamId}` : ""}

@@ -1,15 +1,17 @@
 import { useSimStore } from "./store.ts";
+import { RankBars } from "./RankBars.tsx";
+import { platoonName } from "@sim/c2/planning.ts";
 
 /**
- * 階層ツリーによるホットスワップUI(仕様 §4「分隊長以上はミニマップまたは階層ツリー
- * メニューから選択」)。
+ * R2 — 階層ツリーによるホットスワップUI(仕様 §4「分隊長以上はミニマップまたは
+ * 階層ツリーメニューから選択」)。
  *
  * 仕様 §4 のとおり、クールダウン・距離制限・視界制限は設けない。いつでもどこへでも飛べる。
  * スワップを促すアラートも出さない(仕様 §15「階層を跨いだアラート設計 → なしで確定」)。
  *
- * `[v6]` 中隊長ノードと指揮継承の表示を追加。指揮官が無力化されて次席者が引き継いだ
- * ノードには「継承中」を出す — 仕様 §12 の「味方ステータスはフォグオブウォーの対象外、
- * 常にリアルタイムで共有される」に従い、この情報は隠さない。
+ * `[v6.6]` — UIレビュー 05: 階層はインデントではなく**左の縦罫**で示し、階級は
+ * 地図と同じ横棒の記号を流用する。「継承中」の文字タグは黄の点1つに置き換えた
+ * (仕様 §12 の情報を隠したのではなく、行の中で最も細い表現に移しただけ)。
  */
 export function EchelonTree() {
   const roster = useSimStore((s) => s.roster);
@@ -20,8 +22,8 @@ export function EchelonTree() {
 
   /**
    * ノードを押したら、交代すると同時にその指揮官本人を**選択**する。`[v6.4]`
-   * 選択すると麾下ユニットが画面上で強調される(4回目のテストプレイ指摘⑤)ので、
-   * 「誰が誰の下にいるのか」をツリーと戦場の両方で同時に確かめられる。
+   * 選択すると麾下ユニットが画面上で強調されるので、「誰が誰の下にいるのか」を
+   * ツリーと戦場の両方で同時に確かめられる。
    */
   const pick = (c: Parameters<typeof swap>[0], commanderId: number | null): void => {
     swap(c);
@@ -31,102 +33,104 @@ export function EchelonTree() {
   const companies = roster.filter((r) => r.side === viewSide);
 
   return (
-    <div className="echelon-tree">
-      <div className="et-title">指揮階層(クリックで交代)</div>
+    <div className="panel panel-scroll">
+      <div className="panel-cap">
+        <span>ECHELON</span>
+        <span>クリックで交代</span>
+      </div>
 
-      <button
-        type="button"
-        className={control === null ? "et-node et-on" : "et-node"}
-        onClick={() => pick(null, null)}
-        title="全ユニットをAIに任せる"
-      >
-        観戦(全AI)
-      </button>
+      <div className="et-list">
+        <button
+          type="button"
+          className={control === null ? "et-node et-on" : "et-node"}
+          onClick={() => pick(null, null)}
+          title="全ユニットをAIに任せる"
+        >
+          <span className="et-name">観戦(全AI)</span>
+        </button>
 
-      {companies.map((co) => (
-        <div key={co.companyId} className="et-group">
-          <button
-            type="button"
-            className={
-              control?.echelon === "company" && control.unitId === co.companyId
-                ? "et-node et-on"
-                : "et-node"
-            }
-            onClick={() =>
-              pick({ echelon: "company", side: viewSide, unitId: co.companyId }, co.commanderId)
-            }
-            title="指揮所(CP)から無線で統制する(仕様 §11)"
-          >
-            <span className="et-rank">中隊長</span>
-            <span className="et-name">
-              {co.companyId}中隊
-              {co.degraded && <span className="et-degraded">継承中</span>}
-            </span>
-            <span className="et-strength mono">
-              {co.effective}/{co.total}
-            </span>
-          </button>
+        {companies.map((co) => (
+          <div key={co.companyId} className="et-list">
+            <button
+              type="button"
+              className={
+                control?.echelon === "company" && control.unitId === co.companyId
+                  ? "et-node et-on"
+                  : "et-node"
+              }
+              onClick={() =>
+                pick({ echelon: "company", side: viewSide, unitId: co.companyId }, co.commanderId)
+              }
+              title="指揮所(CP)から無線で統制する(仕様 §11)"
+            >
+              <RankBars level="company" />
+              <span className="et-name">{co.companyId}中隊</span>
+              {co.degraded && <span className="et-deg" title="指揮継承直後(仕様 §12)" />}
+              <span className="et-strength">
+                {co.effective}/{co.total}
+              </span>
+            </button>
 
-          <div className="et-assets" title="後送アセットの稼働状況(仕様 §9)">
-            後送アセット {co.assetsTotal - co.assetsBusy}/{co.assetsTotal} 待機
-          </div>
+            <div className="et-assets" title="後送アセットの稼働状況(仕様 §9)">
+              後送 {co.assetsTotal - co.assetsBusy}/{co.assetsTotal} 待機
+            </div>
 
-          {co.platoons.map((pl) => (
-            <div key={pl.platoonId} className="et-group">
-              <button
-                type="button"
-                className={
-                  control?.echelon === "platoon" && control.unitId === pl.platoonId
-                    ? "et-node et-child et-on"
-                    : "et-node et-child"
-                }
-                onClick={() =>
-                  pick(
-                    { echelon: "platoon", side: viewSide, unitId: pl.platoonId },
-                    pl.commanderId,
-                  )
-                }
-              >
-                <span className="et-rank">小隊長</span>
-                <span className="et-name">
-                  {pl.platoonId}小隊
-                  {pl.degraded && <span className="et-degraded">継承中</span>}
-                </span>
-                <span className="et-strength mono">
-                  {pl.effective}/{pl.total}
-                </span>
-              </button>
+            <div className="et-sub">
+              {co.platoons.map((pl) => (
+                <div key={pl.platoonId} className="et-list">
+                  <button
+                    type="button"
+                    className={
+                      control?.echelon === "platoon" && control.unitId === pl.platoonId
+                        ? "et-node et-on"
+                        : "et-node"
+                    }
+                    onClick={() =>
+                      pick(
+                        { echelon: "platoon", side: viewSide, unitId: pl.platoonId },
+                        pl.commanderId,
+                      )
+                    }
+                  >
+                    <RankBars level="platoon" />
+                    <span className="et-name">{platoonName(pl.platoonId)}</span>
+                    {pl.degraded && <span className="et-deg" title="指揮継承直後(仕様 §12)" />}
+                    <span className="et-strength">
+                      {pl.effective}/{pl.total}
+                    </span>
+                  </button>
 
-              {pl.squads.map((sq) => (
-                <button
-                  key={sq.squadId}
-                  type="button"
-                  className={
-                    control?.echelon === "squad" && control.unitId === sq.squadId
-                      ? "et-node et-grandchild et-on"
-                      : "et-node et-grandchild"
-                  }
-                  onClick={() =>
-                    pick(
-                      { echelon: "squad", side: viewSide, unitId: sq.squadId },
-                      sq.commanderId,
-                    )
-                  }
-                >
-                  <span className="et-rank">分隊長</span>
-                  <span className="et-name">
-                    {sq.squadId}分隊
-                    {sq.degraded && <span className="et-degraded">継承中</span>}
-                  </span>
-                  <span className="et-strength mono">
-                    {sq.effective}/{sq.total}
-                  </span>
-                </button>
+                  <div className="et-sub">
+                    {pl.squads.map((sq) => (
+                      <button
+                        key={sq.squadId}
+                        type="button"
+                        className={
+                          control?.echelon === "squad" && control.unitId === sq.squadId
+                            ? "et-node et-leaf et-on"
+                            : "et-node et-leaf"
+                        }
+                        onClick={() =>
+                          pick(
+                            { echelon: "squad", side: viewSide, unitId: sq.squadId },
+                            sq.commanderId,
+                          )
+                        }
+                      >
+                        <span className="et-name">{sq.squadId}分隊</span>
+                        {sq.degraded && <span className="et-deg" title="指揮継承直後(仕様 §12)" />}
+                        <span className="et-strength">
+                          {sq.effective}/{sq.total}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
-          ))}
-        </div>
-      ))}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

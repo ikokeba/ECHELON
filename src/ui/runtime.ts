@@ -217,22 +217,31 @@ function hudOf(world: World, view: ViewResult): HudSnapshot {
   let redEvacuated = 0;
   let blueAwaitingEvac = 0;
   let redAwaitingEvac = 0;
+  let blueCarrying = 0;
+  let redCarrying = 0;
+  let blueTotal = 0;
+  let redTotal = 0;
   for (const s of world.soldiers) {
     const alive = s.status !== "kia";
     const effective = s.status === "ok";
     const evacuated = isOffField(s);
     // 後送を待っている = 倒れていて、まだCCPへ届いていない(仕様 §9)
     const awaiting = s.status === "wia" && !evacuated;
+    const carrying = s.evac === "carrying";
     if (s.side === "blue") {
+      blueTotal++;
       if (alive) blueAlive++;
       if (effective) blueEffective++;
       if (evacuated) blueEvacuated++;
       if (awaiting) blueAwaitingEvac++;
+      if (carrying) blueCarrying++;
     } else {
+      redTotal++;
       if (alive) redAlive++;
       if (effective) redEffective++;
       if (evacuated) redEvacuated++;
       if (awaiting) redAwaitingEvac++;
+      if (carrying) redCarrying++;
     }
   }
   return {
@@ -240,6 +249,8 @@ function hudOf(world: World, view: ViewResult): HudSnapshot {
     simSeconds: world.tick * SIM_DT,
     blueAlive,
     redAlive,
+    blueTotal,
+    redTotal,
     blueEffective,
     redEffective,
     knownContacts: view.known,
@@ -248,6 +259,8 @@ function hudOf(world: World, view: ViewResult): HudSnapshot {
     redEvacuated,
     blueAwaitingEvac,
     redAwaitingEvac,
+    blueCarrying,
+    redCarrying,
     objectives: world.objectives.map((o) => ({
       id: o.id,
       label: o.label,

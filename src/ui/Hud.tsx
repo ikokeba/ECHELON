@@ -1,8 +1,9 @@
 import { useSimStore } from "./store.ts";
-import { TimeControls } from "./TimeControls.tsx";
+import { ClockBar } from "./ClockBar.tsx";
 import { ViewControls } from "./ViewControls.tsx";
 import { EchelonTree } from "./EchelonTree.tsx";
 import { ObjectivePanel } from "./ObjectivePanel.tsx";
+import { ForcePanel } from "./ForcePanel.tsx";
 import { ControlBanner } from "./ControlBanner.tsx";
 import { OrderToast } from "./OrderToast.tsx";
 import { ThinkingPanel } from "./ThinkingPanel.tsx";
@@ -11,75 +12,50 @@ import { DeploymentPanel } from "./DeploymentPanel.tsx";
 import { PlanPanel } from "./PlanPanel.tsx";
 import { Legend } from "./Legend.tsx";
 
-function fmtClock(sec: number): string {
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60);
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
+/**
+ * HUDの骨格(`[v6.6]` — UIレビュー 02「3列 + 2レール」)。
+ *
+ * 以前は各パネルが `position: absolute; top: …` で自分の居場所を主張しており、
+ * 出るものが増えるたびに衝突していた(`.plan-panel` と `.thinking-panel` が
+ * 同じ `top: 292px` にいたのが典型)。列の flow に乗せれば、増減しても重ならない。
+ *
+ *   左列 L1 操作 / L2 文脈スロット(常に1つだけ) / L3 拠点
+ *   右列 R1 戦力 / R2 指揮階層
+ *   中央 上レール(時間と権限) と 下レール(凡例)。盤面は中央帯に収まる
+ *
+ * デバッグと配置エディタだけは右列に**重ねる**オーバーレイ。常設ではなく、
+ * 開いている間だけ他を隠してよいものなので、列には入れない。
+ */
 export function Hud() {
-  const {
-    tick,
-    simSeconds,
-    blueAlive,
-    redAlive,
-    blueEffective,
-    redEffective,
-    blueEvacuated,
-    redEvacuated,
-    blueAwaitingEvac,
-    redAwaitingEvac,
-    control,
-  } = useSimStore();
+  const phase = useSimStore((s) => s.phase);
 
   return (
     <div className="hud">
-      <div className="hud-top">
-        <div className="hud-clock">
-          <span className="mono">{fmtClock(simSeconds)}</span>
-          <span className="hud-tick mono">tick {tick}</span>
-        </div>
-        <TimeControls />
+      <div className="hud-col hud-col-l">
+        <ViewControls />
+        {/* L2 文脈スロット: 立案中は作戦、戦闘中は分隊の思考。常にどちらか1つ */}
+        <div className="hud-slot">{phase === "planning" ? <PlanPanel /> : <ThinkingPanel />}</div>
+        <ObjectivePanel />
       </div>
 
-      <ControlBanner />
-      <OrderToast />
-
-      <div className="hud-forces">
-        <div className="force force-blue">
-          <span className="force-label">BLUE</span>
-          <span className="mono">
-            {blueEffective}/{blueAlive}
-          </span>
-          <span className="force-evac mono" title="後送待ち / 後送済み(仕様 §9)">
-            ▲{blueAwaitingEvac} ✚{blueEvacuated}
-          </span>
+      <div className="hud-center">
+        <div className="hud-rail">
+          <ClockBar />
+          <ControlBanner />
         </div>
-        <div className="force force-red">
-          <span className="force-label">RED</span>
-          <span className="mono">
-            {redEffective}/{redAlive}
-          </span>
-          <span className="force-evac mono" title="後送待ち / 後送済み(仕様 §9)">
-            ▲{redAwaitingEvac} ✚{redEvacuated}
-          </span>
+        <OrderToast />
+        <div className="hud-rail">
+          <Legend />
         </div>
       </div>
 
-      <ViewControls />
-      <ObjectivePanel />
-      <EchelonTree />
-      <ThinkingPanel />
+      <div className="hud-col hud-col-r">
+        <ForcePanel />
+        <EchelonTree />
+      </div>
+
       <DebugPanel />
       <DeploymentPanel />
-      <PlanPanel />
-      <Legend />
-
-      <div className="hud-hint">
-        ドラッグ: 移動 · ホイール: 拡大縮小 · Space: 一時停止 · . : 1ティック · 左クリック:
-        ユニット選択 · H: デバッグ · G: 配置 · L: 凡例
-        {control && " · 右クリック: 移動命令"}
-      </div>
     </div>
   );
 }

@@ -1,11 +1,21 @@
 import { SCENARIOS, type ScenarioKey } from "@sim/scenario.ts";
 import { useSimStore, type ViewEchelon } from "./store.ts";
 
+/**
+ * L1 — 操作(規模 / 視点 / 陣営 / 配置)。
+ *
+ * 視点切替は仕様 §5 の「情報の階層化」を体感させるための中核UI。同じ戦場を、
+ * 小隊長として見るか分隊長として見るかで、見える敵の量と鮮度が変わる。
+ *
+ * `[v6.6]` — UIレビュー 05: 独立したボタンの並びから**セグメント切替**にした。
+ * 4つのボタンが横並びだと「押せるもの」が4つあるように見えるが、実際は
+ * 4択のうち1つを選ぶ操作なので、1つの部品として見えるほうが正しい。
+ */
 const ECHELON_LABEL: Record<ViewEchelon, string> = {
   company: "中隊長",
   platoon: "小隊長",
   squad: "分隊長",
-  truth: "神視点",
+  truth: "神",
 };
 
 const ECHELON_HINT: Record<ViewEchelon, string> = {
@@ -15,10 +25,14 @@ const ECHELON_HINT: Record<ViewEchelon, string> = {
   truth: "デバッグ表示。実際の敵位置",
 };
 
-/**
- * 視点切替。仕様 §5 の「情報の階層化」を体感させるための中核UI。
- * 同じ戦場を、小隊長として見るか分隊長として見るかで、見える敵の量と鮮度が変わる。
- */
+/** 規模のセグメントは幅が足りないので、2文字の短縮名を別に持つ */
+const SCENARIO_SHORT: Record<ScenarioKey, string> = {
+  squad: "分隊",
+  platoon: "小隊",
+  company: "中隊",
+  urban: "CQB",
+};
+
 export function ViewControls() {
   const viewEchelon = useSimStore((s) => s.viewEchelon);
   const viewSide = useSimStore((s) => s.viewSide);
@@ -32,75 +46,78 @@ export function ViewControls() {
   const toggleDeploy = useSimStore((s) => s.toggleDeploy);
 
   return (
-    <div className="view-controls">
-      <div className="vc-row">
-        <span className="vc-label">規模</span>
-        {(Object.keys(SCENARIOS) as ScenarioKey[]).map((k) => (
+    <div className="panel">
+      <div className="seg-row">
+        <span className="seg-label">規模</span>
+        <div className="seg">
+          {(Object.keys(SCENARIOS) as ScenarioKey[]).map((k) => (
+            <button
+              key={k}
+              type="button"
+              className={k === scenarioKey ? "seg-btn seg-on" : "seg-btn"}
+              onClick={() => setScenario(k)}
+              title={`${SCENARIOS[k].label} — ${SCENARIOS[k].detail}`}
+            >
+              {SCENARIO_SHORT[k]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="seg-row">
+        <span className="seg-label">視点</span>
+        <div className="seg">
+          {(["company", "platoon", "squad", "truth"] as ViewEchelon[]).map((e) => (
+            <button
+              key={e}
+              type="button"
+              className={e === viewEchelon ? "seg-btn seg-on" : "seg-btn"}
+              onClick={() => setViewEchelon(e)}
+              title={ECHELON_HINT[e]}
+            >
+              {ECHELON_LABEL[e]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="seg-row">
+        <span className="seg-label">陣営</span>
+        <div className="seg">
           <button
-            key={k}
             type="button"
-            className={k === scenarioKey ? "vc-btn vc-on" : "vc-btn"}
-            onClick={() => setScenario(k)}
-            title={SCENARIOS[k].detail}
+            className={viewSide === "blue" ? "seg-btn seg-on seg-blue" : "seg-btn"}
+            onClick={() => setViewSide("blue")}
           >
-            {SCENARIOS[k].label}
+            BLUE
           </button>
-        ))}
-      </div>
-
-      <div className="vc-row">
-        <span className="vc-label">視点</span>
-        {(["company", "platoon", "squad", "truth"] as ViewEchelon[]).map((e) => (
           <button
-            key={e}
             type="button"
-            className={e === viewEchelon ? "vc-btn vc-on" : "vc-btn"}
-            onClick={() => setViewEchelon(e)}
-            title={ECHELON_HINT[e]}
+            className={viewSide === "red" ? "seg-btn seg-on seg-red" : "seg-btn"}
+            onClick={() => setViewSide("red")}
           >
-            {ECHELON_LABEL[e]}
+            RED
           </button>
-        ))}
+        </div>
       </div>
 
-      <div className="vc-row">
-        <span className="vc-label">陣営</span>
-        <button
-          type="button"
-          className={viewSide === "blue" ? "vc-btn vc-on vc-blue" : "vc-btn"}
-          onClick={() => setViewSide("blue")}
-        >
-          BLUE
-        </button>
-        <button
-          type="button"
-          className={viewSide === "red" ? "vc-btn vc-on vc-red" : "vc-btn"}
-          onClick={() => setViewSide("red")}
-        >
-          RED
-        </button>
-      </div>
-
-      <div className="vc-row">
-        <span className="vc-label">配置</span>
-        <button
-          type="button"
-          className={deployOpen ? "vc-btn vc-on" : "vc-btn"}
-          onClick={toggleDeploy}
-          title="陣営の初期展開位置と拠点を決める (G)"
-        >
-          初期配置・拠点を編集
-        </button>
-      </div>
+      <button
+        type="button"
+        className={deployOpen ? "btn btn-on" : "btn"}
+        onClick={toggleDeploy}
+        title="陣営の初期展開位置と拠点を決める (G)"
+      >
+        初期配置・拠点を編集
+      </button>
 
       <div className="vc-hint">{ECHELON_HINT[viewEchelon]}</div>
 
       <div className="vc-contacts">
         <span>
-          把握中の敵 <b className="mono">{known}</b>
+          把握中の敵 <b>{known}</b>
         </span>
-        <span className="vc-stale">
-          最終目撃 <b className="mono">{stale}</b>
+        <span>
+          最終目撃 <b>{stale}</b>
         </span>
       </div>
     </div>

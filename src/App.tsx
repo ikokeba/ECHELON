@@ -10,13 +10,19 @@ export function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const onBody = e.target === document.body;
+      // 立案中は Space に「一時停止」の意味が無いので、Enter と同じ「開始」に振る。
+      // **ポーズより先に見ること** — 順序を逆にすると Space で開始と同時にポーズがかかる
+      if (
+        (e.code === "Enter" || e.code === "Space") &&
+        useSimStore.getState().phase === "planning"
+      ) {
+        e.preventDefault();
+        useSimStore.getState().startBattle();
+        return;
+      }
       if (e.code === "Space" && onBody) {
         e.preventDefault();
         useSimStore.getState().togglePause();
-      }
-      if (e.code === "Enter" && useSimStore.getState().phase === "planning") {
-        e.preventDefault();
-        useSimStore.getState().startBattle();
       }
       if ((e.code === "KeyL" || e.key === "l") && onBody) {
         useSimStore.getState().toggleLegend();

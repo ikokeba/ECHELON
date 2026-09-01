@@ -1,12 +1,14 @@
 import { useSimStore } from "./store.ts";
 
 /**
- * 拠点の状況表示(仕様 §12 メイン条件「拠点確保」)。
+ * L3 — 拠点の状況(仕様 §12 メイン条件「拠点確保」)。
  *
  * 仕様 §12 は味方ステータスをフォグオブウォーの対象外としているが、**拠点の所有は
- * 敵情ではなく統制手段の状態**なので、ここでも隠さない。確保進捗とコンテスト状態
- * (拠点内に敵がいて確保カウントが止まっている)を出すことで、
- * 「どこへ増援を送るか」という §3① の判断材料になる。
+ * 敵情ではなく統制手段の状態**なので、ここでも隠さない。
+ *
+ * `[v6.6]` — UIレビュー 05: 占領度は1本のバーで示し、状態は右端の一語にした。
+ * 係争中に「係争中」というタグを別に足していたのをやめ、色と語でだけ表す
+ * (同じことを2度言うと、行が長くなるだけで読みは速くならない)。
  */
 export function ObjectivePanel() {
   const objectives = useSimStore((s) => s.objectives);
@@ -15,7 +17,11 @@ export function ObjectivePanel() {
   if (objectives.length === 0 && !victory) return null;
 
   return (
-    <div className="objectives">
+    <div className="panel">
+      <div className="panel-cap">
+        <span>OBJECTIVES</span>
+        <span>過半数の保持で勝利</span>
+      </div>
       {victory && (
         <div className={`obj-victory obj-victory-${victory.winner}`}>
           {victory.winner === "blue" ? "BLUE" : "RED"} 勝利
@@ -24,19 +30,29 @@ export function ObjectivePanel() {
           </span>
         </div>
       )}
-      {objectives.map((o) => (
-        <div key={o.id} className="obj-row">
-          <span className={`obj-dot obj-${o.owner ?? "neutral"}`} />
-          <span className="obj-label">{o.label}</span>
-          <span className="obj-bar">
-            <span
-              className={`obj-fill obj-${o.contested ? "contested" : (o.owner ?? "neutral")}`}
-              style={{ width: `${Math.round(o.progress * 100)}%` }}
-            />
-          </span>
-          {o.contested && <span className="obj-contested">係争中</span>}
-        </div>
-      ))}
+      {objectives.map((o) => {
+        const cls = o.contested ? "contested" : (o.owner ?? "neutral");
+        const state = o.contested
+          ? "係争"
+          : o.owner
+            ? "確保"
+            : o.progress > 0
+              ? `${Math.round(o.progress * 100)}%`
+              : "中立";
+        return (
+          <div key={o.id} className="obj-row">
+            <span className={`obj-dot obj-${o.owner ?? "neutral"}`} />
+            <span className="obj-label">{o.label.replace("OBJ ", "")}</span>
+            <span className="obj-bar">
+              <span
+                className={`obj-fill obj-${cls}`}
+                style={{ width: `${Math.round(o.progress * 100)}%` }}
+              />
+            </span>
+            <span className={`obj-state obj-${cls}`}>{state}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }

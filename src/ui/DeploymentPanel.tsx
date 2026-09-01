@@ -44,22 +44,22 @@ export function DeploymentPanel() {
   const objectives = draft.objectives ?? [];
 
   return (
-    <div className="deploy-panel">
-      <div className="dbg-head">
+    <div className="panel overlay-panel">
+      <div className="ov-head">
         <span>配置</span>
         <span className={symmetric ? "dep-sym" : "dep-asym"}>
           {symmetric ? "点対称" : "非対称"}
         </span>
-        <button type="button" className="dbg-x" onClick={close} title="閉じる (G)">
+        <button type="button" className="btn-x" onClick={close} title="閉じる (G)">
           ×
         </button>
       </div>
 
-      <div className="dbg-sec">
+      <div className="ov-sec">
         <div className="dbg-k">
           道具を選んで地図をクリック。適用するまで戦闘には反映されません。
         </div>
-        <div className="dbg-seg">
+        <div className="seg">
           {(
             [
               { v: "blueSpawn" as const, label: "BLUE展開" },
@@ -70,7 +70,7 @@ export function DeploymentPanel() {
             <button
               key={t.v}
               type="button"
-              className={tool === t.v ? "dbg-seg-btn dbg-on" : "dbg-seg-btn"}
+              className={tool === t.v ? "seg-btn seg-on" : "seg-btn"}
               onClick={() => setTool(tool === t.v ? null : t.v)}
             >
               {t.label}
@@ -91,8 +91,8 @@ export function DeploymentPanel() {
         </div>
       </div>
 
-      <div className="dbg-sec">
-        <div className="dbg-sec-title">展開点</div>
+      <div className="ov-sec">
+        <div className="ov-sec-title">展開点</div>
         {(["blue", "red"] as Side[]).map((side) => {
           const sp = draft.spawn[side];
           if (!sp) return null;
@@ -125,8 +125,8 @@ export function DeploymentPanel() {
         })}
       </div>
 
-      <div className="dbg-sec">
-        <div className="dbg-sec-title">拠点(仕様 §12)</div>
+      <div className="ov-sec">
+        <div className="ov-sec-title">拠点(仕様 §12)</div>
         {objectives.length === 0 && <div className="dbg-k">拠点なし — 戦力の枯渇でのみ決着</div>}
         {objectives.map((o, i) => (
           <div key={i} className={i === selIdx ? "dep-obj dep-obj-on" : "dep-obj"}>
@@ -152,21 +152,21 @@ export function DeploymentPanel() {
                 onChange={(e) => setObjField(i, { radius: Number(e.target.value) })}
               />
             </label>
-            <button type="button" className="dbg-x" onClick={() => removeObjective(i)}>
+            <button type="button" className="btn-x" onClick={() => removeObjective(i)}>
               ×
             </button>
           </div>
         ))}
       </div>
 
-      <div className="dbg-sec">
-        <button type="button" className="vc-btn" onClick={mirror}>
+      <div className="ov-sec">
+        <button type="button" className="btn" onClick={mirror}>
           BLUEを点対称に写してRED
         </button>
-        <button type="button" className="vc-btn dep-apply" onClick={commit}>
+        <button type="button" className="btn dep-apply" onClick={commit}>
           この配置で立案する
         </button>
-        <button type="button" className="vc-btn" onClick={reset}>
+        <button type="button" className="btn" onClick={reset}>
           既定の配置へ戻す
         </button>
         {!symmetric && (

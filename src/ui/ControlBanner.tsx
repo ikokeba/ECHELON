@@ -1,10 +1,15 @@
 import { useSimStore, type ViewEchelon } from "./store.ts";
 
 /**
- * いま「どの陣営の・どの指揮階層の・どのユニット」を操作しているかを常時表示する
- * (初回テストプレイ指摘: 操作対象が画面から分からない)。
+ * 上レール右 — 指揮権限バナー。
  *
+ * いま「どの陣営の・どの指揮階層の・どのユニット」を動かしているかを常時示す。
  * 仕様 §4 のホットスワップは操作対象を頻繁に切り替える前提なので、現在地の常設表示が要る。
+ *
+ * `[v6.6]` — UIレビュー 05:「誰が動かしているか」を**枠線1本**で示す。
+ * AI任せなら既定の灰枠で不透明度0.7、人が入ると水色枠 + `MANUAL`。
+ * 陣営色は左端の1語だけに留め、枠線は「AIか人か」だけを担当させる —
+ * 枠線に2つの意味を持たせると、どちらの意味かを毎回読み取る必要が出る。
  */
 const ECHELON_JP: Record<ViewEchelon, string> = {
   company: "中隊長",
@@ -25,8 +30,7 @@ export function ControlBanner() {
 
   if (!control) {
     return (
-      <div className="control-banner cb-idle">
-        <span className="cb-role">観戦中</span>
+      <div className="panel cmdbanner cb-idle">
         <span className="cb-unit">全ユニットAI制御</span>
         <span className="cb-view">視点: {ECHELON_JP[viewEchelon]}</span>
       </div>
@@ -34,15 +38,17 @@ export function ControlBanner() {
   }
 
   const sideCls = control.side === "blue" ? "cb-blue" : "cb-red";
+  const echelon = ECHELON_JP[control.echelon as ViewEchelon] ?? control.echelon;
+  const suffix = UNIT_SUFFIX[control.echelon as "company" | "platoon" | "squad"] ?? "";
   return (
-    <div className={`control-banner ${sideCls}`}>
+    <div className={`panel panel-live cmdbanner ${sideCls}`}>
       <span className="cb-side">{control.side === "blue" ? "BLUE" : "RED"}</span>
-      <span className="cb-role">{ECHELON_JP[control.echelon as ViewEchelon] ?? control.echelon}</span>
       <span className="cb-unit">
         {control.unitId}
-        {UNIT_SUFFIX[control.echelon as "company" | "platoon" | "squad"] ?? ""}
-        <span className="cb-rep"> 操作中</span>
+        {suffix}
+        {echelon}を操作中
       </span>
+      <span className="cb-tag">MANUAL</span>
       {viewSide !== control.side && <span className="cb-view">視点: {viewSide.toUpperCase()}</span>}
     </div>
   );

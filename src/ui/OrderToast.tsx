@@ -28,10 +28,10 @@ export function OrderToast() {
 
   const fmt = (n: number) => n.toFixed(0);
   return (
-    <div className={`order-toast${flash ? " ot-flash" : ""}`}>
+    <div className={`panel order-toast${flash ? " ot-flash" : ""}`}>
       {flash && <span className="ot-head">▶ 移動命令を発行</span>}
       {active && (
-        <span className="ot-dest mono">
+        <span className="ot-dest">
           目的地 ({fmt(active.target.x)}, {fmt(active.target.z)})
         </span>
       )}

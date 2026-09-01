@@ -1,75 +1,91 @@
 import { useSimStore } from "./store.ts";
 
 /**
- * 地図の凡例(`[v6.5]`)。
+ * 下レール — 地図の凡例(`[v6.5]`、`[v6.6]` で記号体系の変更を反映)。
  *
- * 兵士の色は状態そのもの — 陣営・制圧・出血・止血・搬送・戦死が1つのトークンの
- * 色に畳み込まれている。凡例が無いと、盤面で起きていることの半分が読めない。
+ * 兵士1点は「**陣営 × 状態 × 階級**」の3層でできている。状態は色を増やすのではなく
+ * 塗り / 抜き / 輪の追加で表すので、凡例も「色見本の並び」ではなく**記号の見本**にする。
  *
- * 色見本の値は `render/renderer.ts` の定数と**必ず一致させること**。地図と凡例が
- * ずれた時点で凡例は嘘になる。
+ * ここの記号はCSSで地図の記号を再現したもの。地図側の実体は `render/renderer.ts`
+ * (`discMesh` / `bodyRingMesh` / `haloRingMesh` / `kiaMesh`)。
+ * **作り方を変えたら両方を直すこと** — 凡例が地図とずれた時点で凡例は嘘になる。
+ * 色そのものは `src/theme.ts` の1本から来ているので、色だけがずれることはない。
  */
 
 interface Item {
-  color: string;
+  /** `.lg-g` に足すクラス。記号の作り方 */
+  cls: string;
   label: string;
-  /** 丸ではなく別の形で描くもの(菱形・リングなど) */
-  shape?: "diamond" | "ring" | "bar";
+  /** 陣営色などインライン指定が要るもの */
+  style?: React.CSSProperties;
   title?: string;
 }
 
-/** 兵士トークンの色(renderer.ts の SIDE_COLOR / WIA_COLOR ほかと同値)。 */
 const SOLDIER_ITEMS: Item[] = [
-  { color: "#2f74d8", label: "BLUE" },
-  { color: "#d8342f", label: "RED" },
-  { color: "#e3d9c6", label: "制圧中", title: "被制圧: 命中率 −40%(仕様 §8.6)。色が白茶ける" },
-  { color: "#ffcc17", label: "出血中", title: "負傷。45秒以内に応急手当が要る(仕様 §9)" },
-  { color: "#2fbf72", label: "止血済", title: "出血は止まったが行動不能。後送待ち(仕様 §9)" },
-  { color: "#7ad3ff", label: "担架", title: "搬送中の負傷者と、担いでいる担架要員(仕様 §9)" },
-  { color: "#3a352b", label: "戦死" },
+  {
+    cls: "lg-fill",
+    label: "健常",
+    style: { background: "var(--blue)" },
+    title: "陣営色のベタ塗り。これだけが動ける兵",
+  },
+  {
+    cls: "lg-fill lg-halo",
+    label: "制圧",
+    style: { background: "var(--blue)" },
+    title: "陣営色はそのまま、外周に白リング。命中率 −40%(仕様 §8.6)",
+  },
+  { cls: "lg-ring", label: "出血", title: "黄の抜き円。45秒以内に手当がないと戦死(仕様 §9)" },
+  { cls: "lg-ring-core", label: "止血済", title: "同じ抜き円に緑の芯。処置は済み、後送待ち" },
+  {
+    cls: "lg-fill lg-inner",
+    label: "担架班",
+    style: { background: "var(--blue)" },
+    title: "運ぶ側。水色の内リング + 負傷者への線",
+  },
+  { cls: "lg-line", label: "搬送", title: "運ぶ側と運ばれる側を結ぶ関係の線(仕様 §9)" },
+  { cls: "lg-cross", label: "戦死", title: "円をやめた暗い×。形が変わるので引きでも読める" },
 ];
 
-/** 敵と統制手段のマーカー。 */
 const MARKER_ITEMS: Item[] = [
   {
-    color: "#d8342f",
-    label: "敵(報告)",
-    shape: "diamond",
-    title: "実体ではなく最終目撃位置。薄いほど確度が低い(仕様 §5)",
+    cls: "lg-diamond",
+    label: "最終目撃",
+    title: "実体ではなく報告された最終目撃位置。薄いほど確度が低い(仕様 §5)",
   },
-  { color: "#6a6252", label: "ゴースト", shape: "diamond", title: "確度が尽きた最終目撃情報" },
-  { color: "#18a86e", label: "拠点・中立", shape: "ring" },
-  { color: "#f0a81c", label: "拠点・係争中", shape: "ring", title: "確保カウントが停止(仕様 §12)" },
-  { color: "#ffffff", label: "操作中", shape: "ring" },
-  { color: "#00e0ff", label: "選択・麾下", shape: "ring", title: "指揮官を選ぶと麾下が光る" },
-  { color: "#ffc21e", label: "移動命令", shape: "ring" },
-  { color: "#7c4a1e", label: "閉じた扉", shape: "bar", title: "視線も移動も遮る(仕様 §7.6)" },
+  { cls: "lg-dash", label: "不確度", title: "破線の円。時間とともに半径が開く(仕様 §5)" },
+  { cls: "lg-obj", label: "拠点", title: "中立=緑 / 係争=黄 / 確保=陣営色(仕様 §12)" },
+  {
+    cls: "lg-obj",
+    label: "操作中",
+    style: { borderColor: "var(--text)" },
+    title: "人が操作しているユニット",
+  },
+  {
+    cls: "lg-obj",
+    label: "選択・麾下",
+    style: { borderColor: "var(--live)" },
+    title: "指揮官を選ぶと麾下が光る(仕様 §12 の継承結果)",
+  },
+  {
+    cls: "lg-fill",
+    label: "閉じた扉",
+    style: { background: "var(--door-closed)", borderRadius: "2px", width: "5px" },
+    title: "視線も移動も遮る。突入はここからだけ(仕様 §7.6)",
+  },
 ];
 
-/** 階級章(`[v6.2]`)。指揮継承の結果で付く(仕様 §12)。 */
-const RANK_ITEMS: Array<{ mark: string; label: string }> = [
-  { mark: "▪", label: "FTリーダー" },
-  { mark: "▪▪", label: "分隊長" },
-  { mark: "▬", label: "小隊長" },
-  { mark: "▬▬", label: "中隊長" },
+/** 階級は「円の上の横棒」。本数と長さで4階級(`[v6.6]` UIレビュー 診断D)。 */
+const RANK_ITEMS: Array<{ bars: number; long: boolean; label: string }> = [
+  { bars: 1, long: false, label: "FT長" },
+  { bars: 2, long: false, label: "分隊長" },
+  { bars: 2, long: true, label: "小隊長" },
+  { bars: 3, long: true, label: "中隊長" },
 ];
 
-function Swatch({ item }: { item: Item }) {
-  const cls =
-    item.shape === "diamond"
-      ? "lg-dot lg-diamond"
-      : item.shape === "ring"
-        ? "lg-dot lg-ring"
-        : item.shape === "bar"
-          ? "lg-dot lg-bar"
-          : "lg-dot";
-  const style =
-    item.shape === "ring"
-      ? { borderColor: item.color }
-      : { background: item.color };
+function Glyph({ item }: { item: Item }) {
   return (
     <span className="lg-item" title={item.title}>
-      <span className={cls} style={style} />
+      <span className={`lg-g ${item.cls}`} style={item.style} />
       {item.label}
     </span>
   );
@@ -78,43 +94,52 @@ function Swatch({ item }: { item: Item }) {
 export function Legend() {
   const open = useSimStore((s) => s.legendOpen);
   const toggle = useSimStore((s) => s.toggleLegend);
+  const control = useSimStore((s) => s.control);
 
   if (!open) {
     return (
       <button type="button" className="lg-open" onClick={toggle} title="凡例 (L)">
-        凡例
+        凡例 L
       </button>
     );
   }
 
   return (
-    <div className="legend">
-      <div className="lg-head">
-        <span>凡例</span>
-        <button type="button" className="dbg-x" onClick={toggle} title="閉じる (L)">
-          ×
-        </button>
+    <div className="panel legend">
+      <div className="panel-cap">
+        <span>LEGEND</span>
+        <span>
+          凡例 L ／ デバッグ H ／ 配置 G ／ 一時停止 Space
+          {control && " ／ 右クリック 移動命令"}
+        </span>
       </div>
       <div className="lg-row">
         <span className="lg-cap">兵士</span>
         {SOLDIER_ITEMS.map((it) => (
-          <Swatch key={it.label} item={it} />
+          <Glyph key={it.label} item={it} />
         ))}
       </div>
       <div className="lg-row">
         <span className="lg-cap">標識</span>
         {MARKER_ITEMS.map((it) => (
-          <Swatch key={it.label} item={it} />
+          <Glyph key={it.label} item={it} />
         ))}
       </div>
       <div className="lg-row">
         <span className="lg-cap">階級</span>
         {RANK_ITEMS.map((r) => (
           <span key={r.label} className="lg-item">
-            <span className="lg-rankmark">{r.mark}</span>
+            <span className={r.long ? "rank-bars rank-long" : "rank-bars rank-short"}>
+              {Array.from({ length: r.bars }, (_, i) => (
+                <i key={i} />
+              ))}
+            </span>
             {r.label}
           </span>
         ))}
+        <button type="button" className="btn-x" onClick={toggle} title="閉じる (L)">
+          ×
+        </button>
       </div>
     </div>
   );
