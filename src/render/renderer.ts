@@ -13,6 +13,7 @@ import type { ViewResult } from "@sim/viewpoint.ts";
 import { LITTER, SOLDIER_RADIUS } from "@sim/constants.ts";
 import { collidesWall, hasLineOfSight } from "@sim/geometry.ts";
 import { coverBonus } from "@sim/cover.ts";
+import { MAP } from "../theme.ts";
 
 /**
  * レンダラへ毎フレーム渡す「いま何を強調して描くか」。ui/store の debug スライスと
@@ -65,71 +66,32 @@ export interface PlanRouteView {
 }
 
 /**
- * ── 配色(`[v6.5]`)──
+ * ── 配色と記号体系(`[v6.6]` — UIレビュー 03/04)──
  *
- * 中東の市街地を想定した昼間の配色にしてある。地は乾いた土と砂、建物は日に焼けた
- * 日干し煉瓦とコンクリート、室内は日陰。以前の暗い紺色の盤面から変えた理由は
- * 2つあって、ひとつは題材(市街地戦)に合うこと、もうひとつは**明るい地の上では
- * 兵士トークンに影と縁が付けられる**こと — 暗い地の上では影が沈んで見えないので、
- * 224名が重なる中隊戦で1人ずつを見分ける手がかりが色しか無かった。
+ * **色はここで定義しない。** `src/theme.ts` が唯一のソースで、HUDのCSSも同じ場所を
+ * 読む(以前は renderer と styles.css の二重管理で、凡例が地図とずれる事故の元だった)。
  *
- * 明るい地に合わせて陣営色を一段濃くしてある(以前の水色・朱色は砂の上で沈む)。
- * HUDのCSS側(`--map-blue` / `--map-red`)と必ず揃えること — 凡例の色見本が
- * 地図と食い違うと凡例の意味が無くなる。
+ * 記号の作り方は「**色相は誰か、明度と形はどうなっているか**」。意味を持つ色は5つしか
+ * 無く(陣営2 + 要処置 + 操作/搬送 + 安定)、状態は色を増やさず**形**で分ける:
+ *
+ *   健常       陣営色のベタ塗り円 — これだけが「動ける兵」
+ *   制圧       陣営色はそのまま + 外周に白リング(色を置き換えないので負傷と混ざらない)
+ *   出血中     黄の抜き円(中心が空くので、ベタ塗りの健常と形で分かれる)
+ *   止血済     同じ黄の抜き円 + 緑の芯(「傷は同じ、処置が済んだ」を差分で示す)
+ *   担架搬送   運ぶ側 = 陣営色 + 水色の内リング / 運ばれる側 = 負傷記号 / 2点を水色線で結ぶ
+ *   戦死       円をやめて暗い×(色ではなく形が変わるので引きでも読める)
+ *   敵の目撃   菱形 + 破線の不確度円(実線・円の実体と描き分ける)
+ *
+ * 階級は円の**上**に横棒。本数と長さだけで表し、点と棒の混在をやめた。
  */
-const SIDE_COLOR: Record<Side, number> = {
-  blue: 0x2f74d8,
-  red: 0xd8342f,
-};
+const SIDE_COLOR: Record<Side, number> = { blue: MAP.blue, red: MAP.red };
 
-/** 戦死。土に還る手前の色。彩度を落として「もう動かないもの」に見せる */
-const KIA_COLOR = 0x3a352b;
-/** 出血中のWIA。砂の上で埋もれないよう、彩度の高い黄にする(仕様 §9) */
-const WIA_COLOR = 0xffcc17;
-/** 屋外の地面 — 乾いた土。テクスチャの下地でもある */
-const GROUND_COLOR = 0x9c8763;
-/** 盤外。play area の外側を一段落として、盤面そのものを額装する */
-const OUT_OF_PLAY_COLOR = 0x453c2e;
-/** 建物の壁の天端 — 日に焼けた漆喰・コンクリート。真上から見ると最も明るい面 */
-const WALL_COLOR = 0xd9c9a4;
-/** 街路の低い遮蔽(塀・土嚢・車列)。建物の壁と区別できるよう一段暗い土壁色 */
-const CLUTTER_COLOR = 0x6a5230;
-/** 建物の床 — 屋根の下なので日陰(仕様 §7.1) */
-const ROOM_FLOOR_COLOR = 0x6d5f47;
-/** 建物が落とす影。太陽は高いので短い(`[v6.5]`) */
-const SHADOW_COLOR = 0x2b2318;
-const SHADOW_OPACITY = 0.3;
 /** 影のずれ m。全ての影で共通にしないと光源が2つあるように見える */
 const SHADOW_DX = 2.4;
 const SHADOW_DZ = 3.2;
-/** 閉じた扉 — 視線も移動も遮っている(仕様 §7.6)。木の扉に見立てた濃い茶 */
-const DOOR_CLOSED_COLOR = 0x7c4a1e;
-/** 開いた扉 — この瞬間から室内が見える(仕様 §7.6)。抜けた開口部 */
-const DOOR_OPEN_COLOR = 0x413524;
-/** 中立の拠点(仕様 §12)。砂の上で最も目立つ補色として緑を当てる */
-const NEUTRAL_OBJ_COLOR = 0x22c07f;
-/** コンテスト状態 — 確保カウントが完全に停止している(仕様 §12) */
-const CONTESTED_OBJ_COLOR = 0xf0a81c;
-/** 確度が尽きた最終目撃情報(ゴースト)の色。仕様 §5 `[v6]` */
-const GHOST_COLOR = 0x6a6252;
-/**
- * 人間が操作中のノードを囲むリング。地が明るくなったので金では沈む — 白にした
- * (`[v6.5]`)。地図上で白を使うのはこれとCCPの十字だけ。
- */
-const CONTROL_RING_COLOR = 0xffffff;
-/** 移動命令のマーカーと線。操作中リングと対にして琥珀色 */
-const ORDER_COLOR = 0xffc21e;
-/** クリック選択した兵士を囲むリング(デバッグ表示の基準) */
-const SELECT_RING_COLOR = 0x00e0ff;
-/** 選択した指揮官の麾下ユニット(`[v6.4]` 4回目のテストプレイ指摘⑤) */
-const SUBORDINATE_COLOR = 0x00e0ff;
-/** 指揮線の最大本数。中隊長でも小隊3+本部数名なので十分 */
-const MAX_COMMAND_LINKS = 64;
-/**
- * 配置エディタの「予定」の色(`[v6.4]`)。実際の拠点(緑)や陣営色と**必ず変えること**。
- * 同じ緑で描いていたときは、拠点を動かしても元の位置に実物のリングが残るので
- * 「動かせていない」ように見えた(4回目のテストプレイ指摘)。
- */
+const SHADOW_OPACITY = 0.3;
+
+/** 配置エディタの「予定」。実際の拠点や陣営色と必ず違う見た目にする(`[v6.4]`) */
 const PLAN_COLOR = 0xf2ecdd;
 /** 発砲線: 命中 / 外れ */
 const TRACER_HIT_COLOR = 0xfff0a0;
@@ -140,6 +102,8 @@ const TRACER_LIFE = 0.11;
 const BLAST_LIFE = 0.55;
 const MAX_TRACERS = 400;
 const MAX_BLASTS = 24;
+/** 指揮線の最大本数。中隊長でも小隊3+本部数名なので十分 */
+const MAX_COMMAND_LINKS = 64;
 /** 隠蔽率グリッドの1セルの1辺 m と最大セル数 */
 const GRID_CELL = 2.5;
 const MAX_GRID_CELLS = 6000;
@@ -159,39 +123,59 @@ interface Blast {
   side: Side;
   life: number;
 }
-/** 止血済みWIA。出血は止まったが行動不能で後送待ち(仕様 §9) */
-const STABILIZED_COLOR = 0x2fbf72;
-/** 担架搬送中(負傷者本人と担架要員の両方)。仕様 §9 */
-const CARRYING_COLOR = 0x7ad3ff;
-/** 制圧を受けている兵士へ寄せる色。砂埃を浴びて白茶けた見え方(仕様 §8.6) */
-const SUPPRESSED_TINT = 0xf3e8cf;
 const MAX_SOLDIERS = 512;
 const MAX_CONTACTS = 512;
 
+// ── トークンの寸法(すべて「円の半径 R」を基準にした比で持つ) ────────────────
+/** 兵士トークンの円の半径 m */
+const TOKEN_R = SOLDIER_RADIUS * 1.6;
+/** 状態リング(負傷の抜き円 / 担架班の内リング)の内径・外径 = R × これ */
+const BODY_RING_IN = 0.56;
+const BODY_RING_OUT = 1.0;
+/** 制圧の外周リング。トークンの**外**に足す */
+const HALO_RING_IN = 1.12;
+const HALO_RING_OUT = 1.44;
+/** 戦死の×の腕の長さ・太さ = R × これ */
+const KIA_ARM = 1.15;
+const KIA_THICK = 0.3;
+
 /**
- * 階級章(`[v6.2]` 初回テストプレイ指摘「陣営ユニットの階級別の表示がわかりにくい」)。
+ * 階級章(`[v6.6]` — UIレビュー 診断D)。点と棒の混在をやめ、**円の上の横棒**に統一した。
+ * 本数と長さの2軸で4階級を表す。兵士点の外に出すので、点の状態表示と干渉しない。
  *
- * トークンの上に NATO 風の小さな標を置く。階級は肩書きではなく**指揮継承の結果**
- * (`commanderId`)から引くので、分隊長が倒れて次席が引き継げば標もそちらへ移る(仕様 §12)。
+ *   FTリーダー 短い棒 ×1 / 分隊長 短い棒 ×2 / 小隊長 長い棒 ×2 / 中隊長 長い棒 ×3
  *
- * 一般兵 = 無印 / FTリーダー = 点1 / 分隊長 = 点2 / 小隊長 = 棒1 / 中隊長 = 棒2
+ * 階級は肩書きではなく §12 の**指揮継承の結果**(`commanderId`)から引くので、
+ * 分隊長が倒れて次席が引き継げば標もそちらへ移る。
  */
 const RANK_NONE = 0;
 const RANK_FIRETEAM = 1;
 const RANK_SQUAD = 2;
 const RANK_PLATOON = 3;
 const RANK_COMPANY = 4;
-/** 点(pip)の一辺 m と横の間隔 m */
-const PIP_SIZE = 0.26;
-const PIP_GAP = 0.36;
-/** 棒(bar)の寸法 m と縦の間隔 m */
-const BAR_W = 0.95;
-const BAR_H = 0.17;
-const BAR_GAP = 0.3;
-/** トークン中心から階級章までの距離 m(画面上では上方向 = −Z) */
-const RANK_OFFSET = SOLDIER_RADIUS * 2.4;
-/** 階級章1個ぶんのインスタンス上限(兵士1名あたり最大2個) */
-const MAX_RANK_MARKS = MAX_SOLDIERS * 2;
+/** 棒の寸法 = トークンの直径 × これ */
+const BAR_SHORT = 0.6;
+const BAR_LONG = 0.92;
+const BAR_THICK = 0.15;
+const BAR_GAP = 0.13;
+/** 兵士1名あたりの階級棒の上限(中隊長の3本) */
+const MAX_RANK_MARKS = MAX_SOLDIERS * 3;
+
+/**
+ * 縮尺による間引き(`[v6.6]` — UIレビュー 04「縮尺による間引き」)。
+ * しきい値は**トークンの直径のピクセル数**。ここ1箇所でしか判定しない。
+ *
+ *   near (>=6px) 階級棒・搬送線・向きのくさび・制圧リングまで全部
+ *   mid  (3-6px) 階級は小隊長以上のみ。搬送線と状態リングは残す
+ *   far  (<3px)  健常 / 負傷(黄) / 戦死(暗) の3段だけ。リングも棒も出さない
+ *
+ * 拠点標・選択リング・命令線・発砲線は縮尺によらず常に出す — 前者3つは操作の
+ * 手がかりで、発砲線は「どこで戦っているか」を引きの絵で示す唯一の手段だから。
+ */
+type Lod = "near" | "mid" | "far";
+const LOD_NEAR_PX = 6;
+const LOD_MID_PX = 3;
+
 
 /**
  * 選択した兵士が指揮官なら、その**指揮範囲**を返す(`[v6.4]` 4回目のテストプレイ指摘⑤)。
@@ -296,6 +280,70 @@ function makeGroundTexture(): THREE.CanvasTexture {
   return tex;
 }
 
+/**
+ * ×印のジオメトリ(`[v6.6]`)。戦死は「色が変わる」ではなく「**円でなくなる**」で示す。
+ * 交差した2本の帯を1つのジオメトリにまとめ、インスタンス1個で1名ぶんを描く。
+ */
+function makeCrossGeo(arm: number, thick: number): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry();
+  const pos: number[] = [];
+  const idx: number[] = [];
+  const bar = (rot: number): void => {
+    const c = Math.cos(rot);
+    const sn = Math.sin(rot);
+    const base = pos.length / 3;
+    // 長さ arm、太さ thick の帯を rot だけ回して置く
+    for (const [u, v] of [
+      [-arm, -thick],
+      [arm, -thick],
+      [arm, thick],
+      [-arm, thick],
+    ] as const) {
+      pos.push(u * c - v * sn, 0, u * sn + v * c);
+    }
+    idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  };
+  bar(Math.PI / 4);
+  bar(-Math.PI / 4);
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  return g;
+}
+
+/**
+ * 破線のリング(`[v6.6]`)。不確度円は**実体ではない**ことを形で示す必要がある
+ * (UIレビュー 04)。`LineDashedMaterial` はインスタンス化と相性が悪いので、
+ * 円弧を等間隔で間引いた面として作る。半径1で作り、描画時にスケールする。
+ */
+function makeDashedRingGeo(
+  inner: number,
+  outer: number,
+  dashes: number,
+  duty: number,
+): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry();
+  const pos: number[] = [];
+  const idx: number[] = [];
+  const step = (Math.PI * 2) / dashes;
+  for (let d = 0; d < dashes; d++) {
+    const a0 = d * step;
+    const a1 = a0 + step * duty;
+    const base = pos.length / 3;
+    for (const [r, a] of [
+      [inner, a0],
+      [outer, a0],
+      [outer, a1],
+      [inner, a1],
+    ] as const) {
+      pos.push(Math.cos(a) * r, 0, Math.sin(a) * r);
+    }
+    idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  }
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  return g;
+}
+
 interface TickSnapshot {
   tick: number;
   pos: Map<number, { x: number; z: number; fx: number; fz: number }>;
@@ -329,7 +377,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
 
   const scene = new THREE.Scene();
   // 盤外は一段落とす。play area の輪郭が見えると「盤面」として読める(`[v6.5]`)
-  scene.background = new THREE.Color(OUT_OF_PLAY_COLOR);
+  scene.background = new THREE.Color(MAP.outOfPlay);
   /** 起動時に作る静的ジオメトリ。破棄時にまとめて解放する */
   const staticGeos: THREE.BufferGeometry[] = [];
   const staticMats: THREE.Material[] = [];
@@ -364,7 +412,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   groundTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
   const ground = new THREE.Mesh(
     keepGeo(new THREE.PlaneGeometry(groundW, groundH)),
-    keepMat(new THREE.MeshBasicMaterial({ color: GROUND_COLOR, map: groundTex })),
+    keepMat(new THREE.MeshBasicMaterial({ color: MAP.ground, map: groundTex })),
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(
@@ -388,7 +436,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   // 建物の床より先に描くので、床の外へはみ出した分だけが見える。
   const shadowMat = keepMat(
     new THREE.MeshBasicMaterial({
-      color: SHADOW_COLOR,
+      color: MAP.shadow,
       transparent: true,
       opacity: SHADOW_OPACITY,
       depthWrite: false,
@@ -432,7 +480,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   const floorMats = new Map<number, THREE.MeshBasicMaterial>();
   for (const b of world.buildings) {
     const floorMat = keepMat(
-      new THREE.MeshBasicMaterial({ color: buildingTint(b.id, ROOM_FLOOR_COLOR, 0.1) }),
+      new THREE.MeshBasicMaterial({ color: buildingTint(b.id, MAP.roomFloor, 0.1) }),
     );
     floorMats.set(b.id, floorMat);
     for (const r of b.rooms) {
@@ -460,12 +508,12 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
    * 街区の輪郭と街路の遮蔽が地続きに見えて、どこが建物でどこが通りかが読めない。
    * 建物に属するかは所属テーブルを持たないので、外周に触れているかで判定する。
    */
-  const clutterMat = keepMat(new THREE.MeshBasicMaterial({ color: CLUTTER_COLOR }));
+  const clutterMat = keepMat(new THREE.MeshBasicMaterial({ color: MAP.clutter }));
   const wallMats = new Map<number, THREE.MeshBasicMaterial>();
   for (const b of world.buildings) {
     wallMats.set(
       b.id,
-      keepMat(new THREE.MeshBasicMaterial({ color: buildingTint(b.id, WALL_COLOR, 0.12) })),
+      keepMat(new THREE.MeshBasicMaterial({ color: buildingTint(b.id, MAP.wall, 0.12) })),
     );
   }
   const buildingIdOfWall = (w: { cx: number; cz: number }): number | null =>
@@ -502,7 +550,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     const alongX = Math.abs(d.normal.x) > Math.abs(d.normal.z);
     const m = new THREE.Mesh(
       keepGeo(new THREE.BoxGeometry(alongX ? 0.35 : d.width, 1.8, alongX ? d.width : 0.35)),
-      new THREE.MeshBasicMaterial({ color: DOOR_CLOSED_COLOR }),
+      new THREE.MeshBasicMaterial({ color: MAP.doorClosed }),
     );
     m.position.set(d.pos.x, 0.9, d.pos.z);
     scene.add(m);
@@ -510,31 +558,41 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   });
 
   // 拠点(仕様 §12)。所有と確保進捗が一目で分かるよう、外周リングと進捗リングを分ける
+  /**
+   * 拠点のリング・確保の塗り・標。
+   *
+   * ジオメトリ側を寝かせる(`geo.rotateX`)こと。**メッシュを `rotation.x` で寝かせて
+   * から `scale` すると潰れる** — スケールはローカル空間に効くので、寝かせた面の
+   * 奥行きに当たるのはローカルYで、`scale.set(r, 1, r)` はそこへ 1 を掛けてしまう。
+   * 確保の塗りと標が横長のレンズに見えていたのはこれ(`[v6.6]` で修正)。
+   */
+  const flatGeo = <T extends THREE.BufferGeometry>(g: T): T => {
+    g.rotateX(-Math.PI / 2);
+    return g;
+  };
   const objectiveRings = world.objectives.map((o) => {
     const outer = new THREE.Mesh(
-      keepGeo(new THREE.RingGeometry(o.radius - 0.5, o.radius, 48)),
+      keepGeo(flatGeo(new THREE.RingGeometry(o.radius - 0.5, o.radius, 48))),
       new THREE.MeshBasicMaterial({
-        color: NEUTRAL_OBJ_COLOR,
+        color: MAP.safe,
         transparent: true,
         opacity: 0.85,
         side: THREE.DoubleSide,
       }),
     );
-    outer.rotation.x = -Math.PI / 2;
     outer.position.set(o.pos.x, 0.02, o.pos.z);
     scene.add(outer);
 
     // 進捗は内側の円盤の大きさで示す(0 で消え、1 で外周に届く)
     const fill = new THREE.Mesh(
-      keepGeo(new THREE.CircleGeometry(1, 32)),
+      keepGeo(flatGeo(new THREE.CircleGeometry(1, 32))),
       new THREE.MeshBasicMaterial({
-        color: NEUTRAL_OBJ_COLOR,
+        color: MAP.safe,
         transparent: true,
         opacity: 0.26,
         side: THREE.DoubleSide,
       }),
     );
-    fill.rotation.x = -Math.PI / 2;
     fill.position.set(o.pos.x, 0.015, o.pos.z);
     scene.add(fill);
 
@@ -544,16 +602,15 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
      * 盤面全体を見ているとリングが十数ピクセルになり、どこが拠点か分からなかった。
      */
     const pin = new THREE.Mesh(
-      keepGeo(new THREE.CircleGeometry(1, 4)),
+      keepGeo(flatGeo(new THREE.CircleGeometry(1, 4))),
       new THREE.MeshBasicMaterial({
-        color: NEUTRAL_OBJ_COLOR,
+        color: MAP.safe,
         transparent: true,
         opacity: 0.95,
         side: THREE.DoubleSide,
         depthTest: false,
       }),
     );
-    pin.rotation.x = -Math.PI / 2;
     // 立案の接近経路(renderOrder 23)より上。矢羽根が目標に重なるので、
     // 標が下敷きになると「どこが拠点か」が読めなくなる
     pin.renderOrder = 25;
@@ -599,12 +656,12 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
    * 目的は雰囲気ではなく**可読性**で、明るい砂地の上ではトークンの縁が地に溶ける。
    * 建物の影と同じ方向・同じ色にしてあるので、盤面全体で光源が1つに見える。
    */
-  const soldierShadowGeo = new THREE.CircleGeometry(SOLDIER_RADIUS * 1.7, 12);
+  const soldierShadowGeo = new THREE.CircleGeometry(TOKEN_R * 1.06, 12);
   soldierShadowGeo.rotateX(-Math.PI / 2);
   const soldierShadowMesh = new THREE.InstancedMesh(
     soldierShadowGeo,
     new THREE.MeshBasicMaterial({
-      color: SHADOW_COLOR,
+      color: MAP.shadow,
       transparent: true,
       opacity: 0.42,
       depthWrite: false,
@@ -614,77 +671,108 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   soldierShadowMesh.frustumCulled = false;
   scene.add(soldierShadowMesh);
 
-  // 兵士 — インスタンス化した円盤 + 向きを示すくさび形
-  const discGeo = new THREE.CircleGeometry(SOLDIER_RADIUS * 1.6, 16);
-  discGeo.rotateX(-Math.PI / 2);
-  const discMesh = new THREE.InstancedMesh(
-    discGeo,
-    new THREE.MeshBasicMaterial(),
-    MAX_SOLDIERS,
-  );
-  discMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_SOLDIERS * 3), 3);
-  scene.add(discMesh);
+  /** インスタンス化メッシュを作る小道具。色は毎フレーム差し替える */
+  const makeInstanced = (
+    geo: THREE.BufferGeometry,
+    count: number,
+    opts: THREE.MeshBasicMaterialParameters = {},
+    order = 0,
+  ): THREE.InstancedMesh => {
+    const m = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial(opts), count);
+    m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
+    m.frustumCulled = false;
+    m.renderOrder = order;
+    m.count = 0;
+    scene.add(m);
+    return m;
+  };
 
-  // 向きを示すくさび形。指摘に合わせて小さくし(2.4→1.5)、色は陣営色にする
-  // (以前は全兵士が近白の固定色で、プレイヤーの向き三角に見えていた)。
+  // ── 兵士トークン: 芯(円盤)/ 状態リング / 制圧リング / 戦死の× / 向き / 階級 ──
+  // UIレビュー 04「兵士1点を『陣営 × 状態 × 階級』の3層で組む」。
+  // 状態ごとに色を増やすのではなく、**同じ円に足したり抜いたりする**ので、
+  // 引きの絵では芯の色だけが残り、寄ると状態と階級が読める。
+  const discGeo = new THREE.CircleGeometry(TOKEN_R, 16);
+  discGeo.rotateX(-Math.PI / 2);
+  const discMesh = makeInstanced(discGeo, MAX_SOLDIERS);
+
+  /** 状態リング: 負傷の「抜き円」の輪、担架要員の内リング。半径はトークンと同じ */
+  const bodyRingGeo = new THREE.RingGeometry(TOKEN_R * BODY_RING_IN, TOKEN_R * BODY_RING_OUT, 20);
+  bodyRingGeo.rotateX(-Math.PI / 2);
+  const bodyRingMesh = makeInstanced(bodyRingGeo, MAX_SOLDIERS, {}, 11);
+
+  /** 制圧リング: トークンの**外**に足す細い白リング。陣営色は置き換えない */
+  const haloRingGeo = new THREE.RingGeometry(TOKEN_R * HALO_RING_IN, TOKEN_R * HALO_RING_OUT, 20);
+  haloRingGeo.rotateX(-Math.PI / 2);
+  const haloRingMesh = makeInstanced(
+    haloRingGeo,
+    MAX_SOLDIERS,
+    { transparent: true, opacity: 0.9 },
+    10,
+  );
+
+  /** 戦死の×。円をやめて形が変わるので、引きの絵でも「もう円ではない」で読める */
+  const kiaGeo = makeCrossGeo(TOKEN_R * KIA_ARM, TOKEN_R * KIA_THICK);
+  const kiaMesh = makeInstanced(kiaGeo, MAX_SOLDIERS, {}, 9);
+
+  // 向きを示すくさび形。陣営色のまま明度だけ上げる(白にすると「プレイヤーの向き
+  // 三角」に見え、同色だと円盤に溶けて向きが読めない)
   const wedgeGeo = new THREE.CircleGeometry(SOLDIER_RADIUS * 1.5, 3);
   wedgeGeo.rotateX(-Math.PI / 2);
-  const wedgeMesh = new THREE.InstancedMesh(
-    wedgeGeo,
-    new THREE.MeshBasicMaterial(),
-    MAX_SOLDIERS,
-  );
-  wedgeMesh.instanceColor = new THREE.InstancedBufferAttribute(
-    new Float32Array(MAX_SOLDIERS * 3),
-    3,
-  );
-  scene.add(wedgeMesh);
+  const wedgeMesh = makeInstanced(wedgeGeo, MAX_SOLDIERS);
 
-  // 階級章(`[v6.2]`)。単位平面を1枚だけ用意し、点は正方形・棒は横長にスケールする。
+  // 階級章。単位平面を1枚用意し、横棒の長さにスケールする(UIレビュー 診断D)
   const rankGeo = new THREE.PlaneGeometry(1, 1);
   rankGeo.rotateX(-Math.PI / 2);
-  const rankMesh = new THREE.InstancedMesh(
+  const rankMesh = makeInstanced(
     rankGeo,
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.95, depthTest: false }),
     MAX_RANK_MARKS,
+    { transparent: true, opacity: 0.95, depthTest: false },
+    12,
   );
-  rankMesh.instanceColor = new THREE.InstancedBufferAttribute(
-    new Float32Array(MAX_RANK_MARKS * 3),
-    3,
+
+  /**
+   * 担架搬送の「関係」の線(UIレビュー 診断C)。
+   * 搬送は2名の関係なので、点1個の色では表せない — 運ぶ側と運ばれる側を線で結ぶ。
+   */
+  const litterGeo = new THREE.BufferGeometry();
+  litterGeo.setAttribute(
+    "position",
+    new THREE.BufferAttribute(new Float32Array(MAX_SOLDIERS * 2 * 3), 3),
   );
-  rankMesh.renderOrder = 12;
-  rankMesh.frustumCulled = false;
-  scene.add(rankMesh);
+  const litterLines = new THREE.LineSegments(
+    litterGeo,
+    new THREE.LineBasicMaterial({
+      color: MAP.live,
+      transparent: true,
+      opacity: 0.85,
+      depthTest: false,
+    }),
+  );
+  litterLines.renderOrder = 13;
+  litterLines.frustumCulled = false;
+  scene.add(litterLines);
+  const litterPos = litterGeo.getAttribute("position") as THREE.BufferAttribute;
 
   // 敵接触マーカー — 実体ではなく「報告された最終目撃位置」を描く(仕様 §5)。
-  // 味方の円盤と明確に見分けがつくよう、菱形(4分割の円)で表現する。
+  // 塗りの菱形 + 輪郭で、味方のベタ塗り円と形でも描き分ける。
   const contactGeo = new THREE.CircleGeometry(SOLDIER_RADIUS * 2.0, 4);
   contactGeo.rotateX(-Math.PI / 2);
-  const contactMesh = new THREE.InstancedMesh(
-    contactGeo,
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.95 }),
-    MAX_CONTACTS,
-  );
-  contactMesh.instanceColor = new THREE.InstancedBufferAttribute(
-    new Float32Array(MAX_CONTACTS * 3),
-    3,
-  );
-  scene.add(contactMesh);
+  const contactMesh = makeInstanced(contactGeo, MAX_CONTACTS, { transparent: true, opacity: 0.5 });
+  const contactEdgeGeo = new THREE.RingGeometry(SOLDIER_RADIUS * 1.6, SOLDIER_RADIUS * 2.0, 4);
+  contactEdgeGeo.rotateX(-Math.PI / 2);
+  const contactEdgeMesh = makeInstanced(contactEdgeGeo, MAX_CONTACTS, {
+    transparent: true,
+    opacity: 0.95,
+  });
 
-  // 不確度円 — 時間経過とともに拡大する(仕様 §5)。リング状の線で描く。
-  const errorRingGeo = new THREE.RingGeometry(0.97, 1.0, 32);
-  errorRingGeo.rotateX(-Math.PI / 2);
-  const errorRingMesh = new THREE.InstancedMesh(
-    errorRingGeo,
-    // 多数の円が重なるので、1本1本はごく薄くする。密度そのものが不確かさの表現になる。
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.14, side: THREE.DoubleSide }),
-    MAX_CONTACTS,
-  );
-  errorRingMesh.instanceColor = new THREE.InstancedBufferAttribute(
-    new Float32Array(MAX_CONTACTS * 3),
-    3,
-  );
-  scene.add(errorRingMesh);
+  // 不確度円(仕様 §5)。**破線**にして実体(実線・円)と描き分ける — 実体と
+  // 見間違えると本作の情報設計が伝わらない(UIレビュー 04)。
+  const errorRingGeo = makeDashedRingGeo(0.94, 1.0, 20, 0.55);
+  const errorRingMesh = makeInstanced(errorRingGeo, MAX_CONTACTS, {
+    transparent: true,
+    opacity: 0.5,
+    side: THREE.DoubleSide,
+  });
 
   // ── 操作中 / 選択ハイライト(指摘: いまどの階層・代表ユニットを操作しているか) ──
   const makeHiRing = (color: number, seg: number, inner: number, outer: number) => {
@@ -705,8 +793,8 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     scene.add(m);
     return m;
   };
-  const controlRing = makeHiRing(CONTROL_RING_COLOR, 40, 2.4, 3.0);
-  const selectRing = makeHiRing(SELECT_RING_COLOR, 4, 2.7, 3.3);
+  const controlRing = makeHiRing(MAP.text, 40, 2.4, 3.0);
+  const selectRing = makeHiRing(MAP.live, 4, 2.7, 3.3);
 
   // ── 麾下ユニットの強調(`[v6.4]` 4回目のテストプレイ指摘⑤)──
   // 選択した指揮官の指揮下にある兵士へリングを敷き、直属の下位指揮官へは線を引く。
@@ -717,7 +805,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   const subRingMesh = new THREE.InstancedMesh(
     subRingGeo,
     new THREE.MeshBasicMaterial({
-      color: SUBORDINATE_COLOR,
+      color: MAP.live,
       transparent: true,
       opacity: 0.85,
       side: THREE.DoubleSide,
@@ -738,7 +826,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   const linkLines = new THREE.LineSegments(
     linkGeo,
     new THREE.LineBasicMaterial({
-      color: SUBORDINATE_COLOR,
+      color: MAP.live,
       transparent: true,
       opacity: 0.55,
       depthTest: false,
@@ -817,7 +905,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   const orderMarker = new THREE.Mesh(
     orderMarkerGeo,
     new THREE.MeshBasicMaterial({
-      color: ORDER_COLOR,
+      color: MAP.warn,
       transparent: true,
       opacity: 0.95,
       side: THREE.DoubleSide,
@@ -841,9 +929,9 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     scene.add(l);
     return l;
   };
-  const orderLine = makePolyline(ORDER_COLOR, 0.85); // 操作中ユニット → 目的地
-  const controlPathLine = makePolyline(ORDER_COLOR, 0.6); // 操作中ユニットの計画経路
-  const selectPathLine = makePolyline(SELECT_RING_COLOR, 0.7); // 選択ユニットの計画経路
+  const orderLine = makePolyline(MAP.warn, 0.85); // 操作中ユニット → 目的地
+  const controlPathLine = makePolyline(MAP.warn, 0.6); // 操作中ユニットの計画経路
+  const selectPathLine = makePolyline(MAP.live, 0.7); // 選択ユニットの計画経路
 
   // ── 作戦の接近経路(`[v6.5]`)── 立案フェーズにだけ出る。折れ線 + 先端の矢羽根。
   const MAX_PLAN_ROUTES = 12;
@@ -1068,7 +1156,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       const m = doorMeshes[i];
       if (!m) return;
       const mat = m.material as THREE.MeshBasicMaterial;
-      mat.color.setHex(d.open ? DOOR_OPEN_COLOR : DOOR_CLOSED_COLOR);
+      mat.color.setHex(d.open ? MAP.doorOpen : MAP.doorClosed);
       m.scale.y = d.open ? 0.12 : 1;
     });
 
@@ -1078,10 +1166,10 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       if (!r) return;
       const owner = o.owner ?? o.progressBy;
       const color = o.contested
-        ? CONTESTED_OBJ_COLOR
+        ? MAP.warn
         : owner
           ? SIDE_COLOR[owner]
-          : NEUTRAL_OBJ_COLOR;
+          : MAP.safe;
       (r.outer.material as THREE.MeshBasicMaterial).color.setHex(color);
       (r.fill.material as THREE.MeshBasicMaterial).color.setHex(color);
       (r.pin.material as THREE.MeshBasicMaterial).color.setHex(color);
@@ -1132,29 +1220,39 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       }
     }
 
+    // ── 縮尺による間引き(UIレビュー 04)。判定はここ1箇所だけ ──
+    const pxPerMeter = canvas.clientHeight / viewSpan;
+    const tokenPx = TOKEN_R * 2 * pxPerMeter;
+    const lod: Lod = tokenPx >= LOD_NEAR_PX ? "near" : tokenPx >= LOD_MID_PX ? "mid" : "far";
+    const showRank = lod !== "far";
+    const showState = lod !== "far"; // 状態リング(制圧・負傷の抜き円・担架の内リング)
+    const showWedge = lod === "near";
+
     let rankN = 0;
-    /** 階級章を1個置く。`w`/`h` は m、`dz` はトークンからの上方向オフセット */
-    const putMark = (
-      x: number,
-      z: number,
-      dx: number,
-      dz: number,
-      w: number,
-      h: number,
-      hex: number,
-    ): void => {
+    /**
+     * 階級の横棒を1本置く。`len` は棒の長さ m、`row` は下から数えた段。
+     * トークンの**上**(画面上 = −Z)へ積むので、点の状態表示と干渉しない。
+     */
+    const putBar = (x: number, z: number, len: number, row: number): void => {
       if (rankN >= MAX_RANK_MARKS) return;
-      dummy.position.set(x + dx, 0.11, z - RANK_OFFSET - dz);
+      const thick = TOKEN_R * 2 * BAR_THICK;
+      const gap = TOKEN_R * 2 * BAR_GAP;
+      dummy.position.set(x, 0.11, z - TOKEN_R - gap - thick / 2 - row * (thick + gap * 0.6));
       dummy.rotation.set(0, 0, 0);
-      dummy.scale.set(w, 1, h);
+      dummy.scale.set(len, 1, thick);
       dummy.updateMatrix();
       dummy.scale.setScalar(1);
       rankMesh.setMatrixAt(rankN, dummy.matrix);
-      rankMesh.setColorAt(rankN, col.setHex(hex));
+      rankMesh.setColorAt(rankN, col.setHex(MAP.rank));
       rankN++;
     };
 
     let i = 0;
+    let bodyN = 0;
+    let haloN = 0;
+    let kiaN = 0;
+    let wedgeN = 0;
+    let litterN = 0;
     for (const s of tokens) {
       const p = prev.pos.get(s.id) ?? cur.pos.get(s.id)!;
       const c = cur.pos.get(s.id) ?? p;
@@ -1165,7 +1263,11 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       const heading = Math.atan2(fx, fz);
 
       const dead = s.status === "kia";
-      // 影を先に置く。戦死者は伏せているので影も薄く小さくする(`[v6.5]`)
+      const wounded = s.status === "wia";
+      const bearer = s.status === "ok" && s.bearing !== null;
+      const suppressed = s.status === "ok" && s.suppressedUntilTick > world.tick;
+
+      // 影。戦死者は伏せているので薄く小さく(`[v6.5]`)
       dummy.position.set(x + SHADOW_DX * 0.09, 0.04, z + SHADOW_DZ * 0.09);
       dummy.rotation.set(0, 0, 0);
       dummy.scale.setScalar(dead ? 0.6 : 1);
@@ -1173,79 +1275,126 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       dummy.scale.setScalar(1);
       soldierShadowMesh.setMatrixAt(i, dummy.matrix);
 
-      dummy.position.set(x, dead ? 0.045 : 0.05, z);
-      dummy.rotation.set(0, 0, 0);
-      dummy.scale.setScalar(dead ? 0.7 : 1);
-      dummy.updateMatrix();
-      dummy.scale.setScalar(1);
-      discMesh.setMatrixAt(i, dummy.matrix);
+      if (dead) {
+        // ── 戦死: 円をやめて暗い×(UIレビュー 04)。芯は描かない ──
+        dummy.position.set(x, 0.05, z);
+        dummy.rotation.set(0, 0, 0);
+        dummy.scale.setScalar(1);
+        dummy.updateMatrix();
+        kiaMesh.setMatrixAt(kiaN, dummy.matrix);
+        kiaMesh.setColorAt(kiaN, col.setHex(MAP.kia));
+        kiaN++;
+        // 芯は原点外へ退避(インスタンス数を揃えるため空回しはしない)
+        dummy.position.set(x, 0.05, z);
+        dummy.scale.setScalar(0.0001);
+        dummy.updateMatrix();
+        dummy.scale.setScalar(1);
+        discMesh.setMatrixAt(i, dummy.matrix);
+        discMesh.setColorAt(i, col.setHex(MAP.kia));
+      } else {
+        // ── 芯の色。**状態で色を置き換えるのは負傷だけ** ──
+        //   健常/制圧/担架要員 → 陣営色(制圧は外周リングで示す)
+        //   出血中             → 暗い芯(黄の抜き円の中身が空いて見える)
+        //   止血済             → 緑の芯(「傷は同じ、処置が済んだ」)
+        let coreColor: number;
+        if (wounded && showState) coreColor = s.stabilized ? MAP.safe : MAP.shadow;
+        else if (wounded) coreColor = MAP.warn; // 遠景では抜き円が潰れるのでベタ黄にする
+        else coreColor = SIDE_COLOR[s.side];
 
-      let color =
-        s.status === "kia"
-          ? KIA_COLOR
-          : s.status === "wia"
-            ? s.evac === "carrying"
-              ? CARRYING_COLOR // 担架搬送中(仕様 §9)
-              : s.stabilized
-                ? STABILIZED_COLOR // 止血済み: 出血は止まり後送待ち(仕様 §9)
-                : WIA_COLOR // 出血中: 45秒以内に手当がなければKIAへ
-            : s.bearing !== null
-              ? CARRYING_COLOR // 担架要員: 搬送に専念していて射撃できない
-              : SIDE_COLOR[s.side];
-      if (s.status === "ok" && s.suppressedUntilTick > world.tick) {
-        color = col.setHex(color).lerp(col2.setHex(SUPPRESSED_TINT), 0.55).getHex();
-      }
-      discMesh.setColorAt(i, col.setHex(color));
+        dummy.position.set(x, 0.05, z);
+        dummy.rotation.set(0, 0, 0);
+        dummy.scale.setScalar(1);
+        dummy.updateMatrix();
+        discMesh.setMatrixAt(i, dummy.matrix);
+        discMesh.setColorAt(i, col.setHex(coreColor));
 
-      // 向きのくさび形は、まだ戦闘可能な兵士にのみ表示する。色は陣営色(指摘)。
-      const wedgeScale = s.status === "ok" ? 1 : 0.001;
-      dummy.position.set(
-        x + Math.sin(heading) * SOLDIER_RADIUS * 0.9,
-        0.06,
-        z + Math.cos(heading) * SOLDIER_RADIUS * 0.9,
-      );
-      dummy.rotation.set(0, heading, 0);
-      dummy.scale.setScalar(wedgeScale);
-      dummy.updateMatrix();
-      dummy.scale.setScalar(1);
-      wedgeMesh.setMatrixAt(i, dummy.matrix);
-      // 陣営色のまま少しだけ明度を上げる。同色だと円盤に溶けて向きが読めず、
-      // 白にすると「プレイヤーの向き三角」に見える(`[v6.2]` の指摘)
-      wedgeMesh.setColorAt(i, col.setHex(SIDE_COLOR[s.side]).lerp(col2.setHex(0xffffff), 0.3));
+        // 状態リング: 負傷 = 黄の輪 / 担架要員 = 水色の内リング
+        if (showState && (wounded || bearer)) {
+          dummy.position.set(x, 0.058, z);
+          dummy.rotation.set(0, 0, 0);
+          dummy.scale.setScalar(1);
+          dummy.updateMatrix();
+          bodyRingMesh.setMatrixAt(bodyN, dummy.matrix);
+          bodyRingMesh.setColorAt(bodyN, col.setHex(wounded ? MAP.warn : MAP.live));
+          bodyN++;
+        }
 
-      // ── 階級章(`[v6.2]`)。戦闘可能な指揮官にのみ。陣営色を明るく振って、
-      // どちらの軍かを保ったまま地の色から浮かせる。
-      const rank = s.status === "ok"
-        ? (rankOf.get(s.id) ?? (s.isFireteamLeader ? RANK_FIRETEAM : RANK_NONE))
-        : RANK_NONE;
-      if (rank !== RANK_NONE) {
-        // 砂地の上では白へ寄せすぎると沈む。陣営色を保ったまま明度だけ上げる(`[v6.5]`)
-        const hex = col2.setHex(SIDE_COLOR[s.side]).lerp(col.setHex(0xffffff), 0.42).getHex();
-        if (rank === RANK_FIRETEAM || rank === RANK_SQUAD) {
-          const pips = rank === RANK_SQUAD ? 2 : 1;
-          for (let q = 0; q < pips; q++) {
-            const dx = (q - (pips - 1) / 2) * PIP_GAP;
-            putMark(x, z, dx, 0, PIP_SIZE, PIP_SIZE, hex);
+        // 制圧リング: 陣営色は保ったまま、外周に白い輪を足す(UIレビュー 診断B)
+        if (showState && suppressed) {
+          dummy.position.set(x, 0.048, z);
+          dummy.rotation.set(0, 0, 0);
+          dummy.scale.setScalar(1);
+          dummy.updateMatrix();
+          haloRingMesh.setMatrixAt(haloN, dummy.matrix);
+          haloRingMesh.setColorAt(haloN, col.setHex(MAP.suppress));
+          haloN++;
+        }
+
+        // 向きのくさび。戦闘可能な兵士だけ、かつ近景でだけ
+        if (showWedge && s.status === "ok") {
+          dummy.position.set(
+            x + Math.sin(heading) * SOLDIER_RADIUS * 0.9,
+            0.062,
+            z + Math.cos(heading) * SOLDIER_RADIUS * 0.9,
+          );
+          dummy.rotation.set(0, heading, 0);
+          dummy.scale.setScalar(1);
+          dummy.updateMatrix();
+          wedgeMesh.setMatrixAt(wedgeN, dummy.matrix);
+          wedgeMesh.setColorAt(
+            wedgeN,
+            col.setHex(SIDE_COLOR[s.side]).lerp(col2.setHex(0xffffff), 0.3),
+          );
+          wedgeN++;
+        }
+
+        // ── 担架搬送の関係線(UIレビュー 診断C)。運ぶ側から負傷者へ引く ──
+        if (bearer && lod !== "far" && litterN < MAX_SOLDIERS) {
+          const cas = s.bearing !== null ? interp(s.bearing) : null;
+          if (cas) {
+            litterPos.setXYZ(2 * litterN, x, 0.07, z);
+            litterPos.setXYZ(2 * litterN + 1, cas.x, 0.07, cas.z);
+            litterN++;
           }
-        } else {
-          const bars = rank === RANK_COMPANY ? 2 : 1;
-          for (let q = 0; q < bars; q++) putMark(x, z, 0, q * BAR_GAP, BAR_W, BAR_H, hex);
+        }
+
+        // ── 階級章。指揮継承の結果に付く(仕様 §12) ──
+        // 中景では小隊長以上だけ残す(UIレビュー「縮尺による間引き」)
+        const rank = s.status === "ok"
+          ? (rankOf.get(s.id) ?? (s.isFireteamLeader ? RANK_FIRETEAM : RANK_NONE))
+          : RANK_NONE;
+        const rankVisible =
+          showRank && rank !== RANK_NONE && (lod === "near" || rank >= RANK_PLATOON);
+        if (rankVisible) {
+          const short = TOKEN_R * 2 * BAR_SHORT;
+          const long = TOKEN_R * 2 * BAR_LONG;
+          if (rank === RANK_FIRETEAM) putBar(x, z, short, 0);
+          else if (rank === RANK_SQUAD) {
+            putBar(x, z, short, 0);
+            putBar(x, z, short, 1);
+          } else {
+            const bars = rank === RANK_COMPANY ? 3 : 2;
+            for (let q = 0; q < bars; q++) putBar(x, z, long, q);
+          }
         }
       }
 
       i++;
     }
     discMesh.count = i;
-    wedgeMesh.count = i;
     soldierShadowMesh.count = i;
+    bodyRingMesh.count = bodyN;
+    haloRingMesh.count = haloN;
+    kiaMesh.count = kiaN;
+    wedgeMesh.count = wedgeN;
     rankMesh.count = rankN;
-    soldierShadowMesh.instanceMatrix.needsUpdate = true;
-    discMesh.instanceMatrix.needsUpdate = true;
-    wedgeMesh.instanceMatrix.needsUpdate = true;
-    rankMesh.instanceMatrix.needsUpdate = true;
-    if (discMesh.instanceColor) discMesh.instanceColor.needsUpdate = true;
-    if (wedgeMesh.instanceColor) wedgeMesh.instanceColor.needsUpdate = true;
-    if (rankMesh.instanceColor) rankMesh.instanceColor.needsUpdate = true;
+    for (const m of [discMesh, soldierShadowMesh, bodyRingMesh, haloRingMesh, kiaMesh, wedgeMesh, rankMesh]) {
+      m.instanceMatrix.needsUpdate = true;
+      if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    }
+    litterGeo.setDrawRange(0, litterN * 2);
+    litterPos.needsUpdate = true;
+    litterLines.visible = litterN > 0;
 
     // ── 敵 ── 実体ではなく world picture の接触情報を描く(仕様 §5)。
     // 位置は最終目撃位置であって現在位置ではない。確度が下がるほど薄く、
@@ -1255,23 +1404,23 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       if (k >= MAX_CONTACTS) break;
       const ghost = e.confidence <= 0;
 
+      // 塗りの菱形 + 輪郭。**実体(ベタ塗りの円)と形で描き分ける**(UIレビュー 04)
       dummy.position.set(e.pos.x, 0.045, e.pos.z);
       dummy.rotation.set(0, Math.PI / 4, 0);
       dummy.scale.setScalar(ghost ? 0.75 : 1);
       dummy.updateMatrix();
       dummy.scale.setScalar(1);
       contactMesh.setMatrixAt(k, dummy.matrix);
+      contactEdgeMesh.setMatrixAt(k, dummy.matrix);
 
-      if (ghost) {
-        contactMesh.setColorAt(k, col.setHex(GHOST_COLOR));
-      } else {
-        // 確度が高いほど鮮やかに。低いほど背景側へ寄せる。
-        col.setHex(SIDE_COLOR[view.enemySide]);
-        col2.setHex(GHOST_COLOR);
-        contactMesh.setColorAt(k, col.lerp(col2, 1 - e.confidence));
-      }
+      // 確度が高いほど鮮やかに。低いほど背景側へ寄せ、尽きればゴースト色になる
+      col.setHex(ghost ? MAP.ghost : SIDE_COLOR[view.enemySide]);
+      if (!ghost) col.lerp(col2.setHex(MAP.ghost), 1 - e.confidence);
+      contactMesh.setColorAt(k, col);
+      contactEdgeMesh.setColorAt(k, col);
 
-      // 不確度円(仕様 §5「時間経過とともに不確度範囲(円)が拡大する」)
+      // 不確度円(仕様 §5「時間経過とともに不確度範囲(円)が拡大する」)。
+      // **破線**なので、実体でないことが形からも分かる
       const r = Math.max(0.001, e.posError);
       dummy.position.set(e.pos.x, 0.03, e.pos.z);
       dummy.rotation.set(0, 0, 0);
@@ -1279,16 +1428,17 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       dummy.updateMatrix();
       dummy.scale.setScalar(1);
       errorRingMesh.setMatrixAt(k, dummy.matrix);
-      errorRingMesh.setColorAt(k, col.setHex(ghost ? GHOST_COLOR : SIDE_COLOR[view.enemySide]));
+      errorRingMesh.setColorAt(k, col);
 
       k++;
     }
     contactMesh.count = k;
+    contactEdgeMesh.count = k;
     errorRingMesh.count = opts.debug.showContactRings ? k : 0;
-    contactMesh.instanceMatrix.needsUpdate = true;
-    errorRingMesh.instanceMatrix.needsUpdate = true;
-    if (contactMesh.instanceColor) contactMesh.instanceColor.needsUpdate = true;
-    if (errorRingMesh.instanceColor) errorRingMesh.instanceColor.needsUpdate = true;
+    for (const m of [contactMesh, contactEdgeMesh, errorRingMesh]) {
+      m.instanceMatrix.needsUpdate = true;
+      if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    }
 
     // ── 操作中 / 選択ユニットのハイライト(指摘: いまどの階層・代表ユニットか) ──
     const ctl = opts.controlledId != null ? interp(opts.controlledId) : null;
@@ -1406,7 +1556,10 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       const a = rt.points[rt.points.length - 2]!;
       const b = rt.points[rt.points.length - 1]!;
       const len = Math.hypot(b.x - a.x, b.z - a.z) || 1;
-      arrow.position.set(b.x, 0.16, b.z);
+      // 矢羽根は目標の**手前**で止める。目標の上に置くと、拠点の標(標は矢羽根より
+      // 小さい)が矢羽根の内側に隠れて「どこが拠点か」が読めなくなる
+      const back = rt.main ? 6.5 : 4.8;
+      arrow.position.set(b.x - ((b.x - a.x) / len) * back, 0.16, b.z - ((b.z - a.z) / len) * back);
       arrow.rotation.set(0, Math.atan2((b.x - a.x) / len, (b.z - a.z) / len), 0);
       (arrow.material as THREE.MeshBasicMaterial).color.copy(col);
       (arrow.material as THREE.MeshBasicMaterial).opacity = alpha;
@@ -1679,14 +1832,36 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       }
       chevronGeo.dispose();
       chevronMesh.dispose();
-      soldierShadowGeo.dispose();
-      soldierShadowMesh.dispose();
-      discGeo.dispose();
-      wedgeGeo.dispose();
-      rankGeo.dispose();
-      (rankMesh.material as THREE.Material).dispose();
-      discMesh.dispose();
-      wedgeMesh.dispose();
+      for (const g of [
+        soldierShadowGeo,
+        discGeo,
+        bodyRingGeo,
+        haloRingGeo,
+        kiaGeo,
+        wedgeGeo,
+        rankGeo,
+        contactGeo,
+        contactEdgeGeo,
+        errorRingGeo,
+      ]) {
+        g.dispose();
+      }
+      for (const m of [
+        soldierShadowMesh,
+        discMesh,
+        bodyRingMesh,
+        haloRingMesh,
+        kiaMesh,
+        wedgeMesh,
+        rankMesh,
+        contactMesh,
+        contactEdgeMesh,
+        errorRingMesh,
+      ]) {
+        m.dispose();
+      }
+      litterGeo.dispose();
+      (litterLines.material as THREE.Material).dispose();
       controlRing.geometry.dispose();
       selectRing.geometry.dispose();
       subRingGeo.dispose();
