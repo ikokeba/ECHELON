@@ -17,6 +17,7 @@ import { SIM_HZ } from "../constants.ts";
 import { aiSuppressed } from "../control.ts";
 import { commandFactor } from "./succession.ts";
 import { assignHolders, clampToObjective } from "./objectiveHold.ts";
+import { sideDoctrine } from "../world.ts";
 import {
   clearedDoorSet,
   clearingObjective,
@@ -137,7 +138,14 @@ export function platoonAI(world: World): void {
     if (aiSuppressed(world, "platoon", pl.side, pl.platoonId)) continue;
     // 指揮継承直後は判断周期が伸びる(仕様 §12)。分隊より影響が長く続く
     const factor = commandFactor(pl, world.tick, "platoon");
-    if (world.tick - pl.lastDecisionTick < Math.round(DECIDE_EVERY_TICKS / factor)) continue;
+    const doctrine = sideDoctrine(world, pl.side);
+    // ドクトリンで判断周期が伸びる(仕様 §13)。正規軍は倍率1で現行と一致 `[v6.8]`
+    if (
+      world.tick - pl.lastDecisionTick <
+      Math.round((DECIDE_EVERY_TICKS * doctrine.decideMul.platoon) / factor)
+    ) {
+      continue;
+    }
     pl.lastDecisionTick = world.tick;
     if (pl.commanderId === null) continue; // 指揮を執れる者がいない
 

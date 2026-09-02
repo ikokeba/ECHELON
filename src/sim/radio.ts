@@ -18,6 +18,7 @@
 
 import { decayedConfidence } from "./belief.ts";
 import { isDegraded } from "./c2/succession.ts";
+import { sideDoctrine } from "./world.ts";
 import {
   CONFIDENCE_CUTOFF,
   DEGRADED_RADIO_LATENCY_MUL,
@@ -153,7 +154,9 @@ export function radioSystem(world: World): void {
 
   // ── 4. 定時報告の生成: 分隊長 → 小隊長 ──
   for (const sq of world.squads) {
-    if (world.tick - sq.lastReportTick < REPORT_INTERVAL_TICKS) continue;
+    // ドクトリンで報告が疎になる(仕様 §13)。正規軍は倍率1で現行と一致 `[v6.8]`
+    const doc = sideDoctrine(world, sq.side);
+    if (world.tick - sq.lastReportTick < REPORT_INTERVAL_TICKS * doc.reportIntervalMul) continue;
     sq.lastReportTick = world.tick;
 
     const members = livingSoldiersOfSquad(world, sq.side, sq.squadId);
@@ -166,7 +169,7 @@ export function radioSystem(world: World): void {
       toUnitId: sq.platoonId,
       side: sq.side,
       sentTick: world.tick,
-      deliverTick: world.tick + RADIO_LATENCY_TICKS,
+      deliverTick: world.tick + Math.round(RADIO_LATENCY_TICKS * doc.radioLatencyMul),
       contacts: selectContactsForReport(sq.belief),
       ownStatus: {
         effective: effective.length,
@@ -181,7 +184,8 @@ export function radioSystem(world: World): void {
   //    「分隊長が見たものを、小隊長が受け取って、さらに転送したもの」であり、
   //    仕様 §5 の「さらに遅延・粒度が粗くなる」が構造的に成立する。
   for (const pl of world.platoons) {
-    if (world.tick - pl.lastReportTick < REPORT_INTERVAL_TICKS) continue;
+    const plDoc = sideDoctrine(world, pl.side);
+    if (world.tick - pl.lastReportTick < REPORT_INTERVAL_TICKS * plDoc.reportIntervalMul) continue;
     pl.lastReportTick = world.tick;
 
     const members = world.soldiers.filter(
@@ -200,7 +204,8 @@ export function radioSystem(world: World): void {
       toUnitId: pl.companyId,
       side: pl.side,
       sentTick: world.tick,
-      deliverTick: world.tick + RADIO_LATENCY_TICKS * latencyMul,
+      deliverTick:
+        world.tick + Math.round(RADIO_LATENCY_TICKS * latencyMul * plDoc.radioLatencyMul),
       contacts: selectContactsForReport(pl.belief),
       ownStatus: {
         effective: effective.length,

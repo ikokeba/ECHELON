@@ -16,7 +16,7 @@ import { aiSuppressed } from "../control.ts";
 import { bearersNeeded, isCommittedToLitter } from "../systems/litter.ts";
 import { buildingAt, doorById, insideBounds, selectAssaultDoor } from "../cqb.ts";
 import { commandFactor } from "./succession.ts";
-import { activateBuildingNav } from "../world.ts";
+import { activateBuildingNav, sideDoctrine } from "../world.ts";
 import { exitCqb } from "./cqbDrill.ts";
 import type { Contact, Door, Soldier, SquadState, Vec2 } from "../types.ts";
 
@@ -124,6 +124,18 @@ function directFireteams(world: World, sq: SquadState, idx: LivingIndex): void {
         };
       }
     }
+  }
+
+  // ── ドクトリンの自主性(仕様 §13)`[v6.8]` ──
+  // 上位から降りてきた目標を、分隊長自身が見ているもの(自分の belief)へ寄せる。
+  // 0 なら指示どおり(正規軍)、1 なら上からの目標は事実上無視されて目の前の敵が全て。
+  // **線形補間なので決定論的**で、乱数を引かない — 引くと §2/§13 の鏡像性が壊れる。
+  const initiative = sideDoctrine(world, sq.side).initiative;
+  if (initiative > 0 && threat && mk === "seize") {
+    ftObjective = {
+      x: ftObjective.x + (threat.pos.x - ftObjective.x) * initiative,
+      z: ftObjective.z + (threat.pos.z - ftObjective.z) * initiative,
+    };
   }
 
   for (const ft of fireteams) {
@@ -348,7 +360,14 @@ export function squadAI(world: World): void {
     if (aiSuppressed(world, "squad", sq.side, sq.squadId)) continue;
     // 指揮継承直後は判断周期が伸びる(仕様 §12: 命令解釈の冗長化・新規戦術判断不可)
     const factor = commandFactor(sq, world.tick, "squad");
-    if (world.tick - sq.lastDecisionTick < Math.round(DECIDE_EVERY_TICKS / factor)) continue;
+    // ドクトリンで判断周期が変わる(仕様 §13)。自律群は分隊だけ速い `[v6.8]`
+    const squadDecideMul = sideDoctrine(world, sq.side).decideMul.squad;
+    if (
+      world.tick - sq.lastDecisionTick <
+      Math.round((DECIDE_EVERY_TICKS * squadDecideMul) / factor)
+    ) {
+      continue;
+    }
     sq.lastDecisionTick = world.tick;
     decidedThisTick.add(sq.squadId);
 

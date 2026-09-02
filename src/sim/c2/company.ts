@@ -34,6 +34,7 @@ import { next } from "../rng.ts";
 import { commandFactor } from "./succession.ts";
 import { assignHolders, clampToObjective } from "./objectiveHold.ts";
 import { activeTaskOf } from "./planning.ts";
+import { sideDoctrine } from "../world.ts";
 import type { CompanyState, Contact, Mission, Soldier, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
@@ -219,7 +220,11 @@ export function companyAI(world: World): void {
 
     // 指揮継承直後は判断周期が伸びる(仕様 §12)。中隊は影響が最も長く続く階層
     const factor = commandFactor(co, world.tick, "company");
-    if (world.tick - co.lastDecisionTick < Math.round(DECIDE_BASE_TICKS / factor)) continue;
+    // ドクトリンで判断周期が伸びる(仕様 §13)。正規軍は倍率1で現行と一致 `[v6.8]`
+    const decideMul = sideDoctrine(world, co.side).decideMul.company;
+    if (world.tick - co.lastDecisionTick < Math.round((DECIDE_BASE_TICKS * decideMul) / factor)) {
+      continue;
+    }
     co.lastDecisionTick = world.tick;
     if (co.commanderId === null) continue; // 指揮を執れる者がいない
 
