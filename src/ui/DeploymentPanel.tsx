@@ -1,5 +1,7 @@
 import { useSimStore } from "./store.ts";
 import { isPointSymmetric } from "@sim/deployment.ts";
+import { OBJECTIVE } from "@sim/constants.ts";
+import { DOCTRINES, DOCTRINE_KEYS } from "@sim/doctrine.ts";
 import type { Side } from "@sim/types.ts";
 
 /**
@@ -32,6 +34,10 @@ export function DeploymentPanel() {
   const setTool = useSimStore((s) => s.setSetupTool);
   const setHeading = useSimStore((s) => s.setSpawnHeading);
   const setObjField = useSimStore((s) => s.setObjectiveField);
+  const addObjective = useSimStore((s) => s.addObjective);
+  const setBattleMode = useSimStore((s) => s.setBattleMode);
+  const doctrine = useSimStore((s) => s.doctrine);
+  const setDoctrine = useSimStore((s) => s.setDoctrine);
   const removeObjective = useSimStore((s) => s.removeObjective);
   const selectObjective = useSimStore((s) => s.selectObjective);
   const mirror = useSimStore((s) => s.mirrorDeployment);
@@ -42,6 +48,9 @@ export function DeploymentPanel() {
 
   const symmetric = isPointSymmetric(draft);
   const objectives = draft.objectives ?? [];
+  const mode = draft.mode ?? "meeting";
+  const attacker = draft.attacker ?? "blue";
+  const timeLimitSec = draft.timeLimitSec ?? OBJECTIVE.ASSAULT_TIME_LIMIT_SEC;
 
   return (
     <div className="panel overlay-panel">
@@ -91,6 +100,113 @@ export function DeploymentPanel() {
         </div>
       </div>
 
+      {/* ── 陣営のドクトリン(仕様 §13)`[v6.8]` ── */}
+      <div className="ov-sec">
+        <div className="ov-sec-title">陣営のドクトリン</div>
+        <div className="dbg-k">
+          切り替わるのは兵士の能力ではなく<b>指揮系統の効き方</b>です
+          — 判断の周期、無線の遅れ、下位がどれだけ自分の判断で動くか。
+        </div>
+        {(["blue", "red"] as Side[]).map((side) => (
+          <div key={side} className="dep-spawn">
+            <div className="dep-spawn-head">
+              <span className={side === "blue" ? "force-blue" : "force-red"}>
+                {SIDE_LABEL[side]}
+              </span>
+            </div>
+            <div className="seg">
+              {DOCTRINE_KEYS.map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  className={doctrine[side] === k ? "seg-btn seg-on" : "seg-btn"}
+                  onClick={() => setDoctrine(side, k)}
+                  title={DOCTRINES[k].detail}
+                >
+                  {DOCTRINES[k].label}
+                </button>
+              ))}
+            </div>
+            <div className="dbg-k">{DOCTRINES[doctrine[side]].detail}</div>
+          </div>
+        ))}
+        {doctrine.blue !== doctrine.red && (
+          <div className="dbg-k">
+            左右でドクトリンが違います。両陣営のAIは同一の機構のままですが、
+            <b>統制の効き方が非対称</b>になります(仕様 §2/§13 の担保は
+            「同じ機構で動く」ことであって「同じ組織である」ことではありません)。
+          </div>
+        )}
+      </div>
+
+      {/* ── 戦闘の型(仕様 §12「モード別の追加条件」)`[v6.8]` ── */}
+      <div className="ov-sec">
+        <div className="ov-sec-title">戦闘の型</div>
+        <div className="seg">
+          <button
+            type="button"
+            className={mode === "meeting" ? "seg-btn seg-on" : "seg-btn"}
+            onClick={() => setBattleMode({ mode: "meeting" })}
+            title="全拠点が中立から始まり、過半数を保持した側が勝つ"
+          >
+            遭遇戦
+          </button>
+          <button
+            type="button"
+            className={mode === "assault" ? "seg-btn seg-on" : "seg-btn"}
+            onClick={() => setBattleMode({ mode: "assault" })}
+            title="防御側が全拠点を保有。攻撃側は制限時間内に奪わなければ負け"
+          >
+            攻防戦
+          </button>
+        </div>
+        {mode === "assault" && (
+          <>
+            <div className="seg-row">
+              <span className="seg-label">攻撃</span>
+              <div className="seg">
+                <button
+                  type="button"
+                  className={attacker === "blue" ? "seg-btn seg-on seg-blue" : "seg-btn"}
+                  onClick={() => setBattleMode({ attacker: "blue" })}
+                >
+                  BLUE
+                </button>
+                <button
+                  type="button"
+                  className={attacker === "red" ? "seg-btn seg-on seg-red" : "seg-btn"}
+                  onClick={() => setBattleMode({ attacker: "red" })}
+                >
+                  RED
+                </button>
+              </div>
+            </div>
+            <div className="dbg-slider">
+              <div className="dbg-slider-head">
+                <span>制限時間</span>
+                <span className="mono">
+                  {Math.floor(timeLimitSec / 60)}分{String(timeLimitSec % 60).padStart(2, "0")}秒
+                </span>
+              </div>
+              <input
+                type="range"
+                min={180}
+                max={1800}
+                step={60}
+                value={timeLimitSec}
+                onChange={(e) => setBattleMode({ timeLimitSec: Number(e.target.value) })}
+              />
+            </div>
+            <div className="dbg-k">
+              <b>{attacker === "blue" ? "RED" : "BLUE"}</b> が防御側で、開始時点で全拠点を
+              保有します。攻撃側は制限時間内に過半数を奪って保持しなければ負けです。
+              勝利条件が左右で違う唯一の型なので、点対称の担保(仕様 §2/§13)は
+              この型では意味を持ちません。
+            </div>
+          </>
+        )}
+      </div>
+
       <div className="ov-sec">
         <div className="ov-sec-title">展開点</div>
         {(["blue", "red"] as Side[]).map((side) => {
@@ -126,7 +242,10 @@ export function DeploymentPanel() {
       </div>
 
       <div className="ov-sec">
-        <div className="ov-sec-title">拠点(仕様 §12)</div>
+        <div className="ov-sec-title">
+          拠点(仕様 §12)
+          <span className="dbg-k"> {objectives.length}個</span>
+        </div>
         {objectives.length === 0 && <div className="dbg-k">拠点なし — 戦力の枯渇でのみ決着</div>}
         {objectives.map((o, i) => (
           <div key={i} className={i === selIdx ? "dep-obj dep-obj-on" : "dep-obj"}>
@@ -141,22 +260,34 @@ export function DeploymentPanel() {
             <span className="mono dbg-k">
               {o.pos.x.toFixed(0)}, {o.pos.z.toFixed(0)}
             </span>
-            <label className="dep-obj-r" title="確保判定の半径 m">
+            <label className="dep-obj-r" title="確保判定の半径 m(小さすぎると誰も円を踏めない)">
               <span className="dbg-k">r</span>
               <input
                 type="number"
-                min={1}
+                min={2}
                 max={40}
                 step={1}
                 value={Math.round(o.radius)}
                 onChange={(e) => setObjField(i, { radius: Number(e.target.value) })}
               />
             </label>
-            <button type="button" className="btn-x" onClick={() => removeObjective(i)}>
+            <button
+              type="button"
+              className="btn-x"
+              onClick={() => removeObjective(i)}
+              title={`${o.label} を削除`}
+            >
               ×
             </button>
           </div>
         ))}
+        <button type="button" className="btn" onClick={() => addObjective()}>
+          ＋ 拠点を追加
+        </button>
+        <div className="dbg-k">
+          追加した拠点は掴んだ状態になります。そのまま地図をクリックすると移動、
+          <b>×</b> で削除。半径は確保判定の円で、既定は小拠点の6mです。
+        </div>
       </div>
 
       <div className="ov-sec">

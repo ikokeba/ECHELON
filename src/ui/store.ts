@@ -19,6 +19,7 @@ import { mirrorPlan, type DeploymentPlan, type ObjectivePlacement } from "@sim/d
 import type { ScenarioKey } from "@sim/scenario.ts";
 import type { PlanRouteView } from "@render/renderer.ts";
 import type {
+  BattleMode,
   Echelon,
   PlanTask,
   Posture,
@@ -29,14 +30,39 @@ import type {
 } from "@sim/types.ts";
 import type { ControlState } from "@sim/control.ts";
 import { postureFromRisk } from "@sim/tuning.ts";
+import { DOCTRINES, type DoctrineKey } from "@sim/doctrine.ts";
 
 const RAD2DEG = 180 / Math.PI;
 
 /** 配置エディタで置こうとしているもの(`[v6.4]`)。null なら通常のユニット選択。 */
 export type SetupTool = null | "blueSpawn" | "redSpawn" | "objective";
 
-/** 新しく置く拠点の既定半径(仕様 §12 — 建物内の一室ぶん)。 */
-const OBJECTIVE_RADIUS = OBJECTIVE.ROOM_RADIUS;
+/**
+ * 新しく置く拠点の既定半径(仕様 §12 の小拠点)。`[v6.8]`
+ *
+ * 既定のシナリオは建物の一室(`ROOM_RADIUS` = 3m)を拠点にしているが、**手で置く拠点は
+ * 屋外に置かれることが多い**ので小拠点の半径(6m)を既定にする。判定半径が小さすぎると
+ * 誰も円を踏めずに確保が成立しない(F-9 で踏んだ)。
+ */
+const OBJECTIVE_RADIUS = OBJECTIVE.RADIUS.small;
+
+/**
+ * 拠点の呼称。NATO のフォネティックコードを順に使う(既定シナリオの ALPHA/BRAVO/CHARLIE
+ * と揃える)。使い切ったら番号に落とす。
+ */
+const OBJECTIVE_NAMES = [
+  "ALPHA", "BRAVO", "CHARLIE", "DELTA", "ECHO", "FOXTROT",
+  "GOLF", "HOTEL", "INDIA", "JULIET", "KILO", "LIMA",
+] as const;
+
+/** まだ使われていない呼称を1つ返す。 */
+function nextObjectiveLabel(existing: ReadonlyArray<{ label: string }>): string {
+  const used = new Set(existing.map((o) => o.label));
+  for (const n of OBJECTIVE_NAMES) {
+    if (!used.has(`OBJ ${n}`)) return `OBJ ${n}`;
+  }
+  return `OBJ ${existing.length + 1}`;
+}
 
 /** 階層ツリーUIが表示する編成の一覧。毎フレームではなく編成が変わったときだけ更新する。 */
 export interface RosterSquad {
@@ -115,6 +141,12 @@ export interface HudSnapshot {
   redCarrying: number;
   /** 争奪中の拠点(仕様 §12) */
   objectives: HudObjective[];
+  /** 戦闘の型(仕様 §12)。`assault` なら残り時間を出す `[v6.8]` */
+  battleMode: BattleMode;
+  /** 攻防戦の攻撃側 */
+  attacker: Side;
+  /** 攻防戦の残り時間(秒)。無制限なら null */
+  timeLeftSec: number | null;
   /** 決着。null なら戦闘継続中 */
   victory: VictoryState | null;
 }
@@ -264,6 +296,11 @@ interface UiState extends HudSnapshot {
   /** デバッグ用スライダー(陣営別リスク許容度 0..1) */
   /** デバッグ用スライダー(陣営別の性格パラメータ)。riskTolerance はマスター */
   posture: Record<Side, Posture>;
+  /**
+   * 陣営ごとのドクトリン(指揮文化)。`[v6.8]` 仕様 §13。
+   * ランタイムが毎フレーム `world.doctrine` へ反映する(posture と同じ扱い)。
+   */
+  doctrine: Record<Side, DoctrineKey>;
 
   togglePause: () => void;
   cycleSpeed: () => void;
@@ -297,6 +334,14 @@ interface UiState extends HudSnapshot {
   /** 配置エディタで地図をクリックしたときの着地点 */
   placeAt: (p: Vec2) => void;
   setObjectiveField: (idx: number, patch: Partial<ObjectivePlacement>) => void;
+  /** 拠点を1つ足す。地点を省略すると盤面の中央付近へ置き、そのまま掴んだ状態にする */
+  addObjective: (p?: Vec2) => void;
+  /** 戦闘の型を設定する(仕様 §12)。`[v6.8]` */
+  setBattleMode: (patch: {
+    mode?: BattleMode;
+    attacker?: Side;
+    timeLimitSec?: number;
+  }) => void;
   removeObjective: (idx: number) => void;
   selectObjective: (idx: number | null) => void;
   /** 陣営の向きを度で設定する(0° = +Z、時計回り) */
@@ -315,6 +360,8 @@ interface UiState extends HudSnapshot {
   setPostureKnob: (side: Side, patch: Partial<Posture>) => void;
   /** 共通チューニングとリスク許容度を仕様の既定値へ戻す */
   resetTuning: () => void;
+  /** 陣営のドクトリンを選ぶ。既定のリスク許容度もそのプリセットの値へ揃える */
+  setDoctrine: (side: Side, key: DoctrineKey) => void;
 }
 
 /** constants.ts そのままの表示用チューニング値(スライダーの初期値・リセット先)。 */
@@ -347,6 +394,9 @@ export const useSimStore = create<UiState>((set) => ({
   blueCarrying: 0,
   redCarrying: 0,
   objectives: [],
+  battleMode: "meeting",
+  attacker: "blue",
+  timeLeftSec: null,
   victory: null,
 
   paused: false,
@@ -390,6 +440,7 @@ export const useSimStore = create<UiState>((set) => ({
     blue: { riskTolerance: 0.5, ...postureFromRisk(0.5) },
     red: { riskTolerance: 0.5, ...postureFromRisk(0.5) },
   },
+  doctrine: { blue: "regular", red: "regular" },
 
   togglePause: () => set((s) => ({ paused: !s.paused })),
   cycleSpeed: () => set((s) => ({ speedIdx: (s.speedIdx + 1) % RUN_SPEEDS.length })),
@@ -451,7 +502,7 @@ export const useSimStore = create<UiState>((set) => ({
           objs[idx] = { ...objs[idx]!, pos: { ...p } };
           return { deploymentDraft: { ...d, objectives: objs } };
         }
-        objs.push({ label: `OBJ ${objs.length + 1}`, pos: { ...p }, radius: OBJECTIVE_RADIUS });
+        objs.push({ label: nextObjectiveLabel(objs), pos: { ...p }, radius: OBJECTIVE_RADIUS });
         return {
           deploymentDraft: { ...d, objectives: objs },
           selectedObjectiveIdx: objs.length - 1,
@@ -471,6 +522,23 @@ export const useSimStore = create<UiState>((set) => ({
         })();
       return {
         deploymentDraft: { ...d, spawn: { ...d.spawn, [side]: { pos: { ...p }, facing } } },
+      };
+    }),
+  setBattleMode: (patch) =>
+    set((s) => (s.deploymentDraft ? { deploymentDraft: { ...s.deploymentDraft, ...patch } } : {})),
+  addObjective: (p) =>
+    set((s) => {
+      const d = s.deploymentDraft;
+      if (!d) return {};
+      const objs = [...(d.objectives ?? [])];
+      // 地点の指定が無ければ中央付近へ。同じ点に積み上がらないよう少しずつずらす
+      const at = p ?? { x: (objs.length % 3) * 18 - 18, z: Math.floor(objs.length / 3) * 18 - 18 };
+      objs.push({ label: nextObjectiveLabel(objs), pos: { ...at }, radius: OBJECTIVE_RADIUS });
+      return {
+        deploymentDraft: { ...d, objectives: objs },
+        // 置いた直後は掴んだ状態にする。地図をクリックすればそのまま動かせる
+        selectedObjectiveIdx: objs.length - 1,
+        setupTool: "objective",
       };
     }),
   setObjectiveField: (idx, patch) =>
@@ -579,6 +647,16 @@ export const useSimStore = create<UiState>((set) => ({
     set((s) => ({
       posture: { ...s.posture, [side]: { ...s.posture[side], ...patch } },
     })),
+  setDoctrine: (side, key) =>
+    set((s) => {
+      const risk = DOCTRINES[key].riskTolerance;
+      return {
+        doctrine: { ...s.doctrine, [side]: key },
+        // ドクトリンは「どう戦うか」の既定値でもあるので、リスク許容度も揃える。
+        // 個別のスライダーで後から上書きできる(デバッグパネル)
+        posture: { ...s.posture, [side]: { riskTolerance: risk, ...postureFromRisk(risk) } },
+      };
+    }),
   resetTuning: () =>
     set({
       tuning: { ...DEFAULT_TUNING_UI },
@@ -586,6 +664,7 @@ export const useSimStore = create<UiState>((set) => ({
         blue: { riskTolerance: 0.5, ...postureFromRisk(0.5) },
         red: { riskTolerance: 0.5, ...postureFromRisk(0.5) },
       },
+      doctrine: { blue: "regular", red: "regular" },
     }),
 }));
 
