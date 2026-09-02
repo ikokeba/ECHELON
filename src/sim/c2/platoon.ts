@@ -57,8 +57,16 @@ const CLEAR_ZONE_RADIUS = 40;
 /**
  * 拠点を守る分隊の持ち場を、拠点中心からこれだけは広げてよい m。`[v6.2]`
  * 拠点が1室(半径3m)でも、分隊9名は部屋と入口まわりの遮蔽に散って守る。
+ *
+ * **ただし判定半径を超えてはいけない(`[v6.7]`)。** ここが拠点の半径より大きいと、
+ * 守備に付いた分隊の持ち場が拠点の**外**に置かれ、誰も判定円を踏まないまま
+ * 「守っているのに確保が進まない」状態で固まる。拠点が建物の一室(半径3m)まで
+ * 小さくなった `[v6.2]` 以降、8m のこの値は常に半径より大きかった。
+ * 実測: 240秒間、3拠点とも半径内に誰かがいた時間が0%。
  */
 const SQUAD_HOLD_SPREAD = 8;
+/** 持ち場を拠点の内側に収めるための、半径に対する比。1.0だと縁に立つので少し内側へ */
+const SQUAD_HOLD_FRAC = 0.6;
 
 function dist(a: Vec2, b: Vec2): number {
   return Math.hypot(a.x - b.x, a.z - b.z);
@@ -177,6 +185,12 @@ export function platoonAI(world: World): void {
 
     // 目標軸に対して直交する方向へ分隊を並べ、担当区域を割り当てる。
     // 接敵情報があればそちらへ、なければ小隊の任務目標へ向かう。
+    //
+    // `[v6.7]` **ここを「接敵しても目標を向き続ける」に変えたら悪化したので戻した。**
+    // 「接敵で任務は変わらない(ATP 3-21.8)」という理屈は正しいが、実測では
+    // 拠点内滞在 28→0秒、BLUE生存 74→62名。担当区域が敵と無関係に置かれると、
+    // 分隊は戦列を作らずに目標へ歩き、隊形が伸びたところを各個に撃たれる。
+    // 敵の位置は**戦列をどこに作るか**を決めており、それを外すと火力の集中が消える。
     const aim = threat ? threat.pos : pl.objective;
     const dx = aim.x - anchor.x;
     const dz = aim.z - anchor.z;
@@ -267,7 +281,12 @@ export function platoonAI(world: World): void {
       // (`[v6.1]` 指摘: 守備隊は拠点内の遮蔽に散る)。
       // 下限 SQUAD_HOLD_SPREAD: 拠点が1室でも分隊9名が点に固まらないだけの床を残す。
       const held = holders.get(sq.squadId) ?? null;
-      if (held) objective = clampToObjective(objective, held, 0.7, SQUAD_HOLD_SPREAD);
+      if (held) {
+        // 下限は**拠点の内側**に収める(`[v6.7]`)。分隊の重心が判定円の中に入れば、
+        // 隊形で散った隊員のうち何名かが確保に数えられる(仕様 §12)
+        const spread = Math.min(SQUAD_HOLD_SPREAD, held.radius * SQUAD_HOLD_FRAC);
+        objective = clampToObjective(objective, held, 0.7, spread);
+      }
 
       const sqMission: Mission = {
         kind: sqKind,

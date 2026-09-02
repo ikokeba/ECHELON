@@ -861,7 +861,10 @@ export function fireteamAI(world: World): void {
               SIM_HZ *
               traitMul(1 - ftTraits.aggressiveness, 0.35),
           ) &&
-        dist(mc, ft.objective) > engageMax;
+        // `[v6.7]` 停止条件は「目標に着いたか」。以前は `engageMax`(有効射程60m)で、
+        // 目標の60m手前で躍進をやめていた — 射程に入ることと取ることは別物で、
+        // 拠点の判定半径は3mしかない(仕様 §12)。
+        dist(mc, ft.objective) > CONTACT_DRILL.ASSAULT_THROUGH_DIST;
       for (const u of maneuver) {
         if (reactToContact(u)) continue;
         const p = pushing

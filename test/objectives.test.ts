@@ -1,7 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { createWorld } from "../src/sim/world.ts";
 import { runTicks } from "../src/sim/step.ts";
-import { demoCrossingScenario, platoonClashScenario } from "../src/sim/scenario.ts";
+import {
+  companyClashScenario,
+  demoCrossingScenario,
+  platoonClashScenario,
+} from "../src/sim/scenario.ts";
+import { beginBattle, beginPlanning } from "../src/sim/c2/planning.ts";
 import { OBJECTIVE, SIM_HZ } from "../src/sim/constants.ts";
 import { clampToObjective, heldObjectiveNear } from "../src/sim/c2/objectiveHold.ts";
 import type { Objective, Side, Soldier } from "../src/sim/types.ts";
@@ -254,4 +259,44 @@ describe("決着(仕様 §12)", () => {
     runTicks(w, Math.round(5 * SIM_HZ));
     expect(o.progress).toBe(0);
   });
+});
+
+describe("実戦で拠点の確保が成立する(`[v6.7]` F-9)", () => {
+  /**
+   * **拠点の判定円に誰も入らない**という状態を踏まないための回帰テスト。
+   *
+   * 仕様 §12 のメイン条件は拠点確保だが、`[v6.6]` 時点では中隊戦を300秒回しても
+   * 3拠点すべてが「半径内に誰かがいた時間 0%」「確保 0%」だった。原因は2つとも
+   * 「拠点に立つ」を妨げる幾何の問題で、AIの判断の質ではなかった:
+   *
+   *   1. 機動組の躍進の停止条件が `engageMax`(ライフル有効射程60m)だった。
+   *      目標の60m手前で躍進をやめるので、判定半径3mには永久に届かない
+   *   2. 拠点を守る分隊の持ち場の下限が8mで、**判定半径3mより外**だった。
+   *      守備に付いても誰も円を踏まない
+   *
+   * ここが 0 に戻ったら、勝利条件そのものが成立しなくなっている。
+   * **確保の完了までは保証しない** — 遭遇戦の最中に60秒の占有を続けられるかは
+   * 拠点配置と戦力のバランスの問題で、`docs/design/01-validation-backlog.md` の
+   * K-1 に計測付きで残してある。
+   */
+  it("拠点の判定円に兵士が入り、確保が積み上がる", () => {
+    const w = createWorld(companyClashScenario(1));
+    beginPlanning(w);
+    beginBattle(w);
+    let insideSeconds = 0;
+    for (let t = 0; t < 300; t++) {
+      runTicks(w, SIM_HZ);
+      const anyInside = w.objectives.some((o) =>
+        w.soldiers.some(
+          (s) =>
+            s.status === "ok" &&
+            Math.hypot(s.pos.x - o.pos.x, s.pos.z - o.pos.z) <= o.radius,
+        ),
+      );
+      if (anyInside) insideSeconds++;
+    }
+    // 計測値は 28秒 / 進捗30%(seed 1)。0 に戻っていないことだけを見る
+    expect(insideSeconds).toBeGreaterThan(5);
+    expect(Math.max(...w.objectives.map((o) => o.progress))).toBeGreaterThan(0.1);
+  }, 420000);
 });
