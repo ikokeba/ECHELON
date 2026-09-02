@@ -12,6 +12,7 @@ import { clamp } from "./geometry.ts";
 import { createRng, type Rng } from "./rng.ts";
 import { buildWallIndex, type WallIndex } from "./wallIndex.ts";
 import { defaultPosture, defaultTuning } from "./tuning.ts";
+import { defaultDoctrine, type Doctrine } from "./doctrine.ts";
 import type { ControlState } from "./control.ts";
 import {
   CASEVAC_ASSETS_PER_COMPANY,
@@ -19,6 +20,8 @@ import {
   CP_TRAIL_DIST,
   CQB,
   DOOR_THICKNESS,
+  OBJECTIVE,
+  SIM_HZ,
   NAV_MARGIN_OUTDOOR,
   NAV_STEP_OUTDOOR,
 } from "./constants.ts";
@@ -36,6 +39,7 @@ import type {
   Posture,
   Report,
   Scenario,
+  BattleMode,
   Side,
   SimPhase,
   Soldier,
@@ -53,6 +57,15 @@ export interface World {
    * プレイヤーの「戦闘開始」を待つ。`planning` の間 `stepWorld` は何もしない。
    */
   phase: SimPhase;
+  /**
+   * 戦闘の型(仕様 §12「モード別の追加条件」)。`[v6.8]`
+   * 既定は `meeting`(遭遇戦)なので、既存のテストとバランスハーネスは影響を受けない。
+   */
+  mode: BattleMode;
+  /** `mode === "assault"` のときの攻撃側。防御側は最初から全拠点を保有する */
+  attacker: Side;
+  /** 攻防戦の制限時間(ティック)。0 なら無制限 */
+  timeLimitTicks: number;
   bounds: Bounds;
   /**
    * 視線と移動を遮るもの。構造物の壁に加え、**閉じている扉**の板も含む(仕様 §7.6)。
@@ -144,6 +157,22 @@ export interface World {
   tuning: Tuning;
   /** 陣営ごとのリスク許容度(`[v6.1]`)。既定は両陣営 0.5 で現行挙動と一致。 */
   posture: Record<Side, Posture>;
+  /**
+   * 陣営ごとのドクトリン(指揮文化)。`[v6.8]` 仕様 §13。
+   * 切り替わるのは能力ではなく**統制の効き方**(判断周期・無線・自主性)。
+   * 既定は両陣営 `regular` = 全係数 identity で、現行の挙動と厳密に一致する。
+   */
+  doctrine: Record<Side, Doctrine>;
+}
+
+/** その陣営のドクトリン(仕様 §13)。C2の各層から引く。 */
+export function sideDoctrine(world: World, side: Side): Doctrine {
+  return world.doctrine[side];
+}
+
+/** 攻撃側の反対。攻防戦の防御側(仕様 §12)。 */
+export function defenderOf(attacker: Side): Side {
+  return attacker === "blue" ? "red" : "blue";
 }
 
 /** 兵士をディープコピーし、Worldがシナリオから独立して状態を所有できるようにする。 */
@@ -470,9 +499,17 @@ function buildWorld(scenario: Scenario): World {
   const soldiers = scenario.soldiers.map(cloneSoldier);
   const soldierById = new Map(soldiers.map((s) => [s.id, s]));
 
+  const mode: BattleMode = scenario.mode ?? "meeting";
+  const attacker: Side = scenario.attacker ?? "blue";
   return {
     tick: 0,
     phase: "battle",
+    mode,
+    attacker,
+    timeLimitTicks:
+      mode === "assault"
+        ? Math.round((scenario.timeLimitSec ?? OBJECTIVE.ASSAULT_TIME_LIMIT_SEC) * SIM_HZ)
+        : 0,
     bounds: { ...scenario.bounds },
     walls,
     wallIndex: buildWallIndex(walls, scenario.bounds),
@@ -501,12 +538,14 @@ function buildWorld(scenario: Scenario): World {
       blue: { ...(scenario.ccp?.blue ?? defaultCcp(soldiers, "blue")) },
       red: { ...(scenario.ccp?.red ?? defaultCcp(soldiers, "red")) },
     },
+    // 攻防戦では**防御側が最初から全拠点を保有する**(仕様 §12)。`[v6.8]`
+    // これだけで守備のC2(`assignHolders`)が開始直後から働き、防御側は拠点に張り付く。
     objectives: (scenario.objectives ?? []).map((o) => ({
       ...o,
       pos: { ...o.pos },
-      owner: null,
-      progress: 0,
-      progressBy: null,
+      owner: mode === "assault" ? defenderOf(attacker) : null,
+      progress: mode === "assault" ? 1 : 0,
+      progressBy: mode === "assault" ? defenderOf(attacker) : null,
       contested: false,
     })),
     majoritySince: { blue: null, red: null },
@@ -515,6 +554,7 @@ function buildWorld(scenario: Scenario): World {
     fx: [],
     tuning: defaultTuning(),
     posture: defaultPosture(),
+    doctrine: defaultDoctrine(),
   };
 }
 

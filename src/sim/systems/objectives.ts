@@ -96,6 +96,29 @@ export function objectivesSystem(world: World): void {
   const held = (side: Side): number => world.objectives.filter((o) => o.owner === side).length;
   const majority = Math.floor(world.objectives.length / 2) + 1;
 
+  // ── 攻防非対称戦(仕様 §12「モード別の追加条件」)`[v6.8]` ──
+  // 防御側は最初から過半数を保有しているので、遭遇戦と同じ規則をそのまま当てると
+  // 開始45秒で防御側が勝ってしまう。攻防戦の勝ち筋は左右で違う:
+  //   攻撃側 = 制限時間内に過半数を奪い、`HOLD_TO_WIN_SEC` 保持する
+  //   防御側 = それまで持ちこたえる(時間切れ)
+  if (world.mode === "assault") {
+    const attacker = world.attacker;
+    const defender: Side = attacker === "blue" ? "red" : "blue";
+    if (held(attacker) >= majority) {
+      if (world.majoritySince[attacker] === null) world.majoritySince[attacker] = world.tick;
+      if (world.tick - world.majoritySince[attacker]! >= HOLD_TO_WIN_TICKS) {
+        world.victory = { winner: attacker, reason: "objectives", tick: world.tick };
+        return;
+      }
+    } else {
+      world.majoritySince[attacker] = null;
+    }
+    if (world.timeLimitTicks > 0 && world.tick >= world.timeLimitTicks) {
+      world.victory = { winner: defender, reason: "timeout", tick: world.tick };
+    }
+    return;
+  }
+
   for (const side of ["blue", "red"] as Side[]) {
     if (held(side) >= majority) {
       if (world.majoritySince[side] === null) world.majoritySince[side] = world.tick;

@@ -219,15 +219,19 @@ export function planOperation(world: World, co: CompanyState): OperationPlan {
       const route = routeTo(world, centroid, target);
       const via = compassOf(centroid, target);
       const indoor = indoorObjective(world, o) ? "、屋内掃討を伴う" : "";
+      // 攻防戦の防御側は「取りに行く」のではなく「持ちこたえる」(仕様 §12)`[v6.8]`
+      const defending = isDefender(world, co.side);
       tasks.push({
         platoonId: pl.platoonId,
         role: isMain ? "main" : "supporting",
         mission: { kind: "seize", target },
         objectiveId: o.id,
         route,
-        order:
-          `${name} — ${isMain ? "主攻" : "助攻"}。${o.label} を確保せよ` +
-          `(${via}へ ${Math.round(dist(centroid, target))}m${indoor})`,
+        order: defending
+          ? `${name} — ${isMain ? "主陣地" : "支撑点"}。${o.label} を占領・保持し、` +
+            `${via}からの接近を阻止せよ(${Math.round(dist(centroid, target))}m${indoor})`
+          : `${name} — ${isMain ? "主攻" : "助攻"}。${o.label} を確保せよ` +
+            `(${via}へ ${Math.round(dist(centroid, target))}m${indoor})`,
       });
       continue;
     }
@@ -282,13 +286,27 @@ export function planOperation(world: World, co: CompanyState): OperationPlan {
   const mainTask = tasks.find((t) => t.role === "main");
   const need = Math.floor(objectives.length / 2) + 1;
   const leftovers = objectives.length - assign.size;
-  const intent =
-    `${objectives.length}個の拠点のうち${need}個を確保して勝利する。` +
-    (mainTask ? `主攻は${platoonName(mainTask.platoonId)}(${main.label})。` : "") +
-    `他は各正面の拠点を確保しつつ主攻の側面を掩護する。` +
-    (leftovers > 0 ? `残る${leftovers}個の拠点は戦況を見て拾う。` : "");
+  const intent = isDefender(world, co.side)
+    ? `${objectives.length}個の拠点のうち${need}個を制限時間まで保持すれば勝利する。` +
+      (mainTask ? `主陣地は${platoonName(mainTask.platoonId)}(${main.label})。` : "") +
+      `各小隊は担当拠点を占領し、その場で持久する。`
+    : `${objectives.length}個の拠点のうち${need}個を確保して勝利する。` +
+      (mainTask ? `主攻は${platoonName(mainTask.platoonId)}(${main.label})。` : "") +
+      `他は各正面の拠点を確保しつつ主攻の側面を掩護する。` +
+      (leftovers > 0 ? `残る${leftovers}個の拠点は戦況を見て拾う。` : "");
 
   return { side: co.side, companyId: co.companyId, mainObjectiveId: main.id, tasks, intent };
+}
+
+/**
+ * 攻防戦(仕様 §12)の防御側か。`[v6.8]`
+ *
+ * 防御側は開始時点で全拠点を保有しているので、「保有したら任務完了」という
+ * 攻撃側の規則をそのまま当てると**開始と同時に全部隊が任務を失う**。
+ * 防御の任務は保有し続けることなので、完了しない。
+ */
+export function isDefender(world: World, side: Side): boolean {
+  return world.mode === "assault" && world.attacker !== side;
 }
 
 /** 小隊の呼称。小隊idは陣営ごとに採番が違うので、下2桁を通し番号として使う。 */
@@ -358,6 +376,7 @@ export function activeTaskOf(world: World, co: CompanyState, platoonId: number):
   const o = world.objectives.find((x) => x.id === t.objectiveId);
   if (!o) return null;
   // 自軍が確保しきったら任務完了。保持は objectiveHold(最寄り1個小隊)の担当へ移る
-  if (o.owner === co.side) return null;
+  // 防御側は保有していること自体が任務なので完了しない(仕様 §12 攻防戦)`[v6.8]`
+  if (o.owner === co.side && !isDefender(world, co.side)) return null;
   return t;
 }

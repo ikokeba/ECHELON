@@ -17,6 +17,7 @@ import { SIM_DT } from "@sim/constants.ts";
 import { isDegraded } from "@sim/c2/succession.ts";
 import { applyDeployment, defaultDeploymentOf } from "@sim/deployment.ts";
 import { beginBattle, beginPlanning, platoonName } from "@sim/c2/planning.ts";
+import { doctrineOf } from "@sim/doctrine.ts";
 import type { PlanRouteView } from "@render/renderer.ts";
 import type { Side } from "@sim/types.ts";
 import {
@@ -39,6 +40,10 @@ function syncTuning(world: World): void {
   world.tuning.turnRate = (tuning.turnRateDeg * Math.PI) / 180;
   Object.assign(world.posture.blue, posture.blue);
   Object.assign(world.posture.red, posture.red);
+  // ドクトリン(仕様 §13)も同じ扱いで反映する `[v6.8]`
+  const { doctrine } = useSimStore.getState();
+  world.doctrine.blue = doctrineOf(doctrine.blue);
+  world.doctrine.red = doctrineOf(doctrine.red);
 }
 
 const FT_MODE_LABEL: Record<string, string> = {
@@ -261,6 +266,12 @@ function hudOf(world: World, view: ViewResult): HudSnapshot {
     redAwaitingEvac,
     blueCarrying,
     redCarrying,
+    battleMode: world.mode,
+    attacker: world.attacker,
+    timeLeftSec:
+      world.timeLimitTicks > 0
+        ? Math.max(0, (world.timeLimitTicks - world.tick) * SIM_DT)
+        : null,
     objectives: world.objectives.map((o) => ({
       id: o.id,
       label: o.label,

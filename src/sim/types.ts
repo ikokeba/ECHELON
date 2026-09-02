@@ -97,6 +97,17 @@ export interface Mission {
 export type SimPhase = "planning" | "battle";
 
 /**
+ * 戦闘の型(仕様 §12「モード別の追加条件」)。`[v6.8]`
+ *
+ * `meeting`  遭遇戦。全拠点が中立から始まり、過半数を一定時間保持した側が勝つ。
+ *            両陣営の勝利条件が同一なので、§2/§13 の対称性がそのまま成り立つ
+ * `assault`  攻防非対称戦。**防御側が最初から全拠点を保有**し、攻撃側は制限時間内に
+ *            過半数を奪って保持しなければならない。時間切れは防御側の勝ち。
+ *            勝利条件が左右で違う唯一のモードなので、対称性テストはこれを使わない
+ */
+export type BattleMode = "meeting" | "assault";
+
+/**
  * 作戦計画の1項目 = 1個小隊に与える任務(`[v6.5]`)。
  *
  * 中隊長が下ろすのは「どこへ行け」ではなく**任務(WHAT)**である、という §3① /
@@ -726,6 +737,12 @@ export interface Scenario {
   buildings?: Building[];
   /** 争奪する拠点(仕様 §12)。空なら勝敗は戦力の枯渇でのみ決まる */
   objectives?: Array<Omit<Objective, "owner" | "progress" | "progressBy" | "contested">>;
+  /** 戦闘の型(仕様 §12)。未指定は遭遇戦 `[v6.8]` */
+  mode?: BattleMode;
+  /** `mode === "assault"` のときの攻撃側。防御側は最初から全拠点を保有する */
+  attacker?: Side;
+  /** 攻防戦の制限時間(秒)。攻撃側がこの間に落とせなければ防御側の勝ち */
+  timeLimitSec?: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -807,8 +824,12 @@ export interface Objective {
 /** 決着(仕様 §12)。null なら戦闘継続中。 */
 export interface VictoryState {
   winner: Side;
-  /** `objectives` = 拠点確保、`annihilation` = 戦力の枯渇 */
-  reason: "objectives" | "annihilation";
+  /**
+   * `objectives`   拠点確保
+   * `annihilation` 戦力の枯渇
+   * `timeout`      攻防戦で制限時間まで持ちこたえた(防御側の勝ち)`[v6.8]`
+   */
+  reason: "objectives" | "annihilation" | "timeout";
   tick: number;
 }
 

@@ -23,7 +23,8 @@
  */
 
 import { clamp } from "./geometry.ts";
-import type { Bounds, Scenario, Side, Vec2 } from "./types.ts";
+import { OBJECTIVE } from "./constants.ts";
+import type { BattleMode, Bounds, Scenario, Side, Vec2 } from "./types.ts";
 
 /** 拠点1つぶんの配置指定。 */
 export interface ObjectivePlacement {
@@ -45,6 +46,12 @@ export interface DeploymentPlan {
   spawn: Partial<Record<Side, SpawnPlacement>>;
   /** null なら既定の拠点をそのまま使う。空配列なら「拠点なし」(戦力枯渇のみで決着) */
   objectives: ObjectivePlacement[] | null;
+  /** 戦闘の型(仕様 §12)。未指定は遭遇戦 `[v6.8]` */
+  mode?: BattleMode;
+  /** 攻防戦の攻撃側。防御側は最初から全拠点を保有する */
+  attacker?: Side;
+  /** 攻防戦の制限時間(秒) */
+  timeLimitSec?: number;
 }
 
 /** 展開点を盤内に収めるための余白 m。ナビグリッドの縁に食い込ませない。 */
@@ -104,6 +111,9 @@ export function defaultDeploymentOf(sc: Scenario): DeploymentPlan {
       pos: { ...o.pos },
       radius: o.radius,
     })),
+    mode: sc.mode ?? "meeting",
+    attacker: sc.attacker ?? "blue",
+    timeLimitSec: sc.timeLimitSec ?? OBJECTIVE.ASSAULT_TIME_LIMIT_SEC,
   };
 }
 
@@ -140,7 +150,7 @@ export function mirrorPlan(plan: DeploymentPlan): DeploymentPlan {
   const b = plan.spawn.blue;
   const spawn = { ...plan.spawn };
   if (b) spawn.red = { pos: { x: -b.pos.x, z: -b.pos.z }, facing: { x: -b.facing.x, z: -b.facing.z } };
-  return { spawn, objectives: plan.objectives };
+  return { ...plan, spawn };
 }
 
 /**
@@ -149,6 +159,10 @@ export function mirrorPlan(plan: DeploymentPlan): DeploymentPlan {
 export function applyDeployment(sc: Scenario, plan: DeploymentPlan): Scenario {
   const out: Scenario = {
     ...sc,
+    // 戦闘の型はプレイヤーの指定をそのまま持ち込む(仕様 §12)`[v6.8]`
+    mode: plan.mode ?? sc.mode ?? "meeting",
+    attacker: plan.attacker ?? sc.attacker ?? "blue",
+    timeLimitSec: plan.timeLimitSec ?? sc.timeLimitSec ?? OBJECTIVE.ASSAULT_TIME_LIMIT_SEC,
     soldiers: sc.soldiers.map((s) => ({
       ...s,
       pos: { ...s.pos },

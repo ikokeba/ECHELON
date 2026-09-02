@@ -1300,3 +1300,22 @@ body {
 .overlay-panel::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* 攻防戦の残り時間(仕様 §12)。時間は防御側の武器なので拠点と同じ強さで出す */
+.obj-clock {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 6px;
+  border-radius: 5px;
+  background: var(--surface);
+}
+
+.obj-clock-low {
+  color: var(--warn);
+  background: #3a2f14;
+}

@@ -13,20 +13,41 @@ import { useSimStore } from "./store.ts";
 export function ObjectivePanel() {
   const objectives = useSimStore((s) => s.objectives);
   const victory = useSimStore((s) => s.victory);
+  const battleMode = useSimStore((s) => s.battleMode);
+  const attacker = useSimStore((s) => s.attacker);
+  const timeLeftSec = useSimStore((s) => s.timeLeftSec);
 
   if (objectives.length === 0 && !victory) return null;
+
+  const assault = battleMode === "assault";
+  const defender = attacker === "blue" ? "RED" : "BLUE";
+  const mmss =
+    timeLeftSec === null
+      ? null
+      : `${Math.floor(timeLeftSec / 60)}:${String(Math.floor(timeLeftSec % 60)).padStart(2, "0")}`;
 
   return (
     <div className="panel">
       <div className="panel-cap">
         <span>OBJECTIVES</span>
-        <span>過半数の保持で勝利</span>
+        <span>{assault ? `攻防戦 — 攻 ${attacker.toUpperCase()}` : "過半数の保持で勝利"}</span>
       </div>
+      {assault && mmss && (
+        // 攻防戦は時間が防御側の武器なので、残り時間は拠点と同じ強さで出す(仕様 §12)
+        <div className={timeLeftSec !== null && timeLeftSec < 120 ? "obj-clock obj-clock-low" : "obj-clock"}>
+          <span>残り {mmss}</span>
+          <span className="hint">0で {defender} の勝ち</span>
+        </div>
+      )}
       {victory && (
         <div className={`obj-victory obj-victory-${victory.winner}`}>
           {victory.winner === "blue" ? "BLUE" : "RED"} 勝利
           <span className="obj-reason">
-            {victory.reason === "objectives" ? "拠点確保" : "戦力の枯渇"}
+            {victory.reason === "objectives"
+              ? "拠点確保"
+              : victory.reason === "timeout"
+                ? "時間切れ(防御成功)"
+                : "戦力の枯渇"}
           </span>
         </div>
       )}
