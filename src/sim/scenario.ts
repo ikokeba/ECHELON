@@ -58,9 +58,10 @@ export const SCENARIOS = {
   },
   urban: {
     label: "市街地(非対称)",
-    detail: "168×144m・建物7棟。距離が詰まっていて室内戦が主体(仕様 §7)",
-    // 中隊(3個小隊)の展開線がこの盤面には収まらないので、小隊規模で頭打ちにする
-    maxScale: "platoon",
+    detail: "300×260m・建物17棟。街区が密で室内戦が主体。地形は点対称ではない(仕様 §7)",
+    // `[v6.9]` 中隊が入るところまで広げた(旧 168×144m は3個小隊の展開線が収まらず、
+    // 小隊で頭打ちにしていた)
+    maxScale: "company",
     make: (seed?: number, force?: Record<Side, ForceSpec>) => urbanAssaultScenario(seed, force),
   },
 } as const;
@@ -975,7 +976,9 @@ export function urbanAssaultScenario(
   force: Record<Side, ForceSpec> = defaultForce(),
 ): Scenario {
   resetIds();
-  const bounds: Bounds = { minX: -84, maxX: 84, minZ: -72, maxZ: 72 };
+  // `[v6.9]` 旧 168×144m。中隊(3個小隊)の展開線が収まらなかったので広げた。
+  // 中核の街区(中央庁舎・西の倉庫・東のビル)はそのまま残し、外側に街区を足してある。
+  const bounds: Bounds = { minX: -150, maxX: 150, minZ: -118, maxZ: 118 };
 
   // ── 建物。`[v6.2]` 中身は中廊下+区画(奥行があれば前後2室)。非対称に配置する ──
   const b: ReturnType<typeof makeCorridorBuilding>[] = [
@@ -990,6 +993,43 @@ export function urbanAssaultScenario(
     // 赤側の縦深に1棟、青側の縦深に1棟(それぞれの立て直し用の遮蔽)
     makeCorridorBuilding(6, { minX: -8, maxX: 6, minZ: 34, maxZ: 46 }, "south"),
     makeCorridorBuilding(7, { minX: 10, maxX: 24, minZ: -44, maxZ: -32 }, "north"),
+
+    // ── `[v6.9]` 外側の街区。中隊(3個小隊)が展開できる幅と縦深を作る ──
+    //
+    // 置き方の要件は `[v6.2]` で中隊マップに課したものと同じ:
+    // **展開地から敵展開地まで一直線に抜ける街路を残さない**。残すと選抜射手が
+    // 開幕ティックから120m先を撃ち始め、仕様 §10 が前提にしている
+    // 「市街地の見通し距離が交戦距離を自然に制限する」が成り立たなくなる。
+    // 展開線 z=±110 の正面(|z| 60〜95)に必ず街区が挟まるよう並べてある。
+    // 点対称にはしない — この盤面の売りは左右で攻略が違うことなので(仕様 §7)。
+
+    // 青の正面(南)。西寄りに大きな街区、東寄りに小屋を千鳥に
+    makeCorridorBuilding(8, { minX: -76, maxX: -52, minZ: -84, maxZ: -64 }, "north"),
+    makeCorridorBuilding(9, { minX: -34, maxX: -14, minZ: -94, maxZ: -76 }, "east"),
+    makeCorridorBuilding(10, { minX: 4, maxX: 22, minZ: -80, maxZ: -62 }, "north"),
+    makeCorridorBuilding(11, { minX: 44, maxX: 68, minZ: -92, maxZ: -70 }, "west"),
+    // 赤の正面(北)。青側とは非対称に、東に大街区・西に細長い倉庫
+    makeCorridorBuilding(12, { minX: 18, maxX: 46, minZ: 62, maxZ: 84 }, "south"),
+    makeCorridorBuilding(13, { minX: -20, maxX: 6, minZ: 76, maxZ: 92 }, "west"),
+    makeCorridorBuilding(14, { minX: -70, maxX: -44, minZ: 58, maxZ: 76 }, "east"),
+    makeCorridorBuilding(15, { minX: 62, maxX: 84, minZ: 30, maxZ: 50 }, "south"),
+    // 両翼の縦深。側面から回り込む経路にも室内戦を1つ挟む
+    makeCorridorBuilding(16, { minX: -122, maxX: -98, minZ: -20, maxZ: 4 }, "east"),
+    makeCorridorBuilding(17, { minX: 96, maxX: 122, minZ: -46, maxZ: -24 }, "west"),
+
+    // `[v6.9]` 南北2列の街区の**隙間を互い違いに塞ぐ**3棟。
+    // 南列(8〜11)の切れ目 x<-76 / -44〜-34 / x>84 が、そのまま展開地から敵展開地まで
+    // 抜ける筋になっていた(実測: 開幕の通し射線889本、最長278m)。`[v6.2]` で中隊
+    // マップに課したのと同じ要件で、**街区で塞ぐ**。塀の帯で塞ぐ案は測って捨てた —
+    // 塞ぎ切ると両軍が接触できず(200秒で戦死0)、隙間を空けると射線が190本残るうえ、
+    // 経路が塀沿いに集中して 506→144 t/s まで落ちた。
+    makeCorridorBuilding(18, { minX: -116, maxX: -88, minZ: 52, maxZ: 74 }, "south"),
+    makeCorridorBuilding(19, { minX: -48, maxX: -28, minZ: 60, maxZ: 80 }, "east"),
+    makeCorridorBuilding(20, { minX: 88, maxX: 116, minZ: 56, maxZ: 78 }, "south"),
+    // 中盤の両翼。外縁を塞いだあと、残った射線が z=0 を横切る位置を数えたら
+    // x≈-80 と x≈+65 の2本に集中していた(西668本 / 東516本)。そこを塞ぐ
+    makeCorridorBuilding(21, { minX: -98, maxX: -72, minZ: -14, maxZ: 10 }, "east"),
+    makeCorridorBuilding(22, { minX: 56, maxX: 80, minZ: -8, maxZ: 16 }, "west"),
   ];
   // `[v6.2]` 拠点は建物の最奥の一室。中央広場だけは屋外のまま(点の争奪)。
   const objCentre = deepestRoomCenter(b[0]!.building);
@@ -1017,35 +1057,72 @@ export function urbanAssaultScenario(
   ];
 
   // ── 部隊: 青は南端、赤は北端から。非対称なので座標は鏡像にしない ──
-  // `[v6.9]` 盤面が小さいので小隊1個で頭打ちにする(`SCENARIOS.urban.maxScale`)。
-  // UI 側でも同じ上限を出しているが、シムだけを直接叩かれても編成と実物が食い違わない
-  // よう、ここでも同じ規則を通す。
-  const f = { blue: clampScale(force.blue, "platoon"), red: clampScale(force.red, "platoon") };
+  // `[v6.9]` 中隊まで入る。展開線は中隊マップと同じく規模で前後させる。
+  // 展開位置は左右で微妙にずらしてある(この盤面は点対称ではない — 仕様 §7)。
+  const f = { blue: clampScale(force.blue, "company"), red: clampScale(force.red, "company") };
+  const nBlue = FORCE_SCALES[f.blue.scale].platoons;
+  const nRed = FORCE_SCALES[f.red.scale].platoons;
+  // 展開線は外縁の街区の**すぐ後ろ**に置く。街区より外へ出すと、街区の切れ目が
+  // そのまま展開地から敵展開地まで抜ける射線になる(`[v6.2]` の教訓)
+  const spawnZ = 96 * spawnDepthMul(f);
+  /** 小隊どうしの展開間隔 m。分隊3個の正面幅(26m×3)より広く、盤内に収まる幅 */
+  const PLATOON_SPACING = 88;
 
-  const blue = buildPlatoon(
-    "blue",
-    0,
-    [0, 1, 2],
-    3,
-    { x: -6, z: -54 },
-    { x: 0, z: 1 },
-    { x: 0, z: 0 },
-    0,
-    0,
-    f.blue,
-  );
-  const red = buildPlatoon(
-    "red",
-    1,
-    [10, 11, 12],
-    13,
-    { x: 8, z: 54 },
-    { x: 0, z: -1 },
-    { x: 0, z: 0 },
-    1,
-    0,
-    f.red,
-  );
+  const soldiers: Soldier[] = [];
+  const fireteamPlans: FireteamPlan[] = [];
+  const squadPlans: SquadPlan[] = [];
+  const platoonPlans: PlatoonPlan[] = [];
+
+  for (let p = 0; p < Math.max(nBlue, nRed); p++) {
+    if (p < nBlue) {
+      const blue = buildPlatoon(
+        "blue",
+        p,
+        [p * 10, p * 10 + 1, p * 10 + 2],
+        p * 10 + 3,
+        { x: -6 + (p - (nBlue - 1) / 2) * PLATOON_SPACING, z: -spawnZ },
+        { x: 0, z: 1 },
+        { x: 0, z: 0 },
+        0,
+        0,
+        f.blue,
+      );
+      soldiers.push(...blue.soldiers);
+      fireteamPlans.push(...blue.plans.fireteamPlans);
+      squadPlans.push(...blue.plans.squadPlans);
+      platoonPlans.push(...blue.plans.platoonPlans);
+    }
+    if (p < nRed) {
+      const red = buildPlatoon(
+        "red",
+        100 + p,
+        [1000 + p * 10, 1000 + p * 10 + 1, 1000 + p * 10 + 2],
+        1000 + p * 10 + 3,
+        { x: 8 + (p - (nRed - 1) / 2) * PLATOON_SPACING, z: spawnZ },
+        { x: 0, z: -1 },
+        { x: 0, z: 0 },
+        1,
+        0,
+        f.red,
+      );
+      soldiers.push(...red.soldiers);
+      fireteamPlans.push(...red.plans.fireteamPlans);
+      squadPlans.push(...red.plans.squadPlans);
+      platoonPlans.push(...red.plans.platoonPlans);
+    }
+  }
+
+  // 中隊本部は中隊規模のときだけ(中隊マップと同じ規則)
+  const blueCp = { x: -6, z: -(spawnZ + 12) };
+  const redCp = { x: 8, z: spawnZ + 12 };
+  const blueCcp = { x: -6, z: -(spawnZ + 20) };
+  const redCcp = { x: 8, z: spawnZ + 20 };
+  if (FORCE_SCALES[f.blue.scale].companyHq) {
+    soldiers.push(...makeCompanyHq("blue", 0, blueCp, blueCcp, { x: 0, z: 1 }));
+  }
+  if (FORCE_SCALES[f.red.scale].companyHq) {
+    soldiers.push(...makeCompanyHq("red", 1, redCp, redCcp, { x: 0, z: -1 }));
+  }
 
   return {
     name: "urban-city",
@@ -1053,15 +1130,15 @@ export function urbanAssaultScenario(
     bounds,
     walls: [...b.flatMap((x) => x.walls), ...streetWalls],
     buildings: b.map((x) => x.building),
-    soldiers: [...blue.soldiers, ...red.soldiers],
-    fireteamPlans: [...blue.plans.fireteamPlans, ...red.plans.fireteamPlans],
-    squadPlans: [...blue.plans.squadPlans, ...red.plans.squadPlans],
-    platoonPlans: [...blue.plans.platoonPlans, ...red.plans.platoonPlans],
+    soldiers,
+    fireteamPlans,
+    squadPlans,
+    platoonPlans,
     companyPlans: [
-      { side: "blue", companyId: 0, objective: { x: 0, z: 0 }, advanceDir: { x: 0, z: 1 }, rallyPoint: { x: -6, z: -60 } },
-      { side: "red", companyId: 1, objective: { x: 0, z: 0 }, advanceDir: { x: 0, z: -1 }, rallyPoint: { x: 8, z: 60 } },
+      { side: "blue", companyId: 0, objective: { x: 0, z: 0 }, advanceDir: { x: 0, z: 1 }, rallyPoint: { ...blueCp }, cp: { ...blueCp } },
+      { side: "red", companyId: 1, objective: { x: 0, z: 0 }, advanceDir: { x: 0, z: -1 }, rallyPoint: { ...redCp }, cp: { ...redCp } },
     ],
-    ccp: { blue: { x: -6, z: -66 }, red: { x: 8, z: 66 } },
+    ccp: { blue: { ...blueCcp }, red: { ...redCcp } },
     // 3拠点: 中央庁舎 / 西の倉庫 / 東のビル。いずれも**建物の最奥の一室**で、
     // 判定半径は部屋1つぶん(`[v6.2]`)。過半数(2つ)保持で勝利(仕様 §12)
     objectives: [

@@ -11,6 +11,8 @@ import {
   type ForceScale,
   type ForceSpec,
 } from "../src/sim/force.ts";
+import { DM_DETECT_RANGE } from "../src/sim/constants.ts";
+import { hasLineOfSightIndexed } from "../src/sim/wallIndex.ts";
 import type { Side } from "../src/sim/types.ts";
 
 /**
@@ -124,11 +126,36 @@ describe("編成プリセット(`[v6.9]` 仕様 §2/§14)", () => {
     expect(count(sc, "red")).toBe(9);
   });
 
-  it("非対称な戦場では規模が小隊で頭打ちになる(UIとシムで同じ規則)", () => {
-    const sc = urbanAssaultScenario(1, both(spec({ scale: "company" })));
-    // 3個小隊ぶんは入らない。小隊1個 = 36名として出る
-    expect(count(sc, "blue")).toBe(forceSize(spec({ scale: "platoon" })));
-    expect(count(sc, "red")).toBe(forceSize(spec({ scale: "platoon" })));
+  /**
+   * `[v6.9]` 非対称の盤面も中隊まで受け止める(旧 168×144m を 300×236m へ広げた)。
+   * 規模ごとの頭数が広域マップと一致すること = 盤面が編成を歪めていないこと。
+   */
+  it.each(FORCE_SCALE_KEYS)("非対称な戦場でも '%s' が編成どおりの頭数で出る", (scale) => {
+    const s = spec({ scale: scale as ForceScale });
+    const sc = urbanAssaultScenario(1, both(s));
+    expect(count(sc, "blue")).toBe(forceSize(s));
+    expect(count(sc, "red")).toBe(forceSize(s));
+  });
+
+  /**
+   * 盤面を広げたときに毎回やり直しになる確認(`[v6.2]` の教訓)。展開地から敵展開地まで
+   * 一直線に抜ける街路が残っていると、選抜射手(索敵300m)が誰も動かないうちから
+   * 200m先を撃ち始め、仕様 §10 が前提にしている「市街地の見通し距離が交戦距離を
+   * 自然に制限する」が成り立たなくなる。基準は同条件の広域マップ(2本 / 282m)。
+   */
+  it("展開地から敵展開地まで抜ける射線がほとんど残っていない(仕様 §10)", () => {
+    for (const sc of [companyClashScenario(1), urbanAssaultScenario(1)]) {
+      const w = createWorld(sc);
+      let open = 0;
+      for (const a of w.soldiers.filter((s) => s.side === "blue")) {
+        for (const d of w.soldiers.filter((s) => s.side === "red")) {
+          if (Math.hypot(a.pos.x - d.pos.x, a.pos.z - d.pos.z) > DM_DETECT_RANGE) continue;
+          if (hasLineOfSightIndexed(w.wallIndex, a.eye.x, a.eye.z, d.eye.x, d.eye.z)) open++;
+        }
+      }
+      // 224名 × 224名 の組のうち、開幕から射線が通っているのは数本まで
+      expect.soft(open, `${sc.name} の開幕の通し射線`).toBeLessThanOrEqual(20);
+    }
   });
 
   /**
