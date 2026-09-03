@@ -1,5 +1,6 @@
-import { useSimStore, type DebugState, type TuningUi } from "./store.ts";
-import type { Posture, Side } from "@sim/types.ts";
+import { useSimStore, type DebugState } from "./store.ts";
+import { COMMON_SLIDERS, POSTURE_KNOBS } from "./tuningDefs.ts";
+import type { Side } from "@sim/types.ts";
 
 /**
  * デバッグUI(初回テストプレイ指摘)。squad-12v12 モックの右サイドパネルを踏襲する:
@@ -17,40 +18,6 @@ const FOV_MODES: Array<{ v: DebugState["fov"]; label: string }> = [
   { v: "selected", label: "選択のみ" },
   { v: "side", label: "自陣営" },
   { v: "all", label: "全員" },
-];
-
-interface SliderDef {
-  key: keyof TuningUi;
-  label: string;
-  min: number;
-  max: number;
-  step: number;
-  fmt?: (n: number) => string;
-}
-const COMMON_SLIDERS: SliderDef[] = [
-  { key: "detectRange", label: "索敵距離 (m)", min: 5, max: 40, step: 1 },
-  { key: "fovDeg", label: "視界角 (度・正面中心)", min: 30, max: 200, step: 5 },
-  { key: "fireAlignDeg", label: "実射の正対角 (±度)", min: 2, max: 45, step: 1 },
-  { key: "moveSpeed", label: "移動速度 (m/s)", min: 0.5, max: 6, step: 0.1, fmt: (n) => n.toFixed(1) },
-  { key: "turnRateDeg", label: "旋回速度 (度/秒)", min: 60, max: 720, step: 10 },
-];
-
-/** 陣営別 性格パラメータの個別スライダー。すべて identity(乗数1 / 絶対値=定数)中心。 */
-const POSTURE_KNOBS: Array<{
-  key: Exclude<keyof Posture, "riskTolerance">;
-  label: string;
-  min: number;
-  max: number;
-  step: number;
-}> = [
-  { key: "engageMinMul", label: "最小交戦距離 ×", min: 0.5, max: 1.5, step: 0.05 },
-  { key: "engageMaxMul", label: "最大交戦距離 ×", min: 0.5, max: 1.5, step: 0.05 },
-  { key: "boundMinMul", label: "躍進歩幅・最小 ×", min: 0.5, max: 2, step: 0.05 },
-  { key: "boundMaxMul", label: "躍進歩幅・最大 ×", min: 0.5, max: 2, step: 0.05 },
-  { key: "fallbackDeficit", label: "劣勢許容(人数差)", min: -2, max: 4, step: 1 },
-  { key: "techniqueRangeMul", label: "警戒前進しきい ×", min: 0.5, max: 1.5, step: 0.05 },
-  { key: "coverPref", label: "露出回避度", min: 0.5, max: 2, step: 0.05 },
-  { key: "offensiveRatio", label: "攻勢分遣の兵力比", min: 1, max: 2.5, step: 0.1 },
 ];
 
 export function DebugPanel() {
