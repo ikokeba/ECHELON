@@ -184,6 +184,9 @@ function rosterOf(world: World): RosterCompany[] {
         return {
           side: pl.side,
           platoonId: pl.platoonId,
+          // 本部要員を1人でも編成に持っていれば指揮ノードとして実在する(`[v6.9]`)。
+          // 戦死者も数えるので、全滅しても階層が消えたりはしない
+          structural: hq.length > 0,
           commanderId: pl.commanderId,
           effective:
             squads.reduce((a, s) => a + s.effective, 0) +
@@ -199,6 +202,7 @@ function rosterOf(world: World): RosterCompany[] {
     out.push({
       side: co.side,
       companyId: co.companyId,
+      structural: coHq.length > 0,
       commanderId: co.commanderId,
       effective:
         platoons.reduce((a, p) => a + p.effective, 0) +

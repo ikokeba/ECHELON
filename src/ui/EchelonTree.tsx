@@ -51,56 +51,68 @@ export function EchelonTree() {
 
         {companies.map((co) => (
           <div key={co.companyId} className="et-list">
-            <button
-              type="button"
-              className={
-                control?.echelon === "company" && control.unitId === co.companyId
-                  ? "et-node et-on"
-                  : "et-node"
-              }
-              onClick={() =>
-                pick({ echelon: "company", side: viewSide, unitId: co.companyId }, co.commanderId)
-              }
-              title="指揮所(CP)から無線で統制する(仕様 §11)"
-            >
-              <RankBars level="company" />
-              <span className="et-name">{co.companyId}中隊</span>
-              {co.degraded && <span className="et-deg" title="指揮継承直後(仕様 §12)" />}
-              <span className="et-strength">
-                {co.effective}/{co.total}
-              </span>
-            </button>
+            {/* `[v6.9]` 本部要員を持たない階層は指揮ノードとして描かない。
+                分隊規模の編成では中隊・小隊は分隊を束ねるだけの容れ物で、
+                そこへ交代できるように見せると実体のない相手を選ばせることになる。 */}
+            {co.structural && (
+              <>
+                <button
+                  type="button"
+                  className={
+                    control?.echelon === "company" && control.unitId === co.companyId
+                      ? "et-node et-on"
+                      : "et-node"
+                  }
+                  onClick={() =>
+                    pick(
+                      { echelon: "company", side: viewSide, unitId: co.companyId },
+                      co.commanderId,
+                    )
+                  }
+                  title="指揮所(CP)から無線で統制する(仕様 §11)"
+                >
+                  <RankBars level="company" />
+                  <span className="et-name">{co.companyId}中隊</span>
+                  {co.degraded && <span className="et-deg" title="指揮継承直後(仕様 §12)" />}
+                  <span className="et-strength">
+                    {co.effective}/{co.total}
+                  </span>
+                </button>
 
-            <div className="et-assets" title="後送アセットの稼働状況(仕様 §9)">
-              後送 {co.assetsTotal - co.assetsBusy}/{co.assetsTotal} 待機
-            </div>
+                <div className="et-assets" title="後送アセットの稼働状況(仕様 §9)">
+                  後送 {co.assetsTotal - co.assetsBusy}/{co.assetsTotal} 待機
+                </div>
+              </>
+            )}
 
-            <div className="et-sub">
+            <div className={co.structural ? "et-sub" : undefined}>
               {co.platoons.map((pl) => (
                 <div key={pl.platoonId} className="et-list">
-                  <button
-                    type="button"
-                    className={
-                      control?.echelon === "platoon" && control.unitId === pl.platoonId
-                        ? "et-node et-on"
-                        : "et-node"
-                    }
-                    onClick={() =>
-                      pick(
-                        { echelon: "platoon", side: viewSide, unitId: pl.platoonId },
-                        pl.commanderId,
-                      )
-                    }
-                  >
-                    <RankBars level="platoon" />
-                    <span className="et-name">{platoonName(pl.platoonId)}</span>
-                    {pl.degraded && <span className="et-deg" title="指揮継承直後(仕様 §12)" />}
-                    <span className="et-strength">
-                      {pl.effective}/{pl.total}
-                    </span>
-                  </button>
+                  {pl.structural && (
+                    <button
+                      type="button"
+                      className={
+                        control?.echelon === "platoon" && control.unitId === pl.platoonId
+                          ? "et-node et-on"
+                          : "et-node"
+                      }
+                      onClick={() =>
+                        pick(
+                          { echelon: "platoon", side: viewSide, unitId: pl.platoonId },
+                          pl.commanderId,
+                        )
+                      }
+                    >
+                      <RankBars level="platoon" />
+                      <span className="et-name">{platoonName(pl.platoonId)}</span>
+                      {pl.degraded && <span className="et-deg" title="指揮継承直後(仕様 §12)" />}
+                      <span className="et-strength">
+                        {pl.effective}/{pl.total}
+                      </span>
+                    </button>
+                  )}
 
-                  <div className="et-sub">
+                  <div className={pl.structural ? "et-sub" : undefined}>
                     {pl.squads.map((sq) => (
                       <button
                         key={sq.squadId}

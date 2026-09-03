@@ -79,6 +79,12 @@ export interface RosterSquad {
 export interface RosterPlatoon {
   side: Side;
   platoonId: number;
+  /**
+   * この階層が編成として**実在する**か(`[v6.9]`)。本部要員を持たない小隊は
+   * 分隊を束ねるだけの容れ物で、指揮ノードとしては存在しない(分隊規模の編成)。
+   * 階層ツリーはこれが false のノードを飛ばして子を親の位置に描く。
+   */
+  structural: boolean;
   commanderId: number | null;
   effective: number;
   total: number;
@@ -90,6 +96,8 @@ export interface RosterPlatoon {
 export interface RosterCompany {
   side: Side;
   companyId: number;
+  /** この階層が編成として実在するか(`[v6.9]`。`RosterPlatoon.structural` と同じ) */
+  structural: boolean;
   commanderId: number | null;
   effective: number;
   total: number;
