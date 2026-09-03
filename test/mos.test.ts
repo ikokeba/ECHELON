@@ -57,18 +57,29 @@ describe("MOSの戦闘効果(仕様 §14)", () => {
     }
   });
 
+  /**
+   * `[v6.9]` 単一シードから**複数シード**へ(隣の制圧テストと同じ形)。
+   * 擲弾の投擲は「FTの belief に敵が固まって見えている」ときにだけ起きる創発なので、
+   * 特定のシードで一度も条件が揃わないことがある。実測でも6シード中1つが0発だった
+   * (機構ではなく巡り合わせ)。**主張は変えていない** — 戦闘の中で実際に消費される
+   * ことと上限を超えないことを、たまたま当たり外れのあるシード1本ではなく数本で見る。
+   */
   it("擲弾は戦闘の中で実際に消費され、上限を超えない", () => {
-    const w = createWorld(platoonClashScenario(3));
-    runTicks(w, 9000);
-    const gren = w.soldiers.filter((s) => s.role === "grenadier");
-    expect(gren.length).toBeGreaterThan(0);
-    for (const g of gren) {
-      expect(g.grenades).toBeGreaterThanOrEqual(0);
-      expect(g.grenades).toBeLessThanOrEqual(GRENADE.CHARGES);
+    let anyUsed = false;
+    for (let seed = 1; seed <= 4; seed++) {
+      const w = createWorld(platoonClashScenario(seed));
+      runTicks(w, 9000);
+      const gren = w.soldiers.filter((s) => s.role === "grenadier");
+      expect(gren.length).toBeGreaterThan(0);
+      // 上限と下限はどのシードでも必ず守られること
+      for (const g of gren) {
+        expect(g.grenades).toBeGreaterThanOrEqual(0);
+        expect(g.grenades).toBeLessThanOrEqual(GRENADE.CHARGES);
+      }
+      if (gren.some((g) => g.grenades < GRENADE.CHARGES)) anyUsed = true;
     }
-    // 少なくとも1発は使われている
-    expect(gren.some((g) => g.grenades < GRENADE.CHARGES)).toBe(true);
-  }, 60000);
+    expect(anyUsed).toBe(true);
+  }, 240000);
 
   it("制圧射撃は回避行動を誘発する(仕様 §14 の行動抑制効果)", () => {
     let sawEvade = false;
@@ -80,7 +91,7 @@ describe("MOSの戦闘効果(仕様 §14)", () => {
       }
     }
     expect(sawEvade).toBe(true);
-  }, 60000);
+  });
 });
 
 describe("崩壊/後退(仕様 §12 Morale Break)", () => {

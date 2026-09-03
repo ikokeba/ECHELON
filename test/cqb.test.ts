@@ -162,7 +162,7 @@ describe("突入待機命令の3段階(仕様 §7.2/§7.3)", () => {
     // 扉は突入前に開き、隊員はそのあとで室内に入る
     expect(doorOpenedTick).toBeGreaterThan(0);
     expect(anyoneInsideTick).toBeGreaterThan(doorOpenedTick);
-  }, 60000);
+  });
 
   it("突入は単一ファイル — 全員が同時に扉へ殺到しない(仕様 §7.3)", () => {
     const w = createWorld(urbanCqbFixture(1));
@@ -187,7 +187,7 @@ describe("突入待機命令の3段階(仕様 §7.2/§7.3)", () => {
       }
     }
     expect(sawStagger).toBe(true);
-  }, 60000);
+  });
 
   it("室内進入時は速度が落ちる(仕様 §7 — 0.7倍)", () => {
     const w = createWorld(urbanCqbFixture(1));
@@ -208,7 +208,7 @@ describe("突入待機命令の3段階(仕様 §7.2/§7.3)", () => {
       }
     }
     expect(sawSlowed).toBe(true);
-  }, 60000);
+  });
 
   it("分隊長は突入FTと支援FTに分ける(仕様 §7.2 の支援射撃)", () => {
     const w = createWorld(urbanCqbFixture(1));
@@ -224,7 +224,7 @@ describe("突入待機命令の3段階(仕様 §7.2/§7.3)", () => {
       }
     }
     expect(sawSplit).toBe(true);
-  }, 60000);
+  });
 });
 
 /**

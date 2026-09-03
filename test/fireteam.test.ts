@@ -213,5 +213,5 @@ describe("break contact は前線を放棄しない (`[v6.1]` 初回テストプ
     });
     expect(enteredRout.size).toBeGreaterThan(0); // この seed では実際に ROUT が起きる
     expect(stuck.length).toBeLessThanOrEqual(1);
-  }, 60000);
+  });
 });

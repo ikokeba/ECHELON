@@ -158,5 +158,5 @@ describe("配置プラン(`[v6.4]`)", () => {
       return w.soldiers.map((s) => `${s.pos.x.toFixed(6)},${s.pos.z.toFixed(6)},${s.status}`).join("|");
     };
     expect(run()).toBe(run());
-  }, 60000);
+  });
 });

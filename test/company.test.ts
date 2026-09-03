@@ -253,7 +253,7 @@ describe("任務種別(WHAT。`[v6.1]` OQ-3)", () => {
     expect(kinds.has("support_by_fire")).toBe(true);
     expect(kinds.has("seize")).toBe(true);
     expect(kinds.has("screen")).toBe(true);
-  }, 60000);
+  });
 
   it("火器分隊は常に support_by_fire を受け、機動には出ない", () => {
     const w = createWorld(companyClashScenario(1));
@@ -270,5 +270,5 @@ describe("任務種別(WHAT。`[v6.1]` OQ-3)", () => {
       const fts = w.fireteams.filter((f) => f.side === sq.side && f.squadId === sq.squadId);
       expect(fts.every((f) => f.assignedRole !== "maneuver")).toBe(true);
     }
-  }, 60000);
+  });
 });

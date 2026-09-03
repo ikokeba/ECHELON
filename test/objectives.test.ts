@@ -70,7 +70,7 @@ describe("拠点確保(仕様 §12 メイン条件)", () => {
     expect(o.owner).toBeNull(); // まだ確保しきっていない
     holdTicks(w, Math.round(4 * SIM_HZ), 0, { blue: 1 });
     expect(o.owner).toBe("blue");
-  }, 60000);
+  });
 
   it("人数が多いほど早く確保できる(比例加速)", () => {
     const progressAfter = (n: number, sec: number): number => {
@@ -81,7 +81,7 @@ describe("拠点確保(仕様 §12 メイン条件)", () => {
     const one = progressAfter(1, 12);
     const three = progressAfter(3, 12);
     expect(three).toBeGreaterThan(one * 2.5);
-  }, 60000);
+  });
 
   it("加速上限を超えた人数は追加効果を持たない(拠点の容量限界)", () => {
     const progressAfter = (n: number, sec: number): number => {
@@ -92,7 +92,7 @@ describe("拠点確保(仕様 §12 メイン条件)", () => {
     const atCap = progressAfter(OBJECTIVE.MAX_CAPTURERS.small, 10);
     const overCap = progressAfter(OBJECTIVE.MAX_CAPTURERS.small + 4, 10);
     expect(overCap).toBeCloseTo(atCap, 5);
-  }, 60000);
+  });
 
   it("拠点内に敵がいる間は確保カウントが完全に停止する(コンテスト状態)", () => {
     const w = createWorld(demoCrossingScenario(1));
@@ -106,7 +106,7 @@ describe("拠点確保(仕様 §12 メイン条件)", () => {
     holdTicks(w, Math.round(10 * SIM_HZ), 0, { blue: 2, red: 1 });
     expect(o.contested).toBe(true);
     expect(o.progress).toBeCloseTo(before, 5);
-  }, 60000);
+  });
 
   it("確保済みの拠点は敵に奪い返される", () => {
     const w = createWorld(demoCrossingScenario(1));
@@ -117,7 +117,7 @@ describe("拠点確保(仕様 §12 メイン条件)", () => {
     // 赤が入って剥がしにかかる
     holdTicks(w, Math.round(20 * SIM_HZ), 0, { red: 3 });
     expect(o.progress).toBeLessThan(1);
-  }, 60000);
+  });
 });
 
 describe("確保済み拠点の保持(仕様 §12 / [v6.1])", () => {
@@ -193,7 +193,7 @@ describe("確保済み拠点の保持(仕様 §12 / [v6.1])", () => {
     const cz = sq0.reduce((a, s) => a + s.pos.z, 0) / sq0.length;
     // 脅威(x≈28)へ行進せず、ALPHA(x=-26)の周辺に居続けている
     expect(Math.hypot(cx - alpha.pos.x, cz - alpha.pos.z)).toBeLessThan(alpha.radius + 14);
-  }, 60000);
+  });
 });
 
 describe("決着(仕様 §12)", () => {
@@ -223,7 +223,7 @@ describe("決着(仕様 §12)", () => {
     expect(w.victory).not.toBeNull();
     expect(w.victory!.winner).toBe("blue");
     expect(w.victory!.reason).toBe("objectives");
-  }, 60000);
+  });
 
   it("過半数を維持できなくなれば保持時間はリセットされる", () => {
     const w = createWorld(platoonClashScenario(1));
@@ -241,7 +241,7 @@ describe("決着(仕様 §12)", () => {
     w.objectives[0]!.progress = 0;
     runTicks(w, 2);
     expect(w.majoritySince.blue).toBeNull();
-  }, 60000);
+  });
 
   it("倒れている兵士は拠点の確保に数えない", () => {
     const w = createWorld(demoCrossingScenario(1));

@@ -31,19 +31,19 @@ describe("戦力バランス検証(仕様 §14)", () => {
     const s = runBatch(N, baselineTeam, baselineTeam);
     expect(s.winRateA).toBeGreaterThan(46);
     expect(s.winRateA).toBeLessThan(54);
-  }, 60000);
+  });
 
   it("MOS編成は均一編成に対して優位だが、過度ではない(仕様 §14: 約58% vs 約42%)", () => {
     const s = runBatch(N, mosTeam, baselineTeam);
     expect(s.winRateA).toBeGreaterThan(52);
     expect(s.winRateA).toBeLessThan(65);
-  }, 60000);
+  });
 
   it("MOS編成同士は約50/50を維持する(編成が対称なら偏らない)", () => {
     const s = runBatch(N, mosTeam, mosTeam);
     expect(s.winRateA).toBeGreaterThan(46);
     expect(s.winRateA).toBeLessThan(54);
-  }, 60000);
+  });
 
   it("擲弾の貢献は1戦あたり0.3体前後(仕様 §14 の検証値)", () => {
     const s = runBatch(N, mosTeam, baselineTeam);
@@ -53,7 +53,7 @@ describe("戦力バランス検証(仕様 §14)", () => {
     // 均一編成には擲弾手がいないので0でなければならない
     const control = runBatch(500, baselineTeam, baselineTeam);
     expect(control.avgGrenadeKillsA).toBe(0);
-  }, 60000);
+  });
 
   it("同じ引数なら何度回しても同じ結果になる(検証の再現性)", () => {
     const a = runBatch(300, mosTeam, baselineTeam);

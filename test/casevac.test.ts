@@ -143,5 +143,5 @@ describe("バディエイド(仕様 §9)", () => {
       stabilizedTotal += w.soldiers.filter((s) => s.stabilized).length;
     }
     expect(stabilizedTotal).toBeGreaterThan(0);
-  }, 60000);
+  });
 });
