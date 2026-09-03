@@ -7,13 +7,13 @@
 import { createRenderer, type Renderer } from "@render/renderer.ts";
 import { createSimClock, drainTicks, renderAlpha, requestSteps, setSpeed } from "@sim/loop.ts";
 import { stepWorld } from "@sim/step.ts";
-import { createWorld, type World } from "@sim/world.ts";
+import { createWorld, sideDoctrine, type World } from "@sim/world.ts";
 import { SCENARIOS, type ScenarioKey } from "@sim/scenario.ts";
 import { resolveView, type ViewResult } from "@sim/viewpoint.ts";
 import { controlledSoldierId, swapTo } from "@sim/control.ts";
 import { orderControlledTo } from "@sim/playerOrders.ts";
 import { isOffField } from "@sim/systems/litter.ts";
-import { SIM_DT } from "@sim/constants.ts";
+import { MORTAR, SIM_DT, SIM_HZ } from "@sim/constants.ts";
 import { isDegraded } from "@sim/c2/succession.ts";
 import { applyDeployment, defaultDeploymentOf } from "@sim/deployment.ts";
 import { beginBattle, beginPlanning, platoonName } from "@sim/c2/planning.ts";
@@ -196,6 +196,15 @@ function rosterOf(world: World): RosterCompany[] {
           squads,
         };
       });
+    // 迫撃砲(`[v6.9]`)。保有数はドクトリンの `fireSupport` に掛かる
+    const mortarTotal = Math.round(
+      MORTAR.ROUNDS_PER_COMPANY * sideDoctrine(world, co.side).fireSupport,
+    );
+    const flying = world.fireMissions.filter(
+      (m) => m.side === co.side && m.companyId === co.companyId,
+    );
+    const eta = flying.length ? flying[0]!.nextImpactTick - world.tick : null;
+
     const coHq = world.soldiers.filter(
       (s) => s.side === co.side && s.companyId === co.companyId && s.platoonId < 0,
     );
@@ -211,6 +220,9 @@ function rosterOf(world: World): RosterCompany[] {
       degraded: isDegraded(co),
       assetsBusy: co.assets.filter((a) => a.arriveTick !== null).length,
       assetsTotal: co.assets.length,
+      mortarLeft: mortarTotal - co.mortarRoundsUsed,
+      mortarTotal,
+      mortarEtaSec: eta === null ? null : Math.max(0, eta / SIM_HZ),
       platoons,
     });
   }

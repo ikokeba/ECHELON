@@ -105,6 +105,11 @@ export interface RosterCompany {
   /** 出払っている後送アセットの台数 / 総数(仕様 §9) */
   assetsBusy: number;
   assetsTotal: number;
+  /** 迫撃砲の残弾 / 保有数(`[v6.9]` 仕様 §10/§11)。0/0 なら火力支援を持たない編成 */
+  mortarLeft: number;
+  mortarTotal: number;
+  /** いま飛翔中の射撃任務の、着弾までの秒数。null なら飛んでいない */
+  mortarEtaSec: number | null;
   platoons: RosterPlatoon[];
 }
 

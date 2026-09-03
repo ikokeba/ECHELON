@@ -82,6 +82,17 @@ export function EchelonTree() {
                 <div className="et-assets" title="後送アセットの稼働状況(仕様 §9)">
                   後送 {co.assetsTotal - co.assetsBusy}/{co.assetsTotal} 待機
                 </div>
+                {/* 迫撃砲(`[v6.9]` 仕様 §10/§11)。中隊本部を持つ編成だけが持つ資源 */}
+                {co.mortarTotal > 0 && (
+                  <div
+                    className={co.mortarEtaSec !== null ? "et-assets et-firing" : "et-assets"}
+                    title="60mm迫撃砲の残弾(仕様 §10)。中隊長が中隊のbeliefに向けて要請する"
+                  >
+                    {co.mortarEtaSec !== null
+                      ? `迫撃砲 弾着まで ${co.mortarEtaSec.toFixed(1)}秒`
+                      : `迫撃砲 ${co.mortarLeft}/${co.mortarTotal} 発`}
+                  </div>
+                )}
               </>
             )}
 

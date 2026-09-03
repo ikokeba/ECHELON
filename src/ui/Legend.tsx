@@ -55,6 +55,13 @@ const MARKER_ITEMS: Item[] = [
   { cls: "lg-dash", label: "不確度", title: "破線の円。時間とともに半径が開く(仕様 §5)" },
   { cls: "lg-obj", label: "拠点", title: "中立=緑 / 係争=黄 / 確保=陣営色(仕様 §12)" },
   {
+    cls: "lg-incoming",
+    label: "着弾まで",
+    title:
+      "迫撃砲の射撃任務。縮むリングが照準点で、色は撃っている側。砲は敵を見ておらず、"
+      + "中隊長の(古い)像へ撃つので、着弾したときそこに敵がいるとは限らない(仕様 §5/§10)",
+  },
+  {
     cls: "lg-obj",
     label: "操作中",
     style: { borderColor: "var(--text)" },

@@ -10,7 +10,7 @@ import * as THREE from "three";
 import type { World } from "@sim/world.ts";
 import type { Side, Soldier, Vec2 } from "@sim/types.ts";
 import type { ViewResult } from "@sim/viewpoint.ts";
-import { LITTER, SOLDIER_RADIUS } from "@sim/constants.ts";
+import { LITTER, SIM_HZ, SOLDIER_RADIUS } from "@sim/constants.ts";
 import { collidesWall, hasLineOfSight } from "@sim/geometry.ts";
 import { coverBonus } from "@sim/cover.ts";
 import { MAP } from "../theme.ts";
@@ -100,8 +100,20 @@ const TRACER_MISS_COLOR = 0x5c5341;
 const TRACER_LIFE = 0.11;
 /** 擲弾の着弾円の寿命(秒) */
 const BLAST_LIFE = 0.55;
+/**
+ * 迫撃砲の着弾の寿命(秒)。擲弾より長い — 60mm の一発は擲弾とは別物の出来事で、
+ * 目を上げて「いま何が起きた」と見に行く時間が要る(`[v6.9]`)。
+ */
+const MORTAR_BLAST_LIFE = 1.5;
+/** 破片の飛散線の寿命(秒)。閃光より少しだけ長く残る */
+const DEBRIS_LIFE = 0.7;
+/** 1発あたりの破片線の本数 */
+const DEBRIS_PER_BLAST = 14;
 const MAX_TRACERS = 400;
 const MAX_BLASTS = 24;
+const MAX_DEBRIS = 240;
+/** 着弾前の警告リングの最大数(同時に飛んでいる射撃任務の数) */
+const MAX_INCOMING = 8;
 /** 指揮線の最大本数。中隊長でも小隊3+本部数名なので十分 */
 const MAX_COMMAND_LINKS = 64;
 /** 隠蔽率グリッドの1セルの1辺 m と最大セル数 */
@@ -121,6 +133,20 @@ interface Blast {
   z: number;
   radius: number;
   side: Side;
+  life: number;
+  /** 擲弾か迫撃砲か(`[v6.9]`)。寿命と層の数が変わる */
+  mortar: boolean;
+  /** 制圧が及ぶ半径 m。迫撃砲だけが持つ外側の土煙 */
+  suppressRadius: number;
+}
+/** 破片の飛散線(`[v6.9]`)。着弾点から放射状に伸びて消える */
+interface Debris {
+  x: number;
+  z: number;
+  /** 進行方向(単位ベクトル)と到達長 */
+  dx: number;
+  dz: number;
+  len: number;
   life: number;
 }
 const MAX_SOLDIERS = 512;
@@ -1031,6 +1057,115 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     return { fill, ring };
   });
 
+  // ── 迫撃砲の着弾(`[v6.9]`)──
+  //
+  // 擲弾と同じ2層(火球+衝撃波)に、外側の**土煙**を1枚足して3層にしてある。
+  // 土煙は制圧の及ぶ範囲そのものなので、「あの円の中は撃たれても当たらない」が
+  // そのまま目で分かる — 見た目のためだけの層ではない(仕様 §8.6)。
+  const mortarPool = Array.from({ length: MAX_BLASTS }, () => {
+    const disc = (): THREE.Mesh => {
+      const g = new THREE.CircleGeometry(1, 40);
+      g.rotateX(-Math.PI / 2);
+      const m = new THREE.Mesh(
+        g,
+        new THREE.MeshBasicMaterial({
+          transparent: true,
+          opacity: 0,
+          side: THREE.DoubleSide,
+          depthTest: false,
+          blending: THREE.AdditiveBlending,
+        }),
+      );
+      m.renderOrder = 24;
+      m.visible = false;
+      scene.add(m);
+      return m;
+    };
+    const ring = (inner: number): THREE.Mesh => {
+      const g = new THREE.RingGeometry(inner, 1, 56);
+      g.rotateX(-Math.PI / 2);
+      const m = new THREE.Mesh(
+        g,
+        new THREE.MeshBasicMaterial({
+          transparent: true,
+          opacity: 0,
+          side: THREE.DoubleSide,
+          depthTest: false,
+        }),
+      );
+      m.renderOrder = 24;
+      m.visible = false;
+      scene.add(m);
+      return m;
+    };
+    return { core: disc(), shock: ring(0.82), dust: ring(0.9) };
+  });
+
+  // ── 破片の飛散線(`[v6.9]`)── 着弾点から放射状に伸びて消える
+  const debrisGeo = new THREE.BufferGeometry();
+  debrisGeo.setAttribute(
+    "position",
+    new THREE.BufferAttribute(new Float32Array(MAX_DEBRIS * 2 * 3), 3),
+  );
+  debrisGeo.setAttribute(
+    "color",
+    new THREE.BufferAttribute(new Float32Array(MAX_DEBRIS * 2 * 3), 3),
+  );
+  const debrisMesh = new THREE.LineSegments(
+    debrisGeo,
+    new THREE.LineBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.95,
+      depthTest: false,
+      blending: THREE.AdditiveBlending,
+    }),
+  );
+  debrisMesh.renderOrder = 25;
+  debrisMesh.frustumCulled = false;
+  scene.add(debrisMesh);
+
+  // ── 着弾前の警告(`[v6.9]`)──
+  //
+  // 飛翔中の射撃任務を、**縮んでいくリング**として照準点に出す。着弾の瞬間だけ
+  // 光らせるのでは「何が起きたか」しか分からないが、これがあると「何が起きるか」
+  // が分かる — 部隊を退かす時間が生まれ、迫撃砲が盤面の駆け引きになる。
+  // 色は撃っている側の陣営色。仕様 §5 の情報階層には掛けない — 砲声と弾着観測は
+  // 両軍に聞こえるものなので、砲兵の存在は隠さない(隠すのは敵**部隊**の位置)。
+  const incomingPool = Array.from({ length: MAX_INCOMING }, () => {
+    const ringGeo = new THREE.RingGeometry(0.9, 1, 48);
+    ringGeo.rotateX(-Math.PI / 2);
+    const ring = new THREE.Mesh(
+      ringGeo,
+      new THREE.MeshBasicMaterial({
+        transparent: true,
+        opacity: 0,
+        side: THREE.DoubleSide,
+        depthTest: false,
+      }),
+    );
+    // 中心の十字。リングだけだと拠点のリングと見分けがつかない
+    const crossGeo = new THREE.BufferGeometry();
+    crossGeo.setAttribute(
+      "position",
+      new THREE.BufferAttribute(
+        new Float32Array([-1, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 1]),
+        3,
+      ),
+    );
+    const cross = new THREE.LineSegments(
+      crossGeo,
+      new THREE.LineBasicMaterial({ transparent: true, opacity: 0, depthTest: false }),
+    );
+    ring.renderOrder = 24;
+    cross.renderOrder = 24;
+    ring.visible = false;
+    cross.visible = false;
+    scene.add(ring);
+    scene.add(cross);
+    return { ring, cross };
+  });
+
   // ── デバッグ: 視界扇形(FOV) ── ジオメトリは tuning 変化時に作り直す
   const buildConeGeo = (halfRad: number, range: number): THREE.BufferGeometry => {
     const shape = new THREE.Shape();
@@ -1087,6 +1222,15 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   const tracerColArr = tracerGeo.getAttribute("color") as THREE.BufferAttribute;
   let tracers: Tracer[] = [];
   let blasts: Blast[] = [];
+  let debris: Debris[] = [];
+  const debrisPos = debrisGeo.getAttribute("position") as THREE.BufferAttribute;
+  const debrisCol = debrisGeo.getAttribute("color") as THREE.BufferAttribute;
+  /** 破片の方向を決める決定論的な擬似乱数(描画専用。シムの乱数には触れない) */
+  let debrisSeed = 1;
+  const debrisRand = (): number => {
+    debrisSeed = (debrisSeed * 1664525 + 1013904223) >>> 0;
+    return debrisSeed / 4294967296;
+  };
   let lastFxTick = world.tick;
   let lastFrameMs = performance.now();
 
@@ -1626,15 +1770,41 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
           if (tracers.length < MAX_TRACERS)
             tracers.push({ fx: f.from.x, fz: f.from.z, tx: f.to.x, tz: f.to.z, hit: f.hit, life: TRACER_LIFE });
         } else if (blasts.length < MAX_BLASTS) {
-          blasts.push({ x: f.at.x, z: f.at.z, radius: f.radius, side: f.side, life: BLAST_LIFE });
+          const mortar = f.kind === "mortar";
+          blasts.push({
+            x: f.at.x,
+            z: f.at.z,
+            radius: f.radius,
+            side: f.side,
+            life: mortar ? MORTAR_BLAST_LIFE : BLAST_LIFE,
+            mortar,
+            suppressRadius: f.kind === "mortar" ? f.suppressRadius : f.radius,
+          });
+          // 迫撃砲だけ破片を飛ばす。擲弾にも付けると盤面が線だらけになり、
+          // 「これは別格の出来事だ」という区別が消える
+          if (mortar) {
+            for (let k = 0; k < DEBRIS_PER_BLAST && debris.length < MAX_DEBRIS; k++) {
+              const a = debrisRand() * Math.PI * 2;
+              debris.push({
+                x: f.at.x,
+                z: f.at.z,
+                dx: Math.cos(a),
+                dz: Math.sin(a),
+                len: f.radius * (0.9 + debrisRand() * 1.6),
+                life: DEBRIS_LIFE * (0.6 + debrisRand() * 0.4),
+              });
+            }
+          }
         }
       }
       lastFxTick = world.tick;
     }
     for (const t of tracers) t.life -= dt;
     for (const b of blasts) b.life -= dt;
+    for (const d of debris) d.life -= dt;
     tracers = tracers.filter((t) => t.life > 0);
     blasts = blasts.filter((b) => b.life > 0);
+    debris = debris.filter((d) => d.life > 0);
 
     const nT = Math.min(tracers.length, MAX_TRACERS);
     for (let j = 0; j < nT; j++) {
@@ -1651,9 +1821,99 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     tracerColArr.needsUpdate = true;
     tracerMesh.visible = opts.debug.showShotLines && nT > 0;
 
+    // ── 迫撃砲の着弾(`[v6.9]`)── 火球 → 衝撃波 → 土煙 の3層
+    const mortarBlasts = blasts.filter((b) => b.mortar);
+    for (let j = 0; j < MAX_BLASTS; j++) {
+      const slot = mortarPool[j]!;
+      const b = j < mortarBlasts.length ? mortarBlasts[j]! : null;
+      if (!b) {
+        slot.core.visible = false;
+        slot.shock.visible = false;
+        slot.dust.visible = false;
+        continue;
+      }
+      const frac = 1 - Math.max(0, b.life / MORTAR_BLAST_LIFE); // 0(着弾)→1(消滅)
+      // 火球: 一瞬で最大になり、すぐ落ちる(前半0.25で消える)
+      const coreT = Math.min(1, frac / 0.25);
+      const coreR = b.radius * (0.5 + 0.5 * coreT);
+      slot.core.position.set(b.x, 0.09, b.z);
+      slot.core.scale.set(coreR, 1, coreR);
+      (slot.core.material as THREE.MeshBasicMaterial).color.setHex(MAP.blastCore);
+      (slot.core.material as THREE.MeshBasicMaterial).opacity = 0.95 * (1 - coreT);
+      slot.core.visible = coreT < 1;
+      // 衝撃波: 殺傷半径まで一気に広がる
+      const shockT = Math.min(1, frac / 0.45);
+      const shockR = b.radius * (0.3 + 0.85 * shockT);
+      slot.shock.position.set(b.x, 0.08, b.z);
+      slot.shock.scale.set(shockR, 1, shockR);
+      (slot.shock.material as THREE.MeshBasicMaterial).color.setHex(MAP.blastShock);
+      (slot.shock.material as THREE.MeshBasicMaterial).opacity = 0.9 * (1 - shockT);
+      slot.shock.visible = shockT < 1;
+      // 土煙: ゆっくり制圧半径まで広がって薄れる。この円の中が制圧の範囲(仕様 §8.6)
+      const dustR = b.suppressRadius * (0.35 + 0.65 * frac);
+      slot.dust.position.set(b.x, 0.07, b.z);
+      slot.dust.scale.set(dustR, 1, dustR);
+      (slot.dust.material as THREE.MeshBasicMaterial).color.setHex(MAP.blastDust);
+      (slot.dust.material as THREE.MeshBasicMaterial).opacity = 0.5 * (1 - frac);
+      slot.dust.visible = true;
+    }
+
+    // ── 破片の飛散線(`[v6.9]`)──
+    const nD = Math.min(debris.length, MAX_DEBRIS);
+    for (let j = 0; j < nD; j++) {
+      const d = debris[j]!;
+      const t = 1 - Math.max(0, d.life / DEBRIS_LIFE);
+      // 内側の端も外へ動かして「飛んでいる線分」に見せる
+      const tail = d.len * t * 0.85;
+      const head = d.len * Math.min(1, t * 1.6);
+      debrisPos.setXYZ(2 * j, d.x + d.dx * tail, 0.55, d.z + d.dz * tail);
+      debrisPos.setXYZ(2 * j + 1, d.x + d.dx * head, 0.55, d.z + d.dz * head);
+      col.setHex(MAP.blastShock).multiplyScalar(1 - t);
+      debrisCol.setXYZ(2 * j, col.r, col.g, col.b);
+      debrisCol.setXYZ(2 * j + 1, col.r, col.g, col.b);
+    }
+    debrisGeo.setDrawRange(0, nD * 2);
+    debrisPos.needsUpdate = true;
+    debrisCol.needsUpdate = true;
+    debrisMesh.visible = nD > 0;
+
+    // ── 着弾前の警告リング(`[v6.9]`)── 縮んでいくリングで「あと何秒」を示す
+    for (let j = 0; j < MAX_INCOMING; j++) {
+      const slot = incomingPool[j]!;
+      const m = world.fireMissions[j];
+      if (!m) {
+        slot.ring.visible = false;
+        slot.cross.visible = false;
+        continue;
+      }
+      const remain = Math.max(0, m.nextImpactTick - world.tick) / SIM_HZ;
+      // 5秒前から出す。それ以前に出すと盤面に警告が居座って読みにくい
+      if (remain > 5) {
+        slot.ring.visible = false;
+        slot.cross.visible = false;
+        continue;
+      }
+      const t = 1 - remain / 5; // 0(遠い)→1(着弾直前)
+      const r = 26 * (1 - t) + 7 * t;
+      const c = m.side === "blue" ? MAP.blue : MAP.red;
+      // 着弾が近いほど速く明滅する
+      const pulse = 0.45 + 0.55 * Math.abs(Math.sin((nowMs / 1000) * (3 + 9 * t) * Math.PI));
+      slot.ring.position.set(m.target.x, 0.1, m.target.z);
+      slot.ring.scale.set(r, 1, r);
+      (slot.ring.material as THREE.MeshBasicMaterial).color.setHex(c);
+      (slot.ring.material as THREE.MeshBasicMaterial).opacity = 0.85 * pulse;
+      slot.ring.visible = true;
+      slot.cross.position.set(m.target.x, 0.1, m.target.z);
+      slot.cross.scale.set(r * 0.4, 1, r * 0.4);
+      (slot.cross.material as THREE.LineBasicMaterial).color.setHex(c);
+      (slot.cross.material as THREE.LineBasicMaterial).opacity = 0.9 * pulse;
+      slot.cross.visible = true;
+    }
+
+    const grenadeBlasts = blasts.filter((b) => !b.mortar);
     for (let j = 0; j < MAX_BLASTS; j++) {
       const slot = blastPool[j]!;
-      const b = j < blasts.length ? blasts[j]! : null;
+      const b = j < grenadeBlasts.length ? grenadeBlasts[j]! : null;
       if (!b) {
         slot.fill.visible = false;
         slot.ring.visible = false;

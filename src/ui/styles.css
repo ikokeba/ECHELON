@@ -1142,6 +1142,54 @@ body {
   cursor: pointer;
 }
 
+/* 凡例の着弾警告(`[v6.9]`)。地図と同じ「縮むリング+十字」で示す */
+.lg-incoming {
+  position: relative;
+  border: 1.5px solid var(--warn);
+  border-radius: 50%;
+  animation: et-firing-pulse 0.7s ease-in-out infinite;
+}
+
+.lg-incoming::before,
+.lg-incoming::after {
+  content: "";
+  position: absolute;
+  background: var(--warn);
+}
+
+.lg-incoming::before {
+  left: 50%;
+  top: 2px;
+  bottom: 2px;
+  width: 1px;
+  transform: translateX(-50%);
+}
+
+.lg-incoming::after {
+  top: 50%;
+  left: 2px;
+  right: 2px;
+  height: 1px;
+  transform: translateY(-50%);
+}
+
+/* 弾着中の強調(`[v6.9]`)。数字ではなく色と点滅で「いま飛んでいる」を出す */
+.et-firing {
+  color: var(--warn);
+  font-weight: 700;
+  animation: et-firing-pulse 0.7s ease-in-out infinite;
+}
+
+@keyframes et-firing-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
 /* 編成の特技トグル(`[v6.9]`)。3つ並ぶので折り返す */
 .dep-opts {
   display: flex;

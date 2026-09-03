@@ -50,6 +50,16 @@ export const PALETTE = {
   /** 安定・確保済 */
   safe: "#22c07f",
 
+  /**
+   * 迫撃砲(`[v6.9]` 仕様 §10/§11)。**意味を担う5色には数えない。**
+   * 5色の規則(2陣営 + warn + live + safe)は「盤上に居続けるもの」の話で、
+   * これは0.1〜1.5秒で消える一過性の発光。常設の記号と競合しないので、
+   * 遠景での状態の読み取りやすさを損なわない。
+   */
+  blastCore: "#fff4d6",
+  blastShock: "#ff9a2e",
+  blastDust: "#8d7351",
+
   // ── 無彩の補助(意味を持たない差分) ──────────────────────────────
   /** 戦死。円をやめて×になるので、色は「もう動かないもの」を示すだけ */
   kia: "#3a352b",
@@ -108,6 +118,9 @@ export const MAP = {
   kia: hexToInt(PALETTE.kia),
   ghost: hexToInt(PALETTE.ghost),
   suppress: hexToInt(PALETTE.suppress),
+  blastCore: hexToInt(PALETTE.blastCore),
+  blastShock: hexToInt(PALETTE.blastShock),
+  blastDust: hexToInt(PALETTE.blastDust),
   rank: hexToInt(PALETTE.rank),
   text: hexToInt(PALETTE.text),
 } as const;
