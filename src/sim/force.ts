@@ -102,16 +102,6 @@ export const FORCE_SCALES = {
 
 export const FORCE_SCALE_KEYS = ["squad", "platoon", "company"] as const;
 
-/** 規模の大小比較用。`FORCE_SCALE_KEYS` の並び順そのもの。 */
-export const SCALE_RANK: Record<ForceScale, number> = { squad: 0, platoon: 1, company: 2 };
-
-/**
- * 盤面が受け止められる上限まで規模を落とす。盤面ごとに広さが違うので、
- * 「中隊を選んだのに小隊しか出ない」を UI とシムの両方で同じ規則にするためのもの。
- */
-export function clampScale(spec: ForceSpec, max: ForceScale): ForceSpec {
-  return SCALE_RANK[spec.scale] <= SCALE_RANK[max] ? spec : { ...spec, scale: max };
-}
 
 /** 既定の編成。現行の `companyClashScenario` と厳密に一致する(完全編成の中隊)。 */
 export const DEFAULT_FORCE: ForceSpec = {

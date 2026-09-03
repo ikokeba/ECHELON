@@ -2,13 +2,7 @@ import { useSimStore } from "./store.ts";
 import { isPointSymmetric } from "@sim/deployment.ts";
 import { OBJECTIVE } from "@sim/constants.ts";
 import { DOCTRINES, DOCTRINE_KEYS } from "@sim/doctrine.ts";
-import {
-  FORCE_SCALES,
-  FORCE_SCALE_KEYS,
-  SCALE_RANK,
-  forceSize,
-} from "@sim/force.ts";
-import { SCENARIOS } from "@sim/scenario.ts";
+import { FORCE_SCALES, FORCE_SCALE_KEYS, forceSize } from "@sim/force.ts";
 import type { Side } from "@sim/types.ts";
 
 /**
@@ -47,7 +41,6 @@ export function DeploymentPanel() {
   const setDoctrine = useSimStore((s) => s.setDoctrine);
   const force = useSimStore((s) => s.force);
   const setForce = useSimStore((s) => s.setForce);
-  const scenarioKey = useSimStore((s) => s.scenarioKey);
   const removeObjective = useSimStore((s) => s.removeObjective);
   const selectObjective = useSimStore((s) => s.selectObjective);
   const mirror = useSimStore((s) => s.mirrorDeployment);
@@ -61,8 +54,6 @@ export function DeploymentPanel() {
   const mode = draft.mode ?? "meeting";
   const attacker = draft.attacker ?? "blue";
   const timeLimitSec = draft.timeLimitSec ?? OBJECTIVE.ASSAULT_TIME_LIMIT_SEC;
-  /** この戦場が受け止められる規模の上限(`[v6.9]`。シム側 `clampScale` と同じ規則) */
-  const maxScale = SCENARIOS[scenarioKey].maxScale;
 
   return (
     <div className="panel overlay-panel">
@@ -124,15 +115,13 @@ export function DeploymentPanel() {
         {(["blue", "red"] as Side[]).map((side) => {
           const spec = force[side];
           const shape = FORCE_SCALES[spec.scale];
-          const capped = SCALE_RANK[spec.scale] > SCALE_RANK[maxScale];
-          const eff = capped ? { ...spec, scale: maxScale } : spec;
           return (
             <div key={side} className="dep-spawn">
               <div className="dep-spawn-head">
                 <span className={side === "blue" ? "force-blue" : "force-red"}>
                   {SIDE_LABEL[side]}
                 </span>
-                <span className="mono dbg-k">{forceSize(eff)}名</span>
+                <span className="mono dbg-k">{forceSize(spec)}名</span>
               </div>
               <div className="seg">
                 {FORCE_SCALE_KEYS.map((k) => (
@@ -181,11 +170,7 @@ export function DeploymentPanel() {
                   <span className={shape.weapons ? undefined : "dbg-k"}>火器分隊</span>
                 </label>
               </div>
-              <div className="dbg-k">
-                {capped
-                  ? `この戦場は${FORCE_SCALES[maxScale].label}規模までです — ${FORCE_SCALES[maxScale].label}として出ます`
-                  : FORCE_SCALES[spec.scale].detail}
-              </div>
+              <div className="dbg-k">{FORCE_SCALES[spec.scale].detail}</div>
             </div>
           );
         })}

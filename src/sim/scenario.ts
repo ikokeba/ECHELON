@@ -9,7 +9,6 @@ import { GRENADE, OBJECTIVE } from "./constants.ts";
 import {
   DEFAULT_FORCE,
   FORCE_SCALES,
-  clampScale,
   defaultForce,
   spawnDepthMul,
   type ForceSpec,
@@ -40,29 +39,21 @@ export function resetIds(): void {
 }
 
 /**
- * UIから選べる**戦場**の一覧。`[v6.9]` 規模はここではなく陣営ごとの編成
- * (`force.ts`)で決めるようになったので、この一覧は盤面だけを並べる。
+ * 遊べる盤面。`[v6.9]` **1枚だけ**。
  *
- * `[v6.9]` 旧「分隊 vs 分隊」「小隊 vs 小隊」の盤面はここから外した。規模が
- * 陣営ごとに選べるようになった以上、盤面まで規模で分けると同じ戦いを2つの入口から
- * 作れてしまい、どちらを選んだかで結果が変わる説明のつかない状態になる。
- * `demoCrossingScenario` / `platoonClashScenario` はテスト用フィクスチャとして残す。
+ * 規模は盤面ではなく陣営ごとの編成(`force.ts`)で決めるようになったので、盤面を
+ * 複数持つ理由は「地形が違う」ことだけになった。地形の違いを増やす前に、まず
+ * 1枚を仕上げる — 拠点確保(F-9)のように、盤面を跨ぐと切り分けが効かなくなる
+ * 問題が残っているうちは、比較の基準が1つであるほうが速い。
+ *
+ * `demoCrossingScenario` / `platoonClashScenario` / `urbanAssaultScenario` は
+ * テスト用フィクスチャとして残してある(CQB・掃討・決定性の各テストが直接呼ぶ)。
  */
 export const SCENARIOS = {
   company: {
-    label: "市街地(点対称)",
+    label: "市街地",
     detail: "440×340m・建物34棟。点対称なので地形由来の有利不利が無い(仕様 §2/§13)",
-    /** この盤面が受け止められる規模の上限 */
-    maxScale: "company",
     make: (seed?: number, force?: Record<Side, ForceSpec>) => companyClashScenario(seed, force),
-  },
-  urban: {
-    label: "市街地(非対称)",
-    detail: "300×260m・建物17棟。街区が密で室内戦が主体。地形は点対称ではない(仕様 §7)",
-    // `[v6.9]` 中隊が入るところまで広げた(旧 168×144m は3個小隊の展開線が収まらず、
-    // 小隊で頭打ちにしていた)
-    maxScale: "company",
-    make: (seed?: number, force?: Record<Side, ForceSpec>) => urbanAssaultScenario(seed, force),
   },
 } as const;
 
@@ -1059,7 +1050,7 @@ export function urbanAssaultScenario(
   // ── 部隊: 青は南端、赤は北端から。非対称なので座標は鏡像にしない ──
   // `[v6.9]` 中隊まで入る。展開線は中隊マップと同じく規模で前後させる。
   // 展開位置は左右で微妙にずらしてある(この盤面は点対称ではない — 仕様 §7)。
-  const f = { blue: clampScale(force.blue, "company"), red: clampScale(force.red, "company") };
+  const f = force;
   const nBlue = FORCE_SCALES[f.blue.scale].platoons;
   const nRed = FORCE_SCALES[f.red.scale].platoons;
   // 展開線は外縁の街区の**すぐ後ろ**に置く。街区より外へ出すと、街区の切れ目が
