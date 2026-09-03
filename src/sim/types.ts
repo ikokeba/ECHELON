@@ -591,6 +591,15 @@ export interface CompanyState {
   assets: CasevacAsset[];
 
   /**
+   * 迫撃砲の残弾(仕様 §10/§11)。`[v6.9]`
+   * **中隊の共有資源**であって個人の携行弾ではないので、§8.1「弾薬管理は擲弾のみ」の
+   * 例外にはあたらない。撃つほど後半の選択肢が減る、という中隊長の裁量そのもの。
+   */
+  mortarRoundsUsed: number;
+  /** 最後に射撃要請を出したティック(連続要請の下限を測る) */
+  lastFireMissionTick: number;
+
+  /**
    * 戦闘前に立てた作戦(`[v6.5]`)。null なら立案フェーズを踏んでいない
    * (テストやヘッドレス実行の既定)。作戦がある間、麾下小隊への任務割り当ては
    * 幾何的な担当区域ではなくこの計画から引く — 計画は FRAGO(=拠点の確保完了や
@@ -853,7 +862,36 @@ export interface ControlMeasure {
  */
 export type FxEvent =
   | { kind: "shot"; from: Vec2; to: Vec2; side: Side; hit: boolean }
-  | { kind: "grenade"; at: Vec2; side: Side; radius: number; victims: number };
+  | { kind: "grenade"; at: Vec2; side: Side; radius: number; victims: number }
+  /** 迫撃砲の着弾(`[v6.9]`)。`radius` は殺傷半径、`suppressRadius` は制圧が及ぶ範囲 */
+  | {
+      kind: "mortar";
+      at: Vec2;
+      side: Side;
+      radius: number;
+      suppressRadius: number;
+      victims: number;
+    };
+
+/**
+ * 進行中の火力支援任務(仕様 §10/§11)。`[v6.9]`
+ *
+ * `target` は**中隊長の belief から採った推定位置**であって敵の現在位置ではない。
+ * 要請したときの像がそのまま凍結され、飛翔時間ののちにそこへ落ちる(仕様 §5)。
+ */
+export interface FireMission {
+  id: number;
+  side: Side;
+  companyId: number;
+  /** 照準点(要請時点の推定位置。以後動かない) */
+  target: Vec2;
+  /** 要請したティック。UI が「要請から何秒」を出すのに使う */
+  requestedTick: number;
+  /** 残弾。0 になったら任務は消える */
+  roundsLeft: number;
+  /** 次の1発が着弾するティック */
+  nextImpactTick: number;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 実行時チューニング(`[v6.1]` — デバッグUIのスライダー)

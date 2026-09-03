@@ -47,6 +47,15 @@ export interface Doctrine {
   initiative: number;
   /** 既定のリスク許容度(`Posture` のマスター、0.5 が identity) */
   riskTolerance: number;
+  /**
+   * 火力支援の保有比 0..1(仕様 §10/§11)。`[v6.9]`
+   * 中隊が持つ迫撃砲弾に掛かる。0 なら火力支援そのものを持たない。
+   *
+   * ここが**能力ではなく組織の差**であることに注意 — 弾が当たりやすくなるのではなく、
+   * 「後方から支援を呼べる建制があるかどうか」の違い。自律群は各要素が目の前に
+   * 反応するだけなので、後方の砲へ要請が上る経路そのものが無い。
+   */
+  fireSupport: number;
 }
 
 export const DOCTRINES = {
@@ -59,6 +68,7 @@ export const DOCTRINES = {
     reportIntervalMul: 1,
     initiative: 0,
     riskTolerance: 0.5,
+    fireSupport: 1,
   },
   /**
    * 非正規軍。上位の統制は緩いが、現場は勝手に戦える。
@@ -72,6 +82,8 @@ export const DOCTRINES = {
     reportIntervalMul: 2.0,
     initiative: 0.45,
     riskTolerance: 0.42,
+    // 呼べるが遅い。要請が上るのにも許可が下りるのにも時間が掛かる
+    fireSupport: 0.5,
   },
   /**
    * 各兵士が自己判断する陣営。指揮系統は名目上あるが、ほとんど機能しない。
@@ -85,6 +97,8 @@ export const DOCTRINES = {
     reportIntervalMul: 3,
     initiative: 0.9,
     riskTolerance: 0.62,
+    // 後方の砲へ要請が上る経路そのものが無い(仕様 §13)
+    fireSupport: 0,
   },
 } as const satisfies Record<string, Doctrine>;
 

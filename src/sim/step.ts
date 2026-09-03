@@ -10,6 +10,7 @@ import { movementSystem } from "./systems/movement.ts";
 import { separationSystem } from "./systems/separation.ts";
 import { perceptionSystem } from "./systems/perception.ts";
 import { combatSystem } from "./systems/combat.ts";
+import { indirectSystem } from "./systems/indirect.ts";
 import { casualtiesSystem } from "./systems/casualties.ts";
 import { litterSystem } from "./systems/litter.ts";
 import { objectivesSystem } from "./systems/objectives.ts";
@@ -52,6 +53,10 @@ export function stepWorld(world: World): void {
   // 7. 分離 — 兵士同士の重なりをほぐす(移動の直後、戦闘の判定前)
   separationSystem(world);
   // 8. 戦闘 — 交戦・命中判定・制圧の適用
+  // 迫撃砲の着弾は**戦闘判定の前**(`[v6.9]`)。着弾の制圧が、その同じティックの
+  // 射撃に効くようにするため(仕様 §8.6)。要請もここで出るので、中隊長の判断は
+  // 常に「このティックの開始時点の像」に対して行われる。
+  indirectSystem(world);
   combatSystem(world);
   // 9. 死傷 — 出血タイマーの進行、応急手当(仕様 §9 前半)
   casualtiesSystem(world);

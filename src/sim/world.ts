@@ -37,6 +37,7 @@ import type {
   Objective,
   PlatoonState,
   Posture,
+  FireMission,
   Report,
   Scenario,
   BattleMode,
@@ -131,6 +132,12 @@ export interface World {
   nextSoldierId: number;
   /** 伝達中の無線報告。world.tick >= report.deliverTick になった時点で到達する */
   reports: Report[];
+  /**
+   * 飛翔中の火力支援任務(`[v6.9]` 仕様 §10/§11)。
+   * 照準点は**要請時点の中隊長の像**で凍結されている(仕様 §5)。
+   */
+  fireMissions: FireMission[];
+  nextFireMissionId: number;
   controlMeasures: ControlMeasure[];
   /** 陣営ごとの負傷者集合点(CCP、仕様 §9)。担架班の搬送先。 */
   ccp: Record<Side, Vec2>;
@@ -363,6 +370,10 @@ function buildCompanies(scenario: Scenario, soldiers: Soldier[]): CompanyState[]
         id: assetId++,
         arriveTick: null,
       })),
+      // 迫撃砲(`[v6.9]` 仕様 §10/§11)。**使った数**を持つ — 保有数はドクトリンの
+      // `fireSupport` に掛かるので、実行中にドクトリンを切り替えても矛盾しない
+      mortarRoundsUsed: 0,
+      lastFireMissionTick: 0,
       // 立案フェーズを踏んだときだけ `beginPlanning` が入れる(`[v6.5]`)
       plan: null,
       commanderId: null,
@@ -530,6 +541,8 @@ function buildWorld(scenario: Scenario): World {
     companies: buildCompanies(scenario, soldiers),
     nextSoldierId: soldiers.reduce((mx, s) => Math.max(mx, s.id), 0) + 1,
     reports: [],
+    fireMissions: [],
+    nextFireMissionId: 1,
     controlMeasures: (scenario.controlMeasures ?? []).map((cm) => ({
       ...cm,
       points: cm.points.map((p) => ({ ...p })),
