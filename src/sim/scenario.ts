@@ -6,6 +6,14 @@
  */
 
 import { GRENADE, OBJECTIVE } from "./constants.ts";
+import {
+  DEFAULT_FORCE,
+  FORCE_SCALES,
+  clampScale,
+  defaultForce,
+  spawnDepthMul,
+  type ForceSpec,
+} from "./force.ts";
 import { traitProfile } from "./traits.ts";
 import {
   deepestRoomCenter,
@@ -31,27 +39,29 @@ export function resetIds(): void {
   nextId = 1;
 }
 
-/** UIから選べるシナリオの一覧。規模の段階を上げていくと階層が1つずつ増える。 */
+/**
+ * UIから選べる**戦場**の一覧。`[v6.9]` 規模はここではなく陣営ごとの編成
+ * (`force.ts`)で決めるようになったので、この一覧は盤面だけを並べる。
+ *
+ * `[v6.9]` 旧「分隊 vs 分隊」「小隊 vs 小隊」の盤面はここから外した。規模が
+ * 陣営ごとに選べるようになった以上、盤面まで規模で分けると同じ戦いを2つの入口から
+ * 作れてしまい、どちらを選んだかで結果が変わる説明のつかない状態になる。
+ * `demoCrossingScenario` / `platoonClashScenario` はテスト用フィクスチャとして残す。
+ */
 export const SCENARIOS = {
-  squad: {
-    label: "分隊 vs 分隊",
-    detail: "各9名。分隊長〜FTリーダーの2階層",
-    make: (seed?: number) => demoCrossingScenario(seed),
-  },
-  platoon: {
-    label: "小隊 vs 小隊",
-    detail: "各29名。無線報告で捌く小隊長が加わる",
-    make: (seed?: number) => platoonClashScenario(seed),
-  },
   company: {
-    label: "中隊 vs 中隊",
-    detail: "各91名。CP・CCP・後送アセットを含む5階層すべて",
-    make: (seed?: number) => companyClashScenario(seed),
+    label: "市街地(点対称)",
+    detail: "440×340m・建物34棟。点対称なので地形由来の有利不利が無い(仕様 §2/§13)",
+    /** この盤面が受け止められる規模の上限 */
+    maxScale: "company",
+    make: (seed?: number, force?: Record<Side, ForceSpec>) => companyClashScenario(seed, force),
   },
   urban: {
-    label: "市街地(CQB)",
-    detail: "建物の争奪。スタック→ブリーチ→室内掃討(仕様 §7)",
-    make: (seed?: number) => urbanAssaultScenario(seed),
+    label: "市街地(非対称)",
+    detail: "168×144m・建物7棟。距離が詰まっていて室内戦が主体(仕様 §7)",
+    // 中隊(3個小隊)の展開線がこの盤面には収まらないので、小隊規模で頭打ちにする
+    maxScale: "platoon",
+    make: (seed?: number, force?: Record<Side, ForceSpec>) => urbanAssaultScenario(seed, force),
   },
 } as const;
 
@@ -225,6 +235,8 @@ function makeSquad(
    * **両陣営で同じ番号が鏡像の分隊に振られること**が要件 — 詳細は traits.ts。
    */
   variant = 0,
+  /** 編成オプション(`[v6.9]` 仕様 §14)。既定は完全編成 = 現行の挙動 */
+  spec: ForceSpec = DEFAULT_FORCE,
 ): Soldier[] {
   const right = { x: -dir.z, z: dir.x };
   const soldiers: Soldier[] = [];
@@ -246,7 +258,15 @@ function makeSquad(
 
   // FT内のMOS構成(仕様 §14 / mos-balance-simulator の4名編成):
   //   0 = FTリーダー, 1 = SAW手, 2 = 擲弾手, 3 = ライフルマン
-  const ROLES: Soldier["role"][] = ["leader", "saw", "grenadier", "rifleman"];
+  //
+  // `[v6.9]` 擲弾手を外した編成では、その枠は**消えるのではなくライフルマンになる**。
+  // 頭数を規模だけで決められるようにするため(仕様 §14 の枠組みを崩さずに済む)。
+  const ROLES: Soldier["role"][] = [
+    "leader",
+    "saw",
+    spec.grenadier ? "grenadier" : "rifleman",
+    "rifleman",
+  ];
 
   for (let ft = 0; ft < 2; ft++) {
     for (let m = 0; m < 4; m++) {
@@ -271,8 +291,9 @@ function makeSquad(
           quals: {
             // 各FTのライフルマン1名が衛生要員を兼任(仕様 §9/§14 `[v6]`)
             medicalCrossTrained: m === 3,
-            // 選抜射手は分隊に1名、ブラボー組(ft=1)のライフルマンが兼任(仕様 §14)
-            designatedMarksman: ft === 1 && m === 3,
+            // 選抜射手は分隊に1名、ブラボー組(ft=1)のライフルマンが兼任(仕様 §14)。
+            // `[v6.9]` 編成から外すと索敵300m・専用射撃諸元・支援配置がまとめて消える
+            designatedMarksman: spec.marksman && ft === 1 && m === 3,
           },
         }),
       );
@@ -613,14 +634,25 @@ function buildPlatoon(
    * 両陣営で同じ値を渡すこと — 鏡像の兵士が同じ性格になるための前提(traits.ts)。
    */
   variant = 0,
+  /**
+   * 編成オプション(`[v6.9]` 仕様 §2/§14)。既定の完全編成では
+   * `FORCE_SCALES.company` の形 = 3個ライフル分隊+火器分隊+小隊本部 となり、
+   * 現行の挙動と厳密に一致する。
+   */
+  spec: ForceSpec = DEFAULT_FORCE,
 ): {
   soldiers: Soldier[];
   plans: ReturnType<typeof plansFor>;
 } {
+  const shape = FORCE_SCALES[spec.scale];
+  // 呼び出し側は常に完全編成ぶんの squadId を渡す。実際に作る数は編成が決める
+  const rifleIds = squadIds.slice(0, shape.rifleSquads);
+  const hasWeapons = shape.weapons && spec.weaponsSquad;
+
   const right = { x: -dir.z, z: dir.x };
   const soldiers: Soldier[] = [];
-  squadIds.forEach((squadId, i) => {
-    const lateral = (i - (squadIds.length - 1) / 2) * SQUAD_SPACING;
+  rifleIds.forEach((squadId, i) => {
+    const lateral = (i - (rifleIds.length - 1) / 2) * SQUAD_SPACING;
     soldiers.push(
       ...makeSquad(
         side,
@@ -630,37 +662,43 @@ function buildPlatoon(
         dir,
         companyId,
         variant * 4 + i,
+        spec,
       ),
     );
   });
   // 火器分隊はライフル分隊列の少し後方(縦深から支援射撃する位置)
-  soldiers.push(
-    ...makeWeaponsSquad(
-      side,
-      platoonId,
-      weaponsSquadId,
-      { x: center.x - dir.x * 7, z: center.z - dir.z * 7 },
-      dir,
-      companyId,
-      variant * 4 + 3,
-    ),
-  );
-  // 小隊本部は分隊列の後方に置く(仕様 §2/§3②: 小隊長は担当区域全体を見渡す位置)
-  soldiers.push(
-    ...makePlatoonHq(
-      side,
-      companyId,
-      platoonId,
-      { x: center.x - dir.x * 13, z: center.z - dir.z * 13 },
-      dir,
-    ),
-  );
+  if (hasWeapons) {
+    soldiers.push(
+      ...makeWeaponsSquad(
+        side,
+        platoonId,
+        weaponsSquadId,
+        { x: center.x - dir.x * 7, z: center.z - dir.z * 7 },
+        dir,
+        companyId,
+        variant * 4 + 3,
+      ),
+    );
+  }
+  // 小隊本部は分隊列の後方に置く(仕様 §2/§3②: 小隊長は担当区域全体を見渡す位置)。
+  // 分隊規模には小隊本部が無く、分隊長がそのまま最上位のノードになる(仕様 §2)。
+  if (shape.platoonHq) {
+    soldiers.push(
+      ...makePlatoonHq(
+        side,
+        companyId,
+        platoonId,
+        { x: center.x - dir.x * 13, z: center.z - dir.z * 13 },
+        dir,
+      ),
+    );
+  }
   return {
     soldiers,
     plans: plansFor(
       side,
       platoonId,
-      [...squadIds, weaponsSquadId],
+      hasWeapons ? [...rifleIds, weaponsSquadId] : rifleIds,
       objective,
       dir,
       center,
@@ -721,7 +759,11 @@ export function platoonClashScenario(seed = 1): Scenario {
  * `[v6.2]` 盤面を `symmetricWalls()` の意味のない壁片から、点対称の市街地
  * (`symmetricCity()`: 四角い建物の街区・十字路・中央広場・迂回を強いる庁舎ペア)へ差し替え。
  */
-export function companyClashScenario(seed = 1): Scenario {
+export function companyClashScenario(
+  seed = 1,
+  /** 陣営ごとの編成(`[v6.9]` 仕様 §2/§14)。既定は両軍とも完全編成の中隊 */
+  force: Record<Side, ForceSpec> = defaultForce(),
+): Scenario {
   resetIds();
   // CPとCCPを盤内に収める必要がある。ナビグリッドは bounds から作られるので、
   // CCPが外に出ると担架班が永久にたどり着けない(実際に描画で発見した)。
@@ -740,8 +782,14 @@ export function companyClashScenario(seed = 1): Scenario {
   const squadPlans: SquadPlan[] = [];
   const platoonPlans: PlatoonPlan[] = [];
 
-  /** 小隊の初期展開線(自陣側からの深さ m)。 */
-  const SPAWN_Z = 140;
+  /**
+   * 小隊の初期展開線(自陣側からの深さ m)。
+   *
+   * `[v6.9]` **規模で前後させる**。この盤面は中隊規模を前提に作ってあり、9名の分隊を
+   * 140m に置くと接敵まで1分以上ただ歩くだけになる。倍率は大きいほうの規模で決めて
+   * 両陣営を中央から等距離に保つ(片側だけ前に出すと地形由来でない有利不利が出る)。
+   */
+  const SPAWN_Z = 140 * spawnDepthMul(force);
 
   // 指揮所(CP)と負傷者集合点(CCP)は中隊の**後方**に置く(仕様 §11)。
   // 点対称を保つため両陣営で符号を反転させる。
@@ -758,39 +806,58 @@ export function companyClashScenario(seed = 1): Scenario {
   const blueCp = { x: 0, z: -(SPAWN_Z + CP_TRAIL) };
   const redCp = { x: 0, z: SPAWN_Z + CP_TRAIL };
 
-  for (let p = 0; p < 3; p++) {
-    const lateral = (p - 1) * PLATOON_SPACING * 0.5;
-    const blue = buildPlatoon(
-      "blue",
-      p,
-      [p * 10, p * 10 + 1, p * 10 + 2],
-      p * 10 + 3,
-      { x: lateral, z: -SPAWN_Z },
-      { x: 0, z: 1 },
-      objective,
-      0,
-    );
+  const nBlue = FORCE_SCALES[force.blue.scale].platoons;
+  const nRed = FORCE_SCALES[force.red.scale].platoons;
+
+  for (let p = 0; p < Math.max(nBlue, nRed); p++) {
+    // `[v6.9]` 展開幅は**その陣営の小隊数**で中央揃えにする。3個小隊なら (p-1)*half で
+    // 従来と同一。1個小隊のときに (0-1)*half だと盤面の左端に寄ってしまう
+    if (p < nBlue) {
+      const blue = buildPlatoon(
+        "blue",
+        p,
+        [p * 10, p * 10 + 1, p * 10 + 2],
+        p * 10 + 3,
+        { x: (p - (nBlue - 1) / 2) * PLATOON_SPACING * 0.5, z: -SPAWN_Z },
+        { x: 0, z: 1 },
+        objective,
+        0,
+        0,
+        force.blue,
+      );
+      soldiers.push(...blue.soldiers);
+      fireteamPlans.push(...blue.plans.fireteamPlans);
+      squadPlans.push(...blue.plans.squadPlans);
+      platoonPlans.push(...blue.plans.platoonPlans);
+    }
     // 点対称になるよう座標も向きも反転させる
-    const red = buildPlatoon(
-      "red",
-      100 + p,
-      [1000 + p * 10, 1000 + p * 10 + 1, 1000 + p * 10 + 2],
-      1000 + p * 10 + 3,
-      { x: -lateral, z: SPAWN_Z },
-      { x: 0, z: -1 },
-      objective,
-      1,
-    );
-    soldiers.push(...blue.soldiers, ...red.soldiers);
-    fireteamPlans.push(...blue.plans.fireteamPlans, ...red.plans.fireteamPlans);
-    squadPlans.push(...blue.plans.squadPlans, ...red.plans.squadPlans);
-    platoonPlans.push(...blue.plans.platoonPlans, ...red.plans.platoonPlans);
+    if (p < nRed) {
+      const red = buildPlatoon(
+        "red",
+        100 + p,
+        [1000 + p * 10, 1000 + p * 10 + 1, 1000 + p * 10 + 2],
+        1000 + p * 10 + 3,
+        { x: -((p - (nRed - 1) / 2) * PLATOON_SPACING * 0.5), z: SPAWN_Z },
+        { x: 0, z: -1 },
+        objective,
+        1,
+        0,
+        force.red,
+      );
+      soldiers.push(...red.soldiers);
+      fireteamPlans.push(...red.plans.fireteamPlans);
+      squadPlans.push(...red.plans.squadPlans);
+      platoonPlans.push(...red.plans.platoonPlans);
+    }
   }
 
-  soldiers.push(
-    ...makeCompanyHq("blue", 0, blueCp, blueCcp, { x: 0, z: 1 }),
-    ...makeCompanyHq("red", 1, redCp, redCcp, { x: 0, z: -1 }),
-  );
+  // 中隊本部は中隊規模のときだけ。小隊/分隊規模では最上位が小隊長/分隊長になる(仕様 §2)
+  if (FORCE_SCALES[force.blue.scale].companyHq) {
+    soldiers.push(...makeCompanyHq("blue", 0, blueCp, blueCcp, { x: 0, z: 1 }));
+  }
+  if (FORCE_SCALES[force.red.scale].companyHq) {
+    soldiers.push(...makeCompanyHq("red", 1, redCp, redCcp, { x: 0, z: -1 }));
+  }
 
   return {
     name: "company-clash",
@@ -902,7 +969,11 @@ export function urbanCqbFixture(seed = 1): Scenario {
  * 通り、建物内・路地では武器種によらずLOSが頭打ちになる。中央の大きな庁舎(OBJ CENTRE)は
  * 扉が南向きで、青は正面突撃・赤は北側から迂回か突入、という非対称な攻略になる。
  */
-export function urbanAssaultScenario(seed = 1): Scenario {
+export function urbanAssaultScenario(
+  seed = 1,
+  /** 陣営ごとの編成(`[v6.9]` 仕様 §2/§14)。この盤面は小隊規模を前提に組んである */
+  force: Record<Side, ForceSpec> = defaultForce(),
+): Scenario {
   resetIds();
   const bounds: Bounds = { minX: -84, maxX: 84, minZ: -72, maxZ: 72 };
 
@@ -946,6 +1017,11 @@ export function urbanAssaultScenario(seed = 1): Scenario {
   ];
 
   // ── 部隊: 青は南端、赤は北端から。非対称なので座標は鏡像にしない ──
+  // `[v6.9]` 盤面が小さいので小隊1個で頭打ちにする(`SCENARIOS.urban.maxScale`)。
+  // UI 側でも同じ上限を出しているが、シムだけを直接叩かれても編成と実物が食い違わない
+  // よう、ここでも同じ規則を通す。
+  const f = { blue: clampScale(force.blue, "platoon"), red: clampScale(force.red, "platoon") };
+
   const blue = buildPlatoon(
     "blue",
     0,
@@ -955,6 +1031,8 @@ export function urbanAssaultScenario(seed = 1): Scenario {
     { x: 0, z: 1 },
     { x: 0, z: 0 },
     0,
+    0,
+    f.blue,
   );
   const red = buildPlatoon(
     "red",
@@ -965,6 +1043,8 @@ export function urbanAssaultScenario(seed = 1): Scenario {
     { x: 0, z: -1 },
     { x: 0, z: 0 },
     1,
+    0,
+    f.red,
   );
 
   return {

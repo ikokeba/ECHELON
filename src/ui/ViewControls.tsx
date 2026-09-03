@@ -2,7 +2,10 @@ import { SCENARIOS, type ScenarioKey } from "@sim/scenario.ts";
 import { useSimStore, type ViewEchelon } from "./store.ts";
 
 /**
- * L1 — 操作(規模 / 視点 / 陣営 / 配置)。
+ * L1 — 操作(戦場 / 視点 / 陣営 / 配置)。
+ *
+ * `[v6.9]` 「規模」を「戦場」に変えた。規模は陣営ごとに選ぶもの(`force.ts`)に
+ * なったので、ここに残っているのは盤面の選択だけ。
  *
  * 視点切替は仕様 §5 の「情報の階層化」を体感させるための中核UI。同じ戦場を、
  * 小隊長として見るか分隊長として見るかで、見える敵の量と鮮度が変わる。
@@ -25,11 +28,9 @@ const ECHELON_HINT: Record<ViewEchelon, string> = {
   truth: "デバッグ表示。実際の敵位置",
 };
 
-/** 規模のセグメントは幅が足りないので、2文字の短縮名を別に持つ */
+/** 戦場のセグメントは幅が足りないので、短縮名を別に持つ */
 const SCENARIO_SHORT: Record<ScenarioKey, string> = {
-  squad: "分隊",
-  platoon: "小隊",
-  company: "中隊",
+  company: "広域",
   urban: "CQB",
 };
 
@@ -48,7 +49,7 @@ export function ViewControls() {
   return (
     <div className="panel">
       <div className="seg-row">
-        <span className="seg-label">規模</span>
+        <span className="seg-label">戦場</span>
         <div className="seg">
           {(Object.keys(SCENARIOS) as ScenarioKey[]).map((k) => (
             <button
@@ -105,9 +106,9 @@ export function ViewControls() {
         type="button"
         className={deployOpen ? "btn btn-on" : "btn"}
         onClick={toggleDeploy}
-        title="陣営の初期展開位置と拠点を決める (G)"
+        title="陣営の編成・ドクトリン・展開位置・拠点を決める (G)"
       >
-        初期配置・拠点を編集
+        編成・初期配置を編集
       </button>
 
       <div className="vc-hint">{ECHELON_HINT[viewEchelon]}</div>

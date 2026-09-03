@@ -2,6 +2,13 @@ import { useSimStore } from "./store.ts";
 import { isPointSymmetric } from "@sim/deployment.ts";
 import { OBJECTIVE } from "@sim/constants.ts";
 import { DOCTRINES, DOCTRINE_KEYS } from "@sim/doctrine.ts";
+import {
+  FORCE_SCALES,
+  FORCE_SCALE_KEYS,
+  SCALE_RANK,
+  forceSize,
+} from "@sim/force.ts";
+import { SCENARIOS } from "@sim/scenario.ts";
 import type { Side } from "@sim/types.ts";
 
 /**
@@ -38,6 +45,9 @@ export function DeploymentPanel() {
   const setBattleMode = useSimStore((s) => s.setBattleMode);
   const doctrine = useSimStore((s) => s.doctrine);
   const setDoctrine = useSimStore((s) => s.setDoctrine);
+  const force = useSimStore((s) => s.force);
+  const setForce = useSimStore((s) => s.setForce);
+  const scenarioKey = useSimStore((s) => s.scenarioKey);
   const removeObjective = useSimStore((s) => s.removeObjective);
   const selectObjective = useSimStore((s) => s.selectObjective);
   const mirror = useSimStore((s) => s.mirrorDeployment);
@@ -51,6 +61,8 @@ export function DeploymentPanel() {
   const mode = draft.mode ?? "meeting";
   const attacker = draft.attacker ?? "blue";
   const timeLimitSec = draft.timeLimitSec ?? OBJECTIVE.ASSAULT_TIME_LIMIT_SEC;
+  /** この戦場が受け止められる規模の上限(`[v6.9]`。シム側 `clampScale` と同じ規則) */
+  const maxScale = SCENARIOS[scenarioKey].maxScale;
 
   return (
     <div className="panel overlay-panel">
@@ -98,6 +110,91 @@ export function DeploymentPanel() {
           いま戦闘中の拠点で、「この配置で立案する」を押すまで置き換わりません。
           押すと盤面を組み直し、中隊長が<b>作戦を立て直します</b>。
         </div>
+      </div>
+
+
+      {/* ── 陣営の編成(仕様 §2 編成 / §14 MOS)`[v6.9]` ── */}
+      <div className="ov-sec">
+        <div className="ov-sec-title">陣営の編成</div>
+        <div className="dbg-k">
+          規模と特技保有者を陣営ごとに決めます。変わるのは<b>盤上に置く駒</b>だけで、
+          兵士1名あたりの命中率・耐久はどの編成でも同一です(仕様 §2/§13)。
+          規模を変えると展開点は盤面の既定へ戻ります。
+        </div>
+        {(["blue", "red"] as Side[]).map((side) => {
+          const spec = force[side];
+          const shape = FORCE_SCALES[spec.scale];
+          const capped = SCALE_RANK[spec.scale] > SCALE_RANK[maxScale];
+          const eff = capped ? { ...spec, scale: maxScale } : spec;
+          return (
+            <div key={side} className="dep-spawn">
+              <div className="dep-spawn-head">
+                <span className={side === "blue" ? "force-blue" : "force-red"}>
+                  {SIDE_LABEL[side]}
+                </span>
+                <span className="mono dbg-k">{forceSize(eff)}名</span>
+              </div>
+              <div className="seg">
+                {FORCE_SCALE_KEYS.map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    className={spec.scale === k ? "seg-btn seg-on" : "seg-btn"}
+                    onClick={() => setForce(side, { scale: k })}
+                    title={FORCE_SCALES[k].detail}
+                  >
+                    {FORCE_SCALES[k].label}
+                  </button>
+                ))}
+              </div>
+              <div className="dep-opts">
+                <label className="dbg-chk" title="分隊に1名。索敵300m・専用の射撃諸元(仕様 §10/§14)">
+                  <input
+                    type="checkbox"
+                    checked={spec.marksman}
+                    onChange={(e) => setForce(side, { marksman: e.target.checked })}
+                  />
+                  <span>選抜射手</span>
+                </label>
+                <label className="dbg-chk" title="FTに1名。擲弾3発(仕様 §8.1/§14)。外すと分隊から擲弾が消える">
+                  <input
+                    type="checkbox"
+                    checked={spec.grenadier}
+                    onChange={(e) => setForce(side, { grenadier: e.target.checked })}
+                  />
+                  <span>擲弾手</span>
+                </label>
+                <label
+                  className="dbg-chk"
+                  title={
+                    shape.weapons
+                      ? "小隊直轄の機関銃班7名(仕様 §2)"
+                      : "分隊規模には火器分隊がありません"
+                  }
+                >
+                  <input
+                    type="checkbox"
+                    checked={spec.weaponsSquad}
+                    disabled={!shape.weapons}
+                    onChange={(e) => setForce(side, { weaponsSquad: e.target.checked })}
+                  />
+                  <span className={shape.weapons ? undefined : "dbg-k"}>火器分隊</span>
+                </label>
+              </div>
+              <div className="dbg-k">
+                {capped
+                  ? `この戦場は${FORCE_SCALES[maxScale].label}規模までです — ${FORCE_SCALES[maxScale].label}として出ます`
+                  : FORCE_SCALES[spec.scale].detail}
+              </div>
+            </div>
+          );
+        })}
+        {force.blue.scale !== force.red.scale && (
+          <div className="dbg-k">
+            左右で規模が違います。頭数の差はそのまま戦力差なので、
+            点対称の担保(仕様 §2/§13)はこの編成では意味を持ちません。
+          </div>
+        )}
       </div>
 
       {/* ── 陣営のドクトリン(仕様 §13)`[v6.8]` ── */}

@@ -286,7 +286,9 @@ function hudOf(world: World, view: ViewResult): HudSnapshot {
 export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey): () => void {
   // `[v6.4]` 配置プランを適用してから世界を作る。未設定なら既定のシナリオそのまま。
   // 既定値を編集の出発点としてストアへ返し、パネルがそこから触れるようにする。
-  const base = SCENARIOS[scenarioKey].make();
+  // `[v6.9]` 編成は世界の**構造**なので、毎フレーム反映する tuning/doctrine と違い、
+  // 生成のときにだけ読む。変更すると `deploymentNonce` が動いてここから作り直される。
+  const base = SCENARIOS[scenarioKey].make(undefined, useSimStore.getState().force);
   useSimStore.getState().initDeployment(defaultDeploymentOf(base));
   const plan = useSimStore.getState().deployment;
   const world = createWorld(plan ? applyDeployment(base, plan) : base);

@@ -1142,6 +1142,19 @@ body {
   cursor: pointer;
 }
 
+/* 編成の特技トグル(`[v6.9]`)。3つ並ぶので折り返す */
+.dep-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 11px;
+}
+
+.dep-opts .dbg-chk:has(input:disabled) {
+  cursor: default;
+  opacity: 0.45;
+}
+
 .dbg-slider {
   display: flex;
   flex-direction: column;

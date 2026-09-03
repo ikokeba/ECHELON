@@ -31,6 +31,7 @@ import type {
 import type { ControlState } from "@sim/control.ts";
 import { postureFromRisk } from "@sim/tuning.ts";
 import { DOCTRINES, type DoctrineKey } from "@sim/doctrine.ts";
+import { defaultForce, type ForceSpec } from "@sim/force.ts";
 
 const RAD2DEG = 180 / Math.PI;
 
@@ -267,6 +268,11 @@ interface UiState extends HudSnapshot {
   selectedObjectiveIdx: number | null;
   /** 配置パネルを開いているか(キー G / ボタンで切替)。デバッグパネルと同じ枠を使う */
   deployOpen: boolean;
+  /**
+   * 編成の規模が変わって、下書きの展開点が盤面の既定とずれている状態(`[v6.9]`)。
+   * 次にランタイムが世界を作り直したとき、展開点だけ新しい既定へ引き直す。
+   */
+  deploymentStale: boolean;
 
   // ── 作戦立案フェーズ(`[v6.5]`)──
   /** いまが立案中か戦闘中か。ランタイムがシムの `world.phase` と同期させる */
@@ -301,6 +307,11 @@ interface UiState extends HudSnapshot {
    * ランタイムが毎フレーム `world.doctrine` へ反映する(posture と同じ扱い)。
    */
   doctrine: Record<Side, DoctrineKey>;
+  /**
+   * 陣営ごとの編成(`[v6.9]` 仕様 §2/§14)。規模と特技保有者の有無。
+   * ドクトリンと違って**盤上の駒そのもの**が変わるので、変更すると世界を作り直す。
+   */
+  force: Record<Side, ForceSpec>;
 
   togglePause: () => void;
   cycleSpeed: () => void;
@@ -362,6 +373,8 @@ interface UiState extends HudSnapshot {
   resetTuning: () => void;
   /** 陣営のドクトリンを選ぶ。既定のリスク許容度もそのプリセットの値へ揃える */
   setDoctrine: (side: Side, key: DoctrineKey) => void;
+  /** 編成を変える(`[v6.9]`)。世界を作り直すのでシナリオ切替と同じ扱い */
+  setForce: (side: Side, patch: Partial<ForceSpec>) => void;
 }
 
 /** constants.ts そのままの表示用チューニング値(スライダーの初期値・リセット先)。 */
@@ -408,7 +421,7 @@ export const useSimStore = create<UiState>((set) => ({
   viewEchelon: "platoon",
   viewSquadId: null,
   viewPlatoonId: null,
-  scenarioKey: "platoon",
+  scenarioKey: "company",
   phase: "battle",
   plans: [],
   planRoutes: [],
@@ -441,6 +454,8 @@ export const useSimStore = create<UiState>((set) => ({
     red: { riskTolerance: 0.5, ...postureFromRisk(0.5) },
   },
   doctrine: { blue: "regular", red: "regular" },
+  force: defaultForce(),
+  deploymentStale: false,
 
   togglePause: () => set((s) => ({ paused: !s.paused })),
   cycleSpeed: () => set((s) => ({ speedIdx: (s.speedIdx + 1) % RUN_SPEEDS.length })),
@@ -466,7 +481,24 @@ export const useSimStore = create<UiState>((set) => ({
     }),
 
   // ── 配置エディタ(`[v6.4]`)──
-  initDeployment: (plan) => set((s) => (s.deploymentDraft ? {} : { deploymentDraft: plan })),
+  /**
+   * ランタイムがシナリオの既定配置を流し込む。すでに下書きがあれば触らない —
+   * プレイヤーの編集を毎回の作り直しで消さないため。
+   *
+   * `[v6.9]` 例外が1つ。編成の規模が変わったときだけは、**展開点だけ**新しい既定を
+   * 採る(`deploymentStale`)。規模で展開線が前後するので、古い展開点を引きずると
+   * 「分隊9名が中隊用の140mから歩き始める」ことになる。拠点と戦闘の型は残す。
+   */
+  initDeployment: (plan) =>
+    set((s) => {
+      if (!s.deploymentDraft) return { deploymentDraft: plan, deploymentStale: false };
+      if (!s.deploymentStale) return {};
+      return {
+        deploymentDraft: { ...s.deploymentDraft, spawn: plan.spawn },
+        deployment: s.deployment ? { ...s.deployment, spawn: plan.spawn } : null,
+        deploymentStale: false,
+      };
+    }),
   setSetupTool: (t) => set({ setupTool: t }),
   // デバッグパネルと同じ枠に出るので、開いたらもう片方は閉じる
   toggleDeploy: () =>
@@ -647,6 +679,22 @@ export const useSimStore = create<UiState>((set) => ({
     set((s) => ({
       posture: { ...s.posture, [side]: { ...s.posture[side], ...patch } },
     })),
+  /**
+   * 編成の変更。**規模**を変えると既定の展開線そのものが変わる(`spawnDepthMul`)ので、
+   * 次に世界を作り直すときに展開点だけ既定へ引き直すよう印を付ける。拠点や戦闘の型は
+   * プレイヤーが決めたものなので残す — 展開点は盤面の都合、拠点は遊びの意図。
+   */
+  setForce: (side, patch) =>
+    set((s) => {
+      const scaleChanged = patch.scale !== undefined && patch.scale !== s.force[side].scale;
+      return {
+        force: { ...s.force, [side]: { ...s.force[side], ...patch } },
+        deploymentNonce: s.deploymentNonce + 1,
+        deploymentStale: s.deploymentStale || scaleChanged,
+        control: null,
+        selectedSoldierId: null,
+      };
+    }),
   setDoctrine: (side, key) =>
     set((s) => {
       const risk = DOCTRINES[key].riskTolerance;
