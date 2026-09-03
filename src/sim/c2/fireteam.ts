@@ -39,6 +39,7 @@ import {
 import { formationSlots } from "../formation.ts";
 import { meanTraits, traitMul } from "../traits.ts";
 import { aiSuppressed } from "../control.ts";
+import { objectiveCoveringPoint } from "./objectiveHold.ts";
 import { isCommittedToAid } from "../systems/casualties.ts";
 import { isCommittedToLitter, isOffField } from "../systems/litter.ts";
 import { exitCqb, runCqb } from "./cqbDrill.ts";
@@ -853,18 +854,34 @@ export function fireteamAI(world: World): void {
       const pinnedNow = living.some(
         (u) => u.suppressedUntilTick > world.tick || u.evadeUntilTick > world.tick,
       );
+      // ── 占領は接敵で免除されない(`[v6.9]` F-9)──
+      //
+      // 持ち場が拠点の判定円の中なら、到達は**その半径**で測る。固定の6mは半径3mの
+      // 拠点に対しては依然として円の外で、「近くまでは行くが円には入らない」が残る。
+      // 距離の定数と判定半径は同じ1つの数の写しであり、別々に書けば必ずずれる。
+      //
+      // そして**待たずに詰める**。守備を割り当てられた分隊が206秒のあいだ拠点から
+      // 平均16.6m離れたままだったのは、接敵すると機動が脅威中心になり、拠点へ向かう
+      // 動きが `PUSH_AFTER_SEC` の待ちに埋もれていたため。制圧されている間は
+      // 従来どおり動かない(`pinnedNow`)。
+      const onObj = objectiveCoveringPoint(world, ft.objective);
+      const arriveDist = onObj
+        ? Math.min(CONTACT_DRILL.ASSAULT_THROUGH_DIST, onObj.radius * 0.5)
+        : CONTACT_DRILL.ASSAULT_THROUGH_DIST;
+      const outsideObjective = onObj !== null && dist(mc, onObj.pos) > onObj.radius;
       const pushing =
         !pinnedNow &&
-        world.tick - ft.modeSince >
-          Math.round(
-            CONTACT_DRILL.PUSH_AFTER_SEC *
-              SIM_HZ *
-              traitMul(1 - ftTraits.aggressiveness, 0.35),
-          ) &&
+        (outsideObjective ||
+          world.tick - ft.modeSince >
+            Math.round(
+              CONTACT_DRILL.PUSH_AFTER_SEC *
+                SIM_HZ *
+                traitMul(1 - ftTraits.aggressiveness, 0.35),
+            )) &&
         // `[v6.7]` 停止条件は「目標に着いたか」。以前は `engageMax`(有効射程60m)で、
         // 目標の60m手前で躍進をやめていた — 射程に入ることと取ることは別物で、
         // 拠点の判定半径は3mしかない(仕様 §12)。
-        dist(mc, ft.objective) > CONTACT_DRILL.ASSAULT_THROUGH_DIST;
+        dist(mc, ft.objective) > arriveDist;
       for (const u of maneuver) {
         if (reactToContact(u)) continue;
         const p = pushing

@@ -18,6 +18,7 @@ import { buildingAt, doorById, insideBounds, selectAssaultDoor } from "../cqb.ts
 import { commandFactor } from "./succession.ts";
 import { activateBuildingNav, sideDoctrine } from "../world.ts";
 import { exitCqb } from "./cqbDrill.ts";
+import { objectiveCoveringPoint, occupySlots } from "./objectiveHold.ts";
 import type { Contact, Door, Soldier, SquadState, Vec2 } from "../types.ts";
 
 /** `indexLiving` の戻り値。分隊AIの内部でだけ使う */
@@ -138,7 +139,20 @@ function directFireteams(world: World, sq: SquadState, idx: LivingIndex): void {
     };
   }
 
-  for (const ft of fireteams) {
+  // ── 占領(`[v6.9]` F-9、仕様 §12)──
+  //
+  // ここまでで決まった `ftObjective` は「20m級の隊形をどこに置くか」でしかなく、
+  // 確保判定は「判定円の中の人数」を数えている。両者が接続されていないので、
+  // 拠点の真上に持ち場を置いても円の中には誰も入らない(実測: 守備に付いた206秒で
+  // 重心が円内にあった時間0秒、円内の人数 平均0.15名、分隊の広がり平均21.6m)。
+  //
+  // **突撃組(ft=0)だけ**を判定円の中へ入れる。支援組は外に残して撃たせる
+  // (ATP 3-21.8 の突撃組/支援組)。分隊ごと畳む案は測って捨てた —
+  // 円内滞在 29→0秒、BLUE戦死 21→38名。戦列を失うと隊形が伸びて各個に撃たれる。
+  const occupy = mk === "seize" ? objectiveCoveringPoint(world, ftObjective) : null;
+  const occupySeat = occupy ? occupySlots(occupy, { x: 0, z: 1 }, 1)[0]! : null;
+
+  for (const [ftIdx, ft] of fireteams.entries()) {
     // 人間が操作しているFTには再割り当てを行わない(仕様 §4、小隊長と同じ理由)
     const leader = world.soldiers.find(
       (s) =>
@@ -150,8 +164,9 @@ function directFireteams(world: World, sq: SquadState, idx: LivingIndex): void {
     );
     if (leader && aiSuppressed(world, "fireteam", ft.side, leader.id)) continue;
 
-    // 任務目標と移動技術は上から下へそのまま伝播する
-    ft.objective = { ...ftObjective };
+    // 任務目標と移動技術は上から下へそのまま伝播する。
+    // 占領中の突撃組だけ、判定円の中の持ち場に差し替える(`[v6.9]`)
+    ft.objective = occupySeat && ftIdx === 0 ? { ...occupySeat } : { ...ftObjective };
     ft.technique = ftTechnique;
     // support_by_fire は全FTをベース・オブ・ファイアに固定して踏み込ませない
     ft.assignedRole = mk === "support_by_fire" ? "base" : null;

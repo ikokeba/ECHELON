@@ -91,3 +91,85 @@ export function clampToObjective(aim: Vec2, o: Objective, frac = 0.5, minLimit =
   if (d <= limit || d < 1e-6) return { x: o.pos.x + dx, z: o.pos.z + dz };
   return { x: o.pos.x + (dx / d) * limit, z: o.pos.z + (dz / d) * limit };
 }
+
+/**
+ * その任務が**占領しに行く**拠点。`[v6.9]` F-9。
+ *
+ * `heldObjectiveNear` との違いは所有を問わないこと。あちらは「すでに自分のものを守る」
+ * ためのもので、`owner === side || progressBy === side` を要求する。中立の拠点は
+ * `progressBy` が null なので、**誰も守備に指名されないまま永遠に中立でいる**
+ * — 守備に付くには進捗が要り、進捗を出すには守備に付く必要がある、というデッドロック
+ * だった(実測: 進捗ゼロの状態では300秒・両陣営で守備割当 0秒)。
+ *
+ * 占領はその逆で、「まだ自分のものではないから行く」。任務目標が拠点の判定円を
+ * 指しているならそれを返す。
+ */
+export function occupyObjectiveOf(world: World, missionTarget: Vec2): Objective | null {
+  for (const o of world.objectives) {
+    if (Math.hypot(missionTarget.x - o.pos.x, missionTarget.z - o.pos.z) <= o.radius) return o;
+  }
+  return null;
+}
+
+/** その地点が判定円の中に入っている拠点(距離ではなく**その拠点の半径**で判定する)。 */
+export function objectiveCoveringPoint(world: World, p: Vec2): Objective | null {
+  return occupyObjectiveOf(world, p);
+}
+
+/**
+ * 拠点を**占領する**ための持ち場を n 個返す。`[v6.9]` F-9。
+ *
+ * F-9 の根因への対処。分隊は差し渡し20m前後の物体で、拠点は半径3mの円でしかない。
+ * C2は「20mの隊形をどこに置くか」だけを指示し、仕様 §12 は「3mの円の中の人数」を
+ * 数えていて、両者が一度も接続されていなかった(実測: 守備に付いた206秒のあいだ、
+ * 重心が円内にあった時間 0秒 / 円内の人数 平均0.15名 / 分隊の広がり 平均21.6m)。
+ *
+ * したがって占領のときだけ**隊形を判定円の大きさへ畳む**。返す点はすべて円の内側で、
+ * 間隔は半径に比例するので、拠点の大小によらず「中に立つ」が成立する。
+ *
+ * **畳むのは1個FTだけ。** 分隊ごと畳む案は実装して計測し、明確に悪化したので捨てた
+ * (円内滞在 29→0秒、BLUE戦死 21→38名)。目標へ向かう隊形から戦列が消えると、
+ * 伸びたところを各個に撃たれる — AD-53 と同じ結論。突撃組が中に入り、支援組は
+ * 外で撃つ、という ATP 3-21.8 の分割はそのまま残すこと。
+ */
+export function occupySlots(o: Objective, dir: Vec2, n: number): Vec2[] {
+  if (n <= 0) return [];
+  if (n === 1) return [{ x: o.pos.x, z: o.pos.z }];
+  // 円の内側 0.55 までに収める。縁ちょうどだと隊形の揺れで出入りしてしまう
+  const r = o.radius * 0.55;
+  const right = { x: -dir.z, z: dir.x };
+  const out: Vec2[] = [];
+  for (let i = 0; i < n; i++) {
+    const t = (i - (n - 1) / 2) / ((n - 1) / 2);
+    out.push({ x: o.pos.x + right.x * r * t, z: o.pos.z + right.z * r * t });
+  }
+  return out;
+}
+
+/**
+ * 占領に付ける下位ユニットを、拠点ごとに**最寄りの1つだけ**へ絞る。`assignHolders` と
+ * 同じ形で、対象が「守るべき拠点」ではなく「取りに行く拠点」である点だけが違う。
+ *
+ * 1つに絞るのが要点。全員を拠点へ吸い寄せると戦線が消える(`assignHolders` の
+ * `[v6.2]` と同じ失敗)。占領は1個分隊、残りは戦列。
+ */
+export function assignOccupiers<K>(
+  world: World,
+  entries: ReadonlyArray<{ key: K; centroid: Vec2; target: Vec2 }>,
+): Map<K, Objective> {
+  const bestFor = new Map<number, { key: K; d: number; obj: Objective }>();
+  for (const e of entries) {
+    const o = occupyObjectiveOf(world, e.target);
+    if (!o) continue;
+    // **毎ティック最寄りで選び直す。** 一度預けた担当を持続させる案は実装して計測し、
+    // 確保保持が 178→0秒 に落ちたので捨てた — 遠ざかった分隊が担当を離さないので、
+    // 近くにいる分隊が入れず、拠点への注意が分散する。
+    const d = Math.hypot(e.centroid.x - o.pos.x, e.centroid.z - o.pos.z);
+    const cur = bestFor.get(o.id);
+    // 同距離は先に出た方を採る(entries の順は決定的なので結果も決定的)
+    if (!cur || d < cur.d) bestFor.set(o.id, { key: e.key, d, obj: o });
+  }
+  const out = new Map<K, Objective>();
+  for (const { key, obj } of bestFor.values()) out.set(key, obj);
+  return out;
+}

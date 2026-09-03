@@ -189,15 +189,21 @@ export function selectAssaultDoor(
     return d;
   };
 
+  // `[v6.9]` **順序は目標に近い扉から。** 従来は分隊に近い扉から潰していたので、
+  // 拠点がこの建物の一室にあっても、ドリルは手前の部屋から順に片付けるだけで
+  // 拠点の部屋へ収束しなかった(F-9: 建物の12m以内には154秒いるのに、判定円の中は5秒)。
+  // ATP 3-06.11 の掃討は全室が対象であることに変わりはなく、**どの順に潰すか**だけを
+  // 目標側から決める。発動距離の判定は従来どおり分隊からの距離で行う
+  // (遠すぎる扉へスタックを組ませないため)。
   let best: Door | null = null;
-  let bestD = Infinity;
+  let bestKey = Infinity;
   for (const d of target.doors) {
     if (exclude.includes(d.id)) continue;
     if (!inside && !d.exterior) continue;
-    const dist = nearestTo(d.pos);
-    if (dist > CQB.ASSAULT_TRIGGER_DIST) continue;
-    if (dist < bestD) {
-      bestD = dist;
+    if (nearestTo(d.pos) > CQB.ASSAULT_TRIGGER_DIST) continue;
+    const key = Math.hypot(d.pos.x - aim.x, d.pos.z - aim.z);
+    if (key < bestKey) {
+      bestKey = key;
       best = d;
     }
   }

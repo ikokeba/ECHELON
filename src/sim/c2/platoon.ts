@@ -16,7 +16,7 @@
 import { SIM_HZ } from "../constants.ts";
 import { aiSuppressed } from "../control.ts";
 import { commandFactor } from "./succession.ts";
-import { assignHolders, clampToObjective } from "./objectiveHold.ts";
+import { assignHolders, assignOccupiers, clampToObjective } from "./objectiveHold.ts";
 import { sideDoctrine } from "../world.ts";
 import {
   clearedDoorSet,
@@ -24,7 +24,14 @@ import {
   nextBuildingToClear,
   unfinishedBuildingOf,
 } from "./clearInZone.ts";
-import type { Contact, Mission, MovementTechnique, PlatoonState, Vec2 } from "../types.ts";
+import type {
+  Contact,
+  Mission,
+  MovementTechnique,
+  Objective,
+  PlatoonState,
+  Vec2,
+} from "../types.ts";
 import type { World } from "../world.ts";
 
 /** 小隊長の意思決定周期。分隊長(0.3秒)より遅く、階層が上がるほど判断は粗く遅くなる。 */
@@ -242,6 +249,31 @@ export function platoonAI(world: World): void {
         .filter((e): e is { key: number; centroid: Vec2 } => e.centroid !== null),
     );
 
+    // ── 占領する分隊の指名(`[v6.9]` F-9、仕様 §12)──
+    //
+    // `assignHolders` は「すでに自分のもの」しか見ないので、**中立の拠点には誰も
+    // 指名されない**(守備に付くには進捗が要り、進捗を出すには守備が要る、という
+    // デッドロック。実測: 進捗ゼロなら300秒・両陣営で守備割当0秒)。
+    // 占領はその逆で「まだ自分のものではないから行く」。
+    //
+    // 指名するのは拠点ごとに1個分隊だけ。全員を吸い寄せると戦線が消える。
+    const occupiers =
+      plMission.kind === "seize"
+        ? assignOccupiers(
+            world,
+            livingSquads
+              .filter((sq) => !isWeaponsSquad(sq)) // 火器分隊は支援。突入させない
+              .map((sq) => ({
+                key: sq.squadId,
+                centroid: sqCentroidOf(sq),
+                target: plMission.target,
+              }))
+              .filter((e): e is { key: number; centroid: Vec2; target: Vec2 } =>
+                e.centroid !== null,
+              ),
+          )
+        : new Map<number, Objective>();
+
     // clear in zone(ATP 3-06.11 / `[v6.3]`)。担当区域内に未掃討の建物があれば、
     // 前進軸に沿って**最も手前のもの**から各分隊へ割り当てる。掃討を終えるまで
     // その建物が分隊の任務目標になり、終われば次の建物・最終的に本来の目標へ進む。
@@ -295,6 +327,13 @@ export function platoonAI(world: World): void {
         const spread = Math.min(SQUAD_HOLD_SPREAD, held.radius * SQUAD_HOLD_FRAC);
         objective = clampToObjective(objective, held, 0.7, spread);
       }
+
+      // 占領に指名された分隊は**正面幅のオフセットを受けない**(`[v6.9]`)。
+      // 拠点は「戦列の起点」ではなく「立つ場所」なので、そこへ直接向かわせる。
+      // `clearAssign`(掃討中の建物)より優先する — 拠点がその建物の中にあるなら
+      // 分隊AIが扉経由の接近に振り替えるので、素通りにはならない。
+      const occupied = occupiers.get(sq.squadId) ?? null;
+      if (occupied) objective = { ...occupied.pos };
 
       const sqMission: Mission = {
         kind: sqKind,
