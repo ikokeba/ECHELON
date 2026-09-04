@@ -56,6 +56,13 @@ export const PALETTE = {
    * これは0.1〜1.5秒で消える一過性の発光。常設の記号と競合しないので、
    * 遠景での状態の読み取りやすさを損なわない。
    */
+  /**
+   * 窓(`[v6.10]`)。壁より明るく扉より暗い — 通れないが見通せる、という中間の
+   * 性質を明度の順に並べてある。意味を担う5色には数えない(地形の記号であって
+   * 兵士の状態ではない)。
+   */
+  window: "#e2c98f",
+
   blastCore: "#fff4d6",
   blastShock: "#ff9a2e",
   blastDust: "#8d7351",
@@ -118,6 +125,7 @@ export const MAP = {
   kia: hexToInt(PALETTE.kia),
   ghost: hexToInt(PALETTE.ghost),
   suppress: hexToInt(PALETTE.suppress),
+  window: hexToInt(PALETTE.window),
   blastCore: hexToInt(PALETTE.blastCore),
   blastShock: hexToInt(PALETTE.blastShock),
   blastDust: hexToInt(PALETTE.blastDust),

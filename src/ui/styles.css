@@ -1142,6 +1142,14 @@ body {
   cursor: pointer;
 }
 
+/* 凡例の窓(`[v6.10]`)。地図と同じく壁の切れ目に置いた枠として示す */
+.lg-window {
+  border: 1px solid var(--wall);
+  border-left: 3px solid var(--window);
+  border-radius: 1px;
+  background: transparent;
+}
+
 /* 凡例の着弾警告(`[v6.9]`)。地図と同じ「縮むリング+十字」で示す */
 .lg-incoming {
   position: relative;

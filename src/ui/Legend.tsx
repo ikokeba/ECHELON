@@ -55,6 +55,13 @@ const MARKER_ITEMS: Item[] = [
   { cls: "lg-dash", label: "不確度", title: "破線の円。時間とともに半径が開く(仕様 §5)" },
   { cls: "lg-obj", label: "拠点", title: "中立=緑 / 係争=黄 / 確保=陣営色(仕様 §12)" },
   {
+    cls: "lg-window",
+    label: "窓",
+    title:
+      "視線は通すが人は通さない開口(仕様 §7)。窓に就いて撃つ側は被命中 −60% / 命中 +30%"
+      + " なので、建物を抱えた側が守りで有利になる(仕様 §8)",
+  },
+  {
     cls: "lg-incoming",
     label: "着弾まで",
     title:
