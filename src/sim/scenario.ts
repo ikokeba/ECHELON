@@ -13,6 +13,12 @@ import {
   spawnDepthMul,
   type ForceSpec,
 } from "./force.ts";
+import {
+  boulevardField,
+  oldQuarterField,
+  plannedDistrictField,
+  type Field,
+} from "./fields.ts";
 import { traitProfile } from "./traits.ts";
 import {
   deepestRoomCenter,
@@ -39,20 +45,37 @@ export function resetIds(): void {
 }
 
 /**
- * 遊べる盤面。`[v6.9]` **1枚だけ**。
+ * 遊べる盤面。`[v6.11]` 地形の違う4枚。
  *
- * 規模は盤面ではなく陣営ごとの編成(`force.ts`)で決めるようになったので、盤面を
- * 複数持つ理由は「地形が違う」ことだけになった。地形の違いを増やす前に、まず
- * 1枚を仕上げる — 拠点確保(F-9)のように、盤面を跨ぐと切り分けが効かなくなる
- * 問題が残っているうちは、比較の基準が1つであるほうが速い。
+ * 規模は盤面ではなく陣営ごとの編成(`force.ts`)で決めるので、盤面が持つのは
+ * **地形の違いだけ**。どれも 440×340m・原点まわりの点対称・展開線 z=±140 で揃えて
+ * あり、部隊の配置・CP・CCP・作戦立案は共通のまま地形だけが替わる
+ * (仕様 §2/§13 の「地形由来ではない有利不利が無い」は4枚とも満たす)。
+ *
+ * 並び順は**見通しの短いほうから**。上の2枚は近距離戦、下へ行くほど射線が伸びる。
  *
  * `demoCrossingScenario` / `platoonClashScenario` / `urbanAssaultScenario` は
  * テスト用フィクスチャとして残してある(CQB・掃討・決定性の各テストが直接呼ぶ)。
  */
 export const SCENARIOS = {
+  oldQuarter: {
+    label: "旧市街",
+    detail: "不揃いな街区が詰まった密集地。食い違いのT字路と袋小路が多く、見通しが最も短い",
+    make: (seed?: number, force?: Record<Side, ForceSpec>) => oldQuarterScenario(seed, force),
+  },
+  bazaar: {
+    label: "大通りと市場",
+    detail: "盤面を東西に横切る幅40mの大通り。渡ることそのものが問題になる",
+    make: (seed?: number, force?: Record<Side, ForceSpec>) => boulevardScenario(seed, force),
+  },
+  planned: {
+    label: "新市街",
+    detail: "段違いに並ぶ長い街区。斜行した街路に沿って中距離の射線が通る",
+    make: (seed?: number, force?: Record<Side, ForceSpec>) => plannedDistrictScenario(seed, force),
+  },
   company: {
-    label: "市街地",
-    detail: "440×340m・建物34棟。点対称なので地形由来の有利不利が無い(仕様 §2/§13)",
+    label: "格子街区",
+    detail: "同じ大きさの街区を等間隔に並べた基準の盤面。挙動の比較はこれを基準にする",
     make: (seed?: number, force?: Record<Side, ForceSpec>) => companyClashScenario(seed, force),
   },
 } as const;
@@ -765,15 +788,49 @@ export function companyClashScenario(
   /** 陣営ごとの編成(`[v6.9]` 仕様 §2/§14)。既定は両軍とも完全編成の中隊 */
   force: Record<Side, ForceSpec> = defaultForce(),
 ): Scenario {
+  const city = symmetricCity();
+  return companyOnField(
+    "company-clash",
+    {
+      bounds: { minX: -220, maxX: 220, minZ: -170, maxZ: 170 },
+      walls: city.walls,
+      windowPlugs: city.windowPlugs,
+      buildings: city.buildings,
+      // `[v6.2]` 3拠点。点対称に置く: 西の倉庫の最奥の一室 ↔ その点対称の東の倉庫の
+      // 一室、中央広場。判定半径は部屋1つぶん(`OBJECTIVE.ROOM_RADIUS`)
+      objectives: [
+        { pos: { x: 0, z: 0 }, radius: OBJECTIVE.ROOM_RADIUS },
+        { pos: { ...city.objectiveRoom }, radius: OBJECTIVE.ROOM_RADIUS },
+        { pos: { x: -city.objectiveRoom.x, z: -city.objectiveRoom.z }, radius: OBJECTIVE.ROOM_RADIUS },
+      ],
+    },
+    seed,
+    force,
+  );
+}
+
+/** 拠点の呼称。NATO のフォネティックコードを中央 → 側面の順に割り当てる。 */
+const OBJ_NAMES = ["BRAVO", "ALPHA", "CHARLIE", "DELTA", "ECHO", "FOXTROT"] as const;
+
+/**
+ * 中隊戦を**盤面の上に載せる**共通処理(`[v6.11]`)。
+ *
+ * 盤面(`Field`)と部隊は別物、という `[v6.9]` の切り分けをここで完成させる。
+ * どの盤面も 440×340m・点対称・展開線 z=±140 で揃えてあるので、部隊の配置・CP・CCP・
+ * 作戦立案はすべて共通のまま、地形だけを差し替えられる。
+ */
+function companyOnField(
+  name: string,
+  field: Field,
+  seed: number,
+  force: Record<Side, ForceSpec>,
+): Scenario {
   resetIds();
   // CPとCCPを盤内に収める必要がある。ナビグリッドは bounds から作られるので、
   // CCPが外に出ると担架班が永久にたどり着けない(実際に描画で発見した)。
   // `[v6.3]` 射程を仕様 §10 の本来の値へ戻したので盤面を2倍にした(従来 220×170)。
-  const bounds: Bounds = { minX: -220, maxX: 220, minZ: -170, maxZ: 170 };
+  const bounds = field.bounds;
   const objective = { x: 0, z: 0 };
-  const city = symmetricCity();
-  const objRoom = city.objectiveRoom;
-  const objRoomMirror = { x: -objRoom.x, z: -objRoom.z };
 
   /** 小隊の初期展開間隔(m)。分隊3個分の正面幅より広く取る */
   const PLATOON_SPACING = 220;
@@ -861,12 +918,12 @@ export function companyClashScenario(
   }
 
   return {
-    name: "company-clash",
+    name,
     seed,
     bounds,
-    walls: city.walls,
-    windowPlugs: city.windowPlugs,
-    buildings: city.buildings,
+    walls: field.walls,
+    windowPlugs: field.windowPlugs,
+    buildings: field.buildings,
     soldiers,
     fireteamPlans,
     squadPlans,
@@ -890,20 +947,47 @@ export function companyClashScenario(
       },
     ],
     ccp: { blue: { ...blueCcp }, red: { ...redCcp } },
-    // `[v6.2]` 3拠点。点対称に置く: 西の倉庫の最奥の一室(OBJ ALPHA)↔ その点対称の
-    // 東の倉庫の一室(OBJ CHARLIE)、中央広場(OBJ BRAVO)。判定半径は部屋1つぶん
-    // (`OBJECTIVE.ROOM_RADIUS`)まで絞ってある。過半数(2つ)維持で勝利(仕様 §12)。
-    objectives: [
-      { id: 1, label: "OBJ ALPHA", pos: { ...objRoom }, radius: OBJECTIVE.ROOM_RADIUS, size: "small" },
-      { id: 2, label: "OBJ BRAVO", pos: { ...objective }, radius: OBJECTIVE.ROOM_RADIUS, size: "small" },
-      { id: 3, label: "OBJ CHARLIE", pos: { ...objRoomMirror }, radius: OBJECTIVE.ROOM_RADIUS, size: "small" },
-    ],
-    controlMeasures: [
-      { kind: "OBJ", label: "OBJ ALPHA", points: [{ ...objRoom }] },
-      { kind: "OBJ", label: "OBJ BRAVO", points: [{ ...objective }] },
-      { kind: "OBJ", label: "OBJ CHARLIE", points: [{ ...objRoomMirror }] },
-    ],
+    // 拠点は盤面が決める(`[v6.11]`)。中央 → 側面の順に呼称を割り当てる。
+    // 過半数(3つなら2つ)の維持で勝利(仕様 §12)
+    objectives: field.objectives.map((o, i) => ({
+      id: i + 1,
+      label: `OBJ ${OBJ_NAMES[i] ?? String(i + 1)}`,
+      pos: { ...o.pos },
+      radius: o.radius,
+      size: o.radius >= OBJECTIVE.RADIUS.large ? ("large" as const) : ("small" as const),
+    })),
+    controlMeasures: field.objectives.map((o, i) => ({
+      kind: "OBJ" as const,
+      label: `OBJ ${OBJ_NAMES[i] ?? String(i + 1)}`,
+      points: [{ ...o.pos }],
+    })),
   };
+}
+
+/**
+ * `[v6.11]` 実在の市街地に近い盤面(`fields.ts`)。地形だけが違い、部隊・展開線・
+ * 立案はすべて共通。等間隔の格子に同じ建物を並べた `company-clash` との違いは、
+ * 街区の大きさが不揃いで、十字路が食い違い、袋小路があること。
+ */
+export function oldQuarterScenario(
+  seed = 1,
+  force: Record<Side, ForceSpec> = defaultForce(),
+): Scenario {
+  return companyOnField("old-quarter", oldQuarterField(), seed, force);
+}
+
+export function plannedDistrictScenario(
+  seed = 1,
+  force: Record<Side, ForceSpec> = defaultForce(),
+): Scenario {
+  return companyOnField("planned-district", plannedDistrictField(), seed, force);
+}
+
+export function boulevardScenario(
+  seed = 1,
+  force: Record<Side, ForceSpec> = defaultForce(),
+): Scenario {
+  return companyOnField("boulevard", boulevardField(), seed, force);
 }
 
 /**

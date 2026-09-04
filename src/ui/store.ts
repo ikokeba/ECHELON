@@ -434,7 +434,7 @@ export const useSimStore = create<UiState>((set) => ({
   viewEchelon: "platoon",
   viewSquadId: null,
   viewPlatoonId: null,
-  scenarioKey: "company",
+  scenarioKey: "oldQuarter",
   phase: "battle",
   plans: [],
   planRoutes: [],
