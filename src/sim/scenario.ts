@@ -112,6 +112,7 @@ export function makeSoldier(seed: SoldierSeed): Soldier {
     assignedTarget: null,
     eye: { ...seed.pos },
     peeking: false,
+    atWindow: false,
     role: seed.role ?? "rifleman",
     hqRole: seed.hqRole ?? null,
     quals: {
@@ -430,7 +431,13 @@ function cityDoor(cx: number, cz: number): DoorSide {
  *
  * `cz < 0` 側だけを列挙し、各要素を点対称の双子として複製する。
  */
-function symmetricCity(): { walls: AABB[]; buildings: Building[]; objectiveRoom: Vec2 } {
+function symmetricCity(): {
+  walls: AABB[];
+  /** 窓の開口を塞ぐ栓。経路探索用の壁は `walls + windowPlugs` として作る。`[v6.10]` */
+  windowPlugs: AABB[];
+  buildings: Building[];
+  objectiveRoom: Vec2;
+} {
   // `[v6.3]` 街区は手置きの座標表ではなく**格子から生成**する。盤面を2倍(440×340)へ
   // 広げるにあたり、手置きでは棟数が100近くになって管理できないため。
   //
@@ -460,6 +467,7 @@ function symmetricCity(): { walls: AABB[]; buildings: Building[]; objectiveRoom:
 
   const buildings: Building[] = [];
   const walls: AABB[] = [];
+  const windowPlugs: AABB[] = [];
   let id = 1;
   const add = (cx: number, cz: number, hw: number, hd: number): void => {
     const b = makeCorridorBuilding(
@@ -469,6 +477,7 @@ function symmetricCity(): { walls: AABB[]; buildings: Building[]; objectiveRoom:
     );
     buildings.push(b.building);
     walls.push(...b.walls);
+    windowPlugs.push(...b.windowPlugs);
   };
   for (const s of half) {
     add(s.cx, s.cz, s.hw, s.hd);
@@ -517,7 +526,7 @@ function symmetricCity(): { walls: AABB[]; buildings: Building[]; objectiveRoom:
       Math.abs((b.bounds.minZ + b.bounds.maxZ) / 2 + 15) < 0.5,
   );
   if (!flank) throw new Error("symmetricCity: 西の倉庫が見つからない");
-  return { walls, buildings, objectiveRoom: deepestRoomCenter(flank) };
+  return { walls, windowPlugs, buildings, objectiveRoom: deepestRoomCenter(flank) };
 }
 
 function plansFor(
@@ -856,6 +865,7 @@ export function companyClashScenario(
     seed,
     bounds,
     walls: city.walls,
+    windowPlugs: city.windowPlugs,
     buildings: city.buildings,
     soldiers,
     fireteamPlans,
@@ -933,6 +943,7 @@ export function urbanCqbFixture(seed = 1): Scenario {
     seed,
     bounds,
     walls: [...north.walls, ...south.walls, ...streetWalls],
+    windowPlugs: [...north.windowPlugs, ...south.windowPlugs],
     buildings: [north.building, south.building],
     soldiers,
     fireteamPlans: [...blue.fireteamPlans, ...red.fireteamPlans],
@@ -1120,6 +1131,7 @@ export function urbanAssaultScenario(
     seed,
     bounds,
     walls: [...b.flatMap((x) => x.walls), ...streetWalls],
+    windowPlugs: b.flatMap((x) => x.windowPlugs),
     buildings: b.map((x) => x.building),
     soldiers,
     fireteamPlans,

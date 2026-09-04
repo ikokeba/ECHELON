@@ -226,12 +226,45 @@ function aabbOf(b: Bounds): AABB {
  * 建物の外周4面を作る。`doorSide` の面だけ開口部を空け、その中心と法線(室内向き)を返す。
  * `makeSimpleBuilding` と `makeCorridorBuilding` の共通部分。
  */
+/** 窓の開口の半幅 m。人ひとりが銃を出せるだけの幅(`[v6.10]`) */
+const WINDOW_HALF_W = 0.55;
+/** 窓を入れる壁断片の最小の長さ m。これ未満は扉脇の袖壁とみなして入れない */
+const WINDOW_MIN_SPAN = 4;
+/**
+ * 窓どうしのおおよその間隔 m。**盤面の見通しを決める数字なので、下げるときは
+ * 拠点の確保が成立するかを必ず測り直すこと。**
+ *
+ * 5m(1棟あたり10.4個)にしたら拠点の確保が完全に止まった — 建物が視線を切らなく
+ * なり、判定円へ寄る部隊がどこからでも撃たれて円の中に留まれない
+ * (確保保持 178→0秒、最良進捗 100→74%)。窓の配置AIを切っても再現したので、
+ * 原因は挙動ではなく**壁に空けた穴の量**そのもの。10m(6.2個)に戻して回復した
+ * (確保保持 142/0/125秒)。仕様 §10 の「市街地の見通し距離が交戦距離を制限する」は
+ * 壁が壁として働いていて初めて成り立つ。
+ */
+const WINDOW_SPACING = 15;
+/** 角から窓までの最小距離 m。角に窓があると射界が壁に潰される */
+const WINDOW_EDGE_MARGIN = 1.6;
+
 function outerShell(
   bounds: Bounds,
   doorSide: DoorSide,
   t: number,
   dw: number,
-): { walls: AABB[]; opening: { pos: Vec2; normal: Vec2 } } {
+): {
+  /** 視線用の壁。窓の開口が空いている */
+  walls: AABB[];
+  /**
+   * 窓の開口を塞ぐ栓(`[v6.10]`)。経路探索用の壁は
+   * **「視線用の壁 + これ」** として導出する。
+   *
+   * 2本のリストを別々に組み立てる形にしていたら、街路の塀を片方へ積み忘れて
+   * 経路探索が塀を素通りできると誤認し、担架班が900秒で5mしか進まなくなった。
+   * 差分だけを返せば、どこにどれだけ壁を足しても取りこぼしようがない。
+   */
+  windowPlugs: AABB[];
+  opening: { pos: Vec2; normal: Vec2 };
+  windows: Array<{ pos: Vec2; normal: Vec2 }>;
+} {
   const cx = (bounds.minX + bounds.maxX) / 2;
   const cz = (bounds.minZ + bounds.maxZ) / 2;
   const hw = (bounds.maxX - bounds.minX) / 2;
@@ -271,7 +304,77 @@ function outerShell(
     if (o) opening = o;
   }
   if (!opening) throw new Error("outerShell: 扉の面が作られなかった");
-  return { walls, opening };
+
+  // ── 窓(`[v6.10]` 仕様 §7)──
+  //
+  // 窓は**視線だけを通し、移動は通さない**開口。扉との違いはそこだけで、
+  // 実装も扉と同じ「壁に穴を空ける」形になる。ただし穴を空けるのは
+  // **視線用の壁**(`walls`)だけで、経路探索用の壁(`navWalls`)は塞いだままにする。
+  // 窓から出入りできてしまうと、突入ドリル(仕様 §7.2)が意味を失う。
+  const windowPlugs: AABB[] = [];
+  const windows: Array<{ pos: Vec2; normal: Vec2 }> = [];
+  const punched: AABB[] = [];
+  for (const w of walls) {
+    const horizontal = w.hw > w.hd;
+    const span = horizontal ? w.hw * 2 : w.hd * 2;
+    // 短すぎる断片には窓を入れない(扉の脇の細い壁など)
+    if (span < WINDOW_MIN_SPAN) {
+      punched.push(w);
+      continue;
+    }
+    // 間隔から本数を決め、断片の中で均等に配る。両端は角から離す
+    const usable = span - WINDOW_EDGE_MARGIN * 2;
+    const n = Math.max(1, Math.floor(usable / WINDOW_SPACING));
+    const centre = horizontal ? w.cx : w.cz;
+    const outward = { x: 0, z: 0 };
+    // 面の外向き法線。建物の中心から見てどちら側の壁かで決まる
+    if (horizontal) outward.z = w.cz > cz ? 1 : -1;
+    else outward.x = w.cx > cx ? 1 : -1;
+
+    const cuts: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const t01 = n === 1 ? 0.5 : i / (n - 1);
+      cuts.push(centre - usable / 2 + usable * t01);
+    }
+    // 断片を、窓の開口で分割していく
+    let from = centre - span / 2;
+    for (const c of cuts) {
+      const a0 = c - WINDOW_HALF_W;
+      const a1 = c + WINDOW_HALF_W;
+      if (a0 > from) {
+        const mid = (from + a0) / 2;
+        const half = (a0 - from) / 2;
+        punched.push(
+          horizontal
+            ? { cx: mid, cz: w.cz, hw: half, hd: w.hd }
+            : { cx: w.cx, cz: mid, hw: w.hw, hd: half },
+        );
+      }
+      from = a1;
+      windows.push({
+        pos: horizontal ? { x: c, z: w.cz } : { x: w.cx, z: c },
+        normal: { ...outward },
+      });
+      // 開口をちょうど埋める栓。経路探索用の壁はこれを足して作る
+      windowPlugs.push(
+        horizontal
+          ? { cx: c, cz: w.cz, hw: WINDOW_HALF_W, hd: w.hd }
+          : { cx: w.cx, cz: c, hw: w.hw, hd: WINDOW_HALF_W },
+      );
+    }
+    const end = centre + span / 2;
+    if (end > from) {
+      const mid = (from + end) / 2;
+      const half = (end - from) / 2;
+      punched.push(
+        horizontal
+          ? { cx: mid, cz: w.cz, hw: half, hd: w.hd }
+          : { cx: w.cx, cz: mid, hw: w.hw, hd: half },
+      );
+    }
+  }
+
+  return { walls: punched, windowPlugs, opening, windows };
 }
 
 /**
@@ -283,10 +386,10 @@ export function makeSimpleBuilding(
   bounds: Bounds,
   doorSide: DoorSide,
   opts?: { wallThickness?: number; doorWidth?: number },
-): { building: Building; walls: AABB[] } {
+): { building: Building; walls: AABB[]; windowPlugs: AABB[] } {
   const t = opts?.wallThickness ?? 0.25;
   const dw = opts?.doorWidth ?? 1.2;
-  const { walls, opening } = outerShell(bounds, doorSide, t, dw);
+  const { walls, windowPlugs, opening, windows } = outerShell(bounds, doorSide, t, dw);
 
   const inset = t + 0.05;
   const room: Room = {
@@ -310,7 +413,7 @@ export function makeSimpleBuilding(
     exterior: true,
   };
 
-  return { building: { id, bounds, rooms: [room], doors: [door] }, walls };
+  return { building: { id, bounds, rooms: [room], doors: [door], windows }, walls, windowPlugs };
 }
 
 /** 中廊下の幅 m。扉から1.5mのスタック位置が廊下に収まる幅を確保する。`[v6.2]` */
@@ -347,10 +450,10 @@ export function makeCorridorBuilding(
   bounds: Bounds,
   doorSide: DoorSide,
   opts?: { wallThickness?: number; doorWidth?: number },
-): { building: Building; walls: AABB[] } {
+): { building: Building; walls: AABB[]; windowPlugs: AABB[] } {
   const t = opts?.wallThickness ?? 0.25;
   const dw = opts?.doorWidth ?? 1.2;
-  const { walls, opening } = outerShell(bounds, doorSide, t, dw);
+  const { walls, windowPlugs, opening, windows } = outerShell(bounds, doorSide, t, dw);
 
   const inner: Bounds = {
     minX: bounds.minX + t,
@@ -507,7 +610,7 @@ export function makeCorridorBuilding(
   // 廊下と区画列を仕切る横壁。区画ごとの扉ぶんを開けておく
   wallAlong(corridorD, aMin, aMax, corridorDoorAt);
 
-  return { building: { id, bounds, rooms, doors }, walls };
+  return { building: { id, bounds, rooms, doors, windows }, walls, windowPlugs };
 }
 
 /**

@@ -30,6 +30,7 @@ import {
   SUPPRESSION_ACC_PENALTY,
   SUPPRESSION_ACC_PENALTY_MARKSMAN,
   SUPPRESSION_GRACE_TICKS,
+  WINDOW,
   SUPPRESS_TRIGGER_RATE_PER_SEC,
   SOLDIER_RADIUS,
 } from "../constants.ts";
@@ -63,6 +64,10 @@ export interface ShotContext {
    */
   range?: number;
   maxRange?: number;
+  /** 射手が窓に就いている(`[v6.10]` 仕様 §7/§8)。命中 +30% */
+  shooterAtWindow?: boolean;
+  /** 目標が窓に就いている。撃つ側の命中 −60% */
+  targetAtWindow?: boolean;
 }
 
 /**
@@ -103,6 +108,10 @@ export function rollShot(rng: Rng, ctx: ShotContext): ShotOutcome {
   if (ctx.range !== undefined && ctx.maxRange !== undefined) {
     accMul *= rangeAccMul(ctx.range, ctx.maxRange);
   }
+  // 窓(`[v6.10]` 仕様 §7/§8)。銃眼から撃つ側の非対称を、他の修正と同じく**乗算**で。
+  // 撃つ側と撃たれる側の両方が窓にいる場合、両方の係数が掛かる(窓越しの撃ち合い)。
+  if (ctx.shooterAtWindow) accMul *= WINDOW.SHOOTER_ACC_MUL;
+  if (ctx.targetAtWindow) accMul *= WINDOW.TARGET_ACC_MUL;
   const hitP = ratePerTick(HIT_RATE_PER_SEC * accMul, SIM_DT);
   if (!chance(rng, hitP)) return { hit: false };
   return { hit: true, lethal: chance(rng, KIA_ON_HIT_CHANCE) };
@@ -306,6 +315,9 @@ export function combatSystem(world: World): void {
       shooterAssaulting: s.assaultingUntilTick > world.tick,
       range: tlen,
       maxRange: weaponRangeOf(s).detect,
+      // 窓(`[v6.10]` 仕様 §7/§8)。`windowsSystem` がこのティックの位置から確定済み
+      shooterAtWindow: s.atWindow,
+      targetAtWindow: target.atWindow,
     });
 
     // 制圧役は行動抑制(evade)も誘発する。SAW 1.5倍 / MG 2.0倍(仕様 §14 / `[v6.1]` §2)

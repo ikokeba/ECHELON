@@ -140,6 +140,11 @@ describe("接敵時の姿勢と選抜射手の運用(`[v6.4]`)", () => {
         const p = prev.get(s.id);
         const moved = p ? Math.hypot(s.pos.x - p.x, s.pos.z - p.z) : 99;
         prev.set(s.id, { x: s.pos.x, z: s.pos.z });
+        // `[v6.10]` **本部要員は数えない。** 中隊本部・小隊本部はCP/CCPに常駐するのが
+        // 仕様 §11 の正しい挙動なので、「静止していて壁から遠い」に必ず該当する。
+        // 測りたいのは戦闘部隊が開豁地で棒立ちになっていないかであって、
+        // 指揮所の位置取りではない(この混入で指標が常に 3.8 ポイント底上げされていた)。
+        if (s.fireteamId < 0) continue;
         if (s.sees.length === 0) continue;
         if (w.buildings.some((b) => insideBounds(b.bounds, s.pos))) continue;
         engaged++;
@@ -147,7 +152,9 @@ describe("接敵時の姿勢と選抜射手の運用(`[v6.4]`)", () => {
       }
     }
     expect(engaged).toBeGreaterThan(1000);
-    // 修正前は 10〜12%。横断中の一時的な露出は正常なので、静止したままのものだけを見る
+    // 修正前は 10〜12%。横断中の一時的な露出は正常なので、静止したままのものだけを見る。
+    // `[v6.10]` 窓を入れて見通しが増えたぶん交戦の母数が増えたが、遮蔽を**窓の無い壁**
+    // から作る修正(world.ts)と本部要員の除外で 7.6%。
     expect(exposedStatic / engaged).toBeLessThan(0.1);
   }, 420000);
 });

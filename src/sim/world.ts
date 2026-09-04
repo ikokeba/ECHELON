@@ -81,6 +81,11 @@ export interface World {
   wallIndex: WallIndex;
   /** 構造物の壁だけ。扉は常に開いているものとしてナビグリッドを作るために使う */
   structuralWalls: AABB[];
+  /**
+   * 経路探索用の壁(`[v6.10]`)。`structuralWalls` との違いは**窓が塞がっている**ことだけ。
+   * ナビグリッドはこちらから張る — 窓から出入りできてしまうと突入ドリルが意味を失う。
+   */
+  navWalls: AABB[];
   /** 建物(仕様 §7)。屋外と屋内はシームレスな1つのマップ */
   buildings: Building[];
   /** 扉。開閉が視界の境界線になる(仕様 §7.6) */
@@ -453,7 +458,7 @@ export function activateBuildingNav(world: World, buildingId: number): void {
   // この1棟の細グリッドと継ぎ目を**追記**するだけでよい(`[v6.3]`)。
   appendBuildingNav(
     world.nav,
-    world.structuralWalls,
+    world.navWalls,
     world.bounds,
     b,
     CQB.NAV_STEP,
@@ -469,6 +474,12 @@ export function refreshBlockers(world: World): void {
 
 function buildWorld(scenario: Scenario): World {
   const structuralWalls = scenario.walls.map((w) => ({ ...w }));
+  // 経路探索用は「視線用の壁 + 窓の栓」(`[v6.10]`)。差分で持つので、シナリオが
+  // どこにどれだけ壁を足しても経路側へ取りこぼしようがない
+  const navWalls = [
+    ...structuralWalls.map((w) => ({ ...w })),
+    ...(scenario.windowPlugs ?? []).map((w) => ({ ...w })),
+  ];
   const buildings = (scenario.buildings ?? []).map((b) => ({
     ...b,
     bounds: { ...b.bounds },
@@ -496,7 +507,7 @@ function buildWorld(scenario: Scenario): World {
       .map((b) => b.id),
   );
   const nav = buildNavSet(
-    structuralWalls,
+    navWalls,
     scenario.bounds,
     NAV_STEP_OUTDOOR,
     NAV_MARGIN_OUTDOOR,
@@ -505,7 +516,11 @@ function buildWorld(scenario: Scenario): World {
     CQB.NAV_STEP,
     CQB.NAV_MARGIN,
   );
-  const coverPoints = buildCoverPoints(structuralWalls, scenario.bounds, buildings);
+  // 遮蔽は**窓の空いていない壁**から作る(`[v6.10]`)。窓は視線を通すだけで、
+  // 壁そのものが薄くなるわけではない。穴の空いた壁から作ると建物の外面に沿った
+  // 遮蔽点が消え、接敵中の兵士が壁に寄らず開豁地に立ち続ける
+  // (実測: 開豁地で静止したまま撃ち合う割合 9.7% → 15.2%)。
+  const coverPoints = buildCoverPoints(navWalls, scenario.bounds, buildings);
   const coverIndex = buildCoverIndex(coverPoints, scenario.bounds);
   const soldiers = scenario.soldiers.map(cloneSoldier);
   const soldierById = new Map(soldiers.map((s) => [s.id, s]));
@@ -525,6 +540,7 @@ function buildWorld(scenario: Scenario): World {
     walls,
     wallIndex: buildWallIndex(walls, scenario.bounds),
     structuralWalls,
+    navWalls,
     buildings,
     doors,
     nav,

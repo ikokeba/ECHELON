@@ -40,6 +40,7 @@ import { formationSlots } from "../formation.ts";
 import { meanTraits, traitMul } from "../traits.ts";
 import { aiSuppressed } from "../control.ts";
 import { objectiveCoveringPoint } from "./objectiveHold.ts";
+import { bestWindowPost, manWindows } from "../systems/windows.ts";
 import { isCommittedToAid } from "../systems/casualties.ts";
 import { isCommittedToLitter, isOffField } from "../systems/litter.ts";
 import { exitCqb, runCqb } from "./cqbDrill.ts";
@@ -68,6 +69,8 @@ const MODE_DWELL_TICKS = Math.round(1.2 * SIM_HZ);
 const DEST_HOLD_TICKS = Math.round(1.5 * SIM_HZ);
 /** 躍進レグ/目的地の「到達」とみなす距離(モック: 1.8 / 1.5m) */
 const BOUND_ARRIVE = 1.8;
+/** 目標にこの距離まで寄っていれば「着いた」とみなし、窓の守りに入る m(`[v6.10]`) */
+const WINDOW_HOLD_DIST = 14;
 const DEST_ARRIVE = 1.5;
 /** FTリーダーの意思決定周期。毎ティックではない */
 const DECIDE_EVERY_TICKS = Math.round(0.3 * SIM_HZ);
@@ -401,9 +404,61 @@ function moveInFormation(
 /**
  * 前進(Traveling、仕様 §6): 接敵の可能性が低く速度優先。
  * 隊列を保ったまま全員が連続移動する。警戒要員を割かないぶん最も速い。
+ *
+ * `[v6.10]` **持ち場に着いた屋内のFTは、隊形をやめて窓に散る**(仕様 §7)。
+ * 建物を守るとはそういうことで、部屋の真ん中で隊形を組んでいても外は撃てない。
+ * 窓に就けば被命中 −60% / 命中 +30%(仕様 §8)なので、建物を抱えた側は
+ * 自然に有利になる — 新しいFTモードは足していない。
  */
 function runTraveling(world: World, ft: FireteamState, members: Soldier[], forward: Vec2): void {
+  if (postAtWindows(world, ft, members)) return;
   moveInFormation(world, ft, members, forward, ft.objective);
+}
+
+/**
+ * 屋内で持ち場に着いているなら、隊員を窓へ配る(`[v6.10]`)。配れたら true。
+ *
+ * 発動の条件を「目標に着いていること」にしてあるのが要点。移動中に窓へ吸い寄せると
+ * 建物を通り抜けるだけで足が止まる。**着いてから守りに入る**、という順序を守る。
+ */
+/** FTが把握している最有力の接触の位置。無ければ null。確度が同じなら新しいほうを採る */
+function ftThreat(ft: FireteamState): Vec2 | null {
+  let best: Contact | null = null;
+  for (const c of ft.memory.values()) {
+    if (c.confidence < CONFIDENCE_CUTOFF) continue;
+    if (
+      !best ||
+      c.confidence > best.confidence + 0.001 ||
+      (Math.abs(c.confidence - best.confidence) <= 0.001 && c.lastSeenTick > best.lastSeenTick)
+    ) {
+      best = c;
+    }
+  }
+  return best ? { ...best.pos } : null;
+}
+
+function postAtWindows(world: World, ft: FireteamState, members: Soldier[]): boolean {
+  if (members.length === 0) return false;
+  // **拠点に立っているFTは窓へ行かせない**(`[v6.10]`)。確保は判定円の中の人数で
+  // 決まる(仕様 §12)ので、窓へ引き剥がすと確保が止まる — 実際に止めた
+  // (確保保持 178→0秒)。分隊の突撃組が拠点に立ち、支援組が窓を持つ、という分担。
+  if (objectiveCoveringPoint(world, ft.objective)) return false;
+  const mc = centroid(members);
+  if (dist(mc, ft.objective) > WINDOW_HOLD_DIST) return false;
+  const threat = ftThreat(ft);
+  const posts = manWindows(world, members, threat);
+  if (posts.size === 0) return false;
+  for (const u of members) {
+    const p = posts.get(u.id);
+    if (!p) continue;
+    // 監視方向は窓の外側。脅威が分かっていればそちら、無ければ目標の方向
+    issue(world, u, "hold", p, dirTo(u.pos, threat ?? ft.objective));
+    u.speedMul = 1;
+  }
+  // 窓に就けなかった隊員は従来どおり目標のまわりに収まる
+  const rest = members.filter((u) => !posts.has(u.id));
+  if (rest.length > 0) moveInFormation(world, ft, rest, dirTo(mc, ft.objective), ft.objective);
+  return true;
 }
 
 /**
@@ -730,6 +785,8 @@ export function fireteamAI(world: World): void {
         return true;
       };
 
+      // 同じ窓へ2人を送らないための、このFT内で埋まった持ち場(`[v6.10]`)
+      const windowsTaken: Vec2[] = [];
       for (const u of base) {
         u.holdFireUntilTick = 0;
         if (reactToContact(u)) continue;
@@ -823,9 +880,16 @@ export function fireteamAI(world: World): void {
             );
           }
         } else {
-          const p = cachedDest(world, ft, u, () =>
-            bestCoverPoint(world.walls, world.coverIndex, u.pos, enemy, engageMin, engageMax),
-          );
+          // `[v6.10]` 屋内にいるなら、まず**窓**を射撃位置の候補にする(仕様 §7/§8)。
+          // 銃眼から撃つ側は被命中 −60% / 命中 +30% なので、建物を抱えた防御側は
+          // ここで自然に窓へ張り付く。屋外の遮蔽探索と同じ位置に差し込むだけで、
+          // 新しい命令もFTモードも増やしていない。
+          const p =
+            bestWindowPost(world, u, enemy, windowsTaken) ??
+            cachedDest(world, ft, u, () =>
+              bestCoverPoint(world.walls, world.coverIndex, u.pos, enemy, engageMin, engageMax),
+            );
+          if (p) windowsTaken.push(p);
           if (p) {
             issue(world, u, "suppress", p, dirTo(u.pos, enemy));
           } else {
