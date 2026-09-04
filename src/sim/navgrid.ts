@@ -67,6 +67,20 @@ const TIE_EPS = 1e-4;
  * A* が展開してよいノード数の上限。`[v6.3]`
  * 盤面2倍(ノード15万)で、到達不能な目標1件あたり全走査が発生していたため設けた。
  * 実際に到達できる経路の展開数はこれを大きく下回る(市街地を斜めに横断しても数千)。
+ *
+ * `[v6.11]` **下げようとして戻した。** 街路が不規則な盤面(`fields.ts`)では到達
+ * 不能な目標が生まれやすく、90秒に165件の打ち切りが全走査を起こしていたので、
+ * 実測(成功した探索は平均365〜647展開・最大14,013)を根拠に2万まで下げた。
+ * 実行時間は確かに大きく改善したが、**対称性テストが落ちた**。
+ *
+ * 理由は等コストの決着方法にある。A* は同点を**座標ハッシュ**で決めるが(方向の
+ * 偏りを位置の有利不利に変えないため)、座標ハッシュは点対称((x,z)→(-x,-z))
+ * のもとで不変ではない。したがって鏡像の2つの探索は同じ経路を見つけても
+ * **展開数が厳密には一致しない**。上限が実際の探索範囲(数百〜1万4千)の近くに
+ * あると、その僅差が「片方だけ打ち切られる」に化ける。
+ *
+ * つまりこの値は速度の調整つまみではなく、**実際の探索範囲から十分に離れている
+ * ことが要件**。下げるなら決着方法を点対称にするのが先。
  */
 const MAX_EXPANSIONS = 100000;
 
@@ -355,6 +369,45 @@ export interface NavSet {
   offsets: number[];
   /** grids[i+1] が担当する領域(建物 + 進入余裕)。屋外グリッドには対応しない */
   regions: Bounds[];
+  /**
+   * ノードごとの連結成分番号(`[v6.11]`)。**同じ番号どうしでなければ経路は無い。**
+   *
+   * これが無いと、到達できない目標を指されるたびに A* が上限(10万ノード)まで
+   * 走ってから諦める。街路が不規則な盤面では120秒に118件起き、実戦300秒の所要が
+   * 格子盤面の23秒に対し221秒になった。連結成分を先に見れば同じ結論が O(1) で出る。
+   *
+   * **上限を下げて済ませることはできない。** A* の同点処理は座標ハッシュで決めるが、
+   * 座標ハッシュは点対称のもとで不変ではないので、鏡像の探索は展開数が厳密には
+   * 一致しない。上限を実際の探索範囲(数百〜1万4千)の近くへ下げると、その僅差が
+   * 「片方だけ打ち切られる」に化けて仕様 §2/§13 の対称性が壊れる(実際に壊した)。
+   */
+  comp: Int32Array;
+}
+
+/**
+ * 連結成分を数え直す(`[v6.11]`)。グリッドを組んだ直後と、建物の細グリッドを
+ * 継ぎ足した直後に呼ぶ。幅優先で O(V+E)、15万ノードでも数ミリ秒。
+ */
+function computeComponents(nodes: readonly NavNode[], adj: readonly [number, number][][]): Int32Array {
+  const comp = new Int32Array(nodes.length).fill(-1);
+  const stack: number[] = [];
+  let next = 0;
+  for (let i = 0; i < nodes.length; i++) {
+    if (comp[i] !== -1) continue;
+    const c = next++;
+    comp[i] = c;
+    stack.length = 0;
+    stack.push(i);
+    while (stack.length > 0) {
+      const cur = stack.pop()!;
+      for (const [nb] of adj[cur]!) {
+        if (comp[nb] !== -1) continue;
+        comp[nb] = c;
+        stack.push(nb);
+      }
+    }
+  }
+  return comp;
 }
 
 /** 細グリッドが建物の外側へ張り出す余裕 m。スタック位置(扉から1.5m)を含める。 */
@@ -458,7 +511,7 @@ export function buildNavSet(
     });
   });
 
-  return { nodes, adj, grids, offsets, regions };
+  return { nodes, adj, grids, offsets, regions, comp: computeComponents(nodes, adj) };
 }
 
 /**
@@ -515,6 +568,9 @@ export function appendBuildingNav(
     set.adj[base + li]!.push([oi, d]);
     set.adj[oi]!.push([base + li, d]);
   });
+
+  // 継ぎ足したぶんを含めて連結成分を数え直す(`[v6.11]`)。建物ごとに1回だけ起きる
+  set.comp = computeComponents(set.nodes, set.adj);
 }
 
 function clampBounds(b: Bounds, outer: Bounds): Bounds {
@@ -554,5 +610,8 @@ export function findPathSet(
   const endIdx = nearestNodeIn(set, tx, tz);
   if (startIdx === -1 || endIdx === -1) return null;
   if (startIdx === endIdx) return [{ x: tx, z: tz }];
+  // `[v6.11]` つながっていないなら探索しない。A* に同じ結論を10万ノードかけて
+  // 出させる必要はない(`NavSet.comp` の注記を参照)
+  if (set.comp[startIdx] !== set.comp[endIdx]) return null;
   return astar(set.nodes, set.adj, startIdx, endIdx, tx, tz);
 }

@@ -44,6 +44,8 @@ export function pathingSystem(world: World): void {
     // 1回の山が100ms超)。位相を `ordinal`(鏡像で一致する編成上の通し番号)でずらす。
     // 兵士IDでずらすと両陣営で位相が食い違い、戦力対称性(仕様 §2/§13)が壊れる。
     if ((world.tick + s.ordinal) % PATH_RECHECK_TICKS !== 0) continue;
+
+
     const path = findPathSet(world.nav, s.pos.x, s.pos.z, goal.x, goal.z);
     if (path && path.length > 0) {
       s.path = path;
