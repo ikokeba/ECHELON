@@ -145,6 +145,24 @@ function resolveImpact(world: World, side: Side, at: Vec2): number {
 }
 
 /**
+ * いまの時点で使ってよい弾数(`[v6.10]`)。
+ *
+ * 中隊長は戦闘の長さを見積もって弾を配分する。開幕に1回ぶんの斉射を手元に置き、
+ * 残りを地平までかけて放出する。攻防戦は制限時間そのものが地平になる。
+ *
+ * **この関数が無いと前半で撃ち尽くす。** 要請間隔だけで抑えても、間隔が明けた瞬間に
+ * 必ず撃つので同じこと(実測: 12発が開始150秒で空、後半は火力支援なし)。
+ */
+function releasedRounds(world: World, magazine: number): number {
+  const horizonTicks =
+    world.timeLimitTicks > 0
+      ? world.timeLimitTicks
+      : Math.round(MORTAR.PLAN_HORIZON_SEC * SIM_HZ);
+  const t = Math.min(1, world.tick / Math.max(1, horizonTicks));
+  return Math.round(magazine * (MORTAR.OPENING_FRACTION + (1 - MORTAR.OPENING_FRACTION) * t));
+}
+
+/**
  * 毎ティック呼ばれる。順序は step.ts のとおり**戦闘判定の前** — 着弾による制圧が
  * その同じティックの射撃に効くようにするため(仕様 §8.6)。
  */
@@ -168,8 +186,11 @@ export function indirectSystem(world: World): void {
     const doc = sideDoctrine(world, co.side);
     // ドクトリンで持ち弾が変わる(仕様 §13)。自律群は火力支援を持たない
     if (doc.fireSupport <= 0) continue;
-    const allowance = Math.round(MORTAR.ROUNDS_PER_COMPANY * doc.fireSupport);
-    if (co.mortarRoundsUsed >= allowance) continue;
+    const magazine = Math.round(MORTAR.ROUNDS_PER_COMPANY * doc.fireSupport);
+    if (co.mortarRoundsUsed >= magazine) continue;
+    // 射撃計画(`[v6.10]`)。いまの時点で使ってよい弾数まで。
+    // これが無いと間隔が明けるたびに撃ち、前半で撃ち尽くす
+    if (co.mortarRoundsUsed >= releasedRounds(world, magazine)) continue;
     if (!hasCommandPost(world, co)) continue;
     // 判断周期・要請間隔ともドクトリンで鈍る。非正規軍は「呼べるが遅い」
     if (world.tick - co.lastFireMissionTick < COOLDOWN_TICKS * doc.radioLatencyMul) continue;
@@ -179,7 +200,7 @@ export function indirectSystem(world: World): void {
     const target = pickTarget(world, co);
     if (!target) continue;
 
-    const rounds = Math.min(MORTAR.ROUNDS_PER_MISSION, allowance - co.mortarRoundsUsed);
+    const rounds = Math.min(MORTAR.ROUNDS_PER_MISSION, magazine - co.mortarRoundsUsed);
     co.mortarRoundsUsed += rounds;
     co.lastFireMissionTick = world.tick;
     world.fireMissions.push({
