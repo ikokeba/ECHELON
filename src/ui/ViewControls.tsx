@@ -33,6 +33,7 @@ const SCENARIO_SHORT: Record<ScenarioKey, string> = {
   oldQuarter: "旧市街",
   bazaar: "大通り",
   planned: "新市街",
+  trench: "塹壕",
   company: "格子",
 };
 

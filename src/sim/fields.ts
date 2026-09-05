@@ -27,7 +27,9 @@ import {
   mirrorAll,
   mirrorRect,
   subdivideBlock,
+  trenchBays,
   walledCompound,
+  wireBelt,
 } from "./mapgen.ts";
 import type { AABB, Bounds, Building, Vec2 } from "./types.ts";
 
@@ -39,6 +41,14 @@ export interface Field {
   buildings: Building[];
   /** 拠点。中央 → 側面の順に並べる(呼称は `scenario.ts` が付ける) */
   objectives: Array<{ pos: Vec2; radius: number }>;
+  /**
+   * 最初から屋内ナビを張っておく建物のID(`[v6.12]`)。
+   *
+   * 通常の建物は突入が決まった時点で細グリッドを張れば足りる(仕様 §7.2)。
+   * **塹壕だけは違う** — 誰も「突入」しないまま、守る側が最初から入って戦う場所
+   * なので、張られていないと塹壕がただの障害物になり、部隊は迂回してしまう。
+   */
+  navFromStart?: number[];
 }
 
 const BOUNDS: Bounds = { minX: -220, maxX: 220, minZ: -170, maxZ: 170 };
@@ -406,3 +416,141 @@ export function boulevardField(): Field {
     ],
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 塹壕戦 — 対峙する2本の塹壕線と、そのあいだの無人地帯
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 塹壕戦(`[v6.12]` 仕様 §7/§12)。市街地の3枚とは戦い方が根本的に違う唯一の盤面。
+ *
+ * **新しい機構をほとんど足していない。** 塹壕は「細長い建物」として作ってあり、
+ * それだけで必要なものが揃う(`mapgen.ts` の `trenchBays` を参照):
+ * 胸壁が視線と移動を止め、銃眼は `[v6.10]` の窓、掃討は突入ドリル。
+ *
+ * 盤面の構成:
+ *
+ * ```
+ *   z=-140  展開線(青)
+ *   z=-112  支援壕 ────────────────────
+ *   z= -62  前線壕 ─┐ ┌─┐ ┌─┐ ┌─  ← 横墻で前後にずれる(縦射を通さない)
+ *   z= -46  鉄条網 ▨  ▨  ▨   ▨
+ *   z=   0  無人地帯 … 中央にクレーター陣地(拠点)
+ *   z= +46  鉄条網(点対称)
+ *   ...
+ * ```
+ *
+ * 拠点は3つとも**屋外**(囲われた陣地の中庭)。両軍は自陣側の1つを最初から抱え、
+ * 勝つには中央か敵側のもう1つが要る — 無人地帯を渡らなければ決着しない。
+ * 迫撃砲(`[v6.10]`)がこの盤面で最も意味を持つ。
+ */
+export function trenchField(): Field {
+  const out = emptyStructures();
+  const id = { v: 1 };
+  const walls: AABB[] = [];
+  const navFromStart: number[] = [];
+
+  /** 前線壕の中心線。ここを起点に無人地帯の幅が決まる */
+  const FRONT = -38;
+  /** 拠点にする堡塁の位置(前線壕の一部を太らせたもの) */
+  const strong: Bounds = { minX: -110, maxX: -82, minZ: FRONT - 8, maxZ: FRONT + 7 };
+
+  /** 塹壕1本を敷く。作った建物のIDを「最初からナビを張る」側へ積む */
+  const layTrench = (
+    x0: number,
+    x1: number,
+    z: number,
+    opts?: Parameters<typeof trenchBays>[3],
+  ): void => {
+    for (const bay of trenchBays(x0, x1, z, opts)) {
+      const rear: "north" | "south" = z < 0 ? "south" : "north";
+      navFromStart.push(id.v);
+      addBuilding(out, id.v++, bay, rear);
+      navFromStart.push(id.v);
+      addBuilding(out, id.v++, mirrorRect(bay), rear === "south" ? "north" : "south");
+    }
+  };
+
+  // 前線壕。堡塁の位置だけ空けて、その両側へ伸ばす
+  layTrench(-198, strong.minX - 4, FRONT);
+  layTrench(strong.maxX + 4, -24, FRONT);
+  layTrench(24, 198, FRONT);
+  // 支援壕。区画が長く、疎
+  layTrench(-186, -60, -88, { bay: 22, gap: 5 });
+  layTrench(60, 186, -88, { bay: 22, gap: 5 });
+
+  // 堡塁 — 前線壕を太らせた掩蔽陣地。**ここが拠点**なので、守る側は自然に
+  // 塹壕の中で守り(窓=銃眼に就き)、攻める側は塹壕へ入って掃討することになる
+  navFromStart.push(id.v);
+  addBuilding(out, id.v++, strong, "south");
+  navFromStart.push(id.v);
+  addBuilding(out, id.v++, mirrorRect(strong), "north");
+
+  // 交通壕(前線と支援を結ぶ南北の壕)
+  for (const cx of [-150, -60, 60, 150]) {
+    for (const seg of trenchBays(-80, -48, cx, { bay: 14, gap: 4, width: 4.4, traverse: 0 })) {
+      const rect: Bounds = { minX: cx - 2.2, maxX: cx + 2.2, minZ: seg.minX, maxZ: seg.maxX };
+      navFromStart.push(id.v);
+      addBuilding(out, id.v++, rect, "east");
+      navFromStart.push(id.v);
+      addBuilding(out, id.v++, mirrorRect(rect), "west");
+    }
+  }
+
+  // 鉄条網。前線壕の前に2列、隙間を千鳥にして通路を絞る
+  walls.push(...wireBelt(-200, -20, -28, 71));
+  walls.push(...wireBelt(20, 200, -28, 83));
+
+  // 無人地帯の砲撃痕。渡るあいだに息をつける遮蔽を点在させる。
+  // **これが薄いと誰も渡れない** — 実測で、遮蔽の無い124mの無人地帯は600秒かけても
+  // 2名しか渡れず、拠点が一度も争われなかった。
+  for (const [cx, cz] of [
+    [-176, -18], [-148, -6], [-120, -14], [-96, -20], [-72, -8],
+    [-48, -16], [-26, -6], [-6, -18], [30, -12], [54, -20],
+    [78, -6], [104, -16], [130, -8], [156, -18], [184, -12],
+    [-160, 10], [-108, 6], [-60, 12], [-16, 8], [44, 10], [92, 6], [140, 12], [178, 8],
+  ] as const) {
+    walls.push({ cx, cz, hw: 3.6, hd: 0.5 });
+    walls.push({ cx: cx + 4.8, cz: cz - 3.8, hw: 0.5, hd: 2.8 });
+  }
+
+  // 中央のクレーター陣地。無人地帯で唯一まとまった遮蔽になる。
+  //
+  // **塀は一重にする。** 二重の環にして門を南北へ振り分けたら、入るのに環を
+  // 回り込む必要が生まれ、無人地帯の真ん中で遠回りを強いられて誰も入れなかった
+  // (600秒かけて中央拠点が0%のまま)。遮蔽としては一重で足りる。
+  const crater: Bounds = { minX: -19, maxX: 19, minZ: -14, maxZ: 14 };
+  walls.push(...walledCompound(crater, "north", { gateWidth: 9 }));
+  // 南側にも口を開ける(点対称なので両軍が同じ条件で入れる)
+  walls.push({ cx: -13.5, cz: -14, hw: 5.5, hd: 0.5 });
+  walls.push({ cx: 13.5, cz: -14, hw: 5.5, hd: 0.5 });
+  // 環の内側の遮蔽。入った側が完全な的にならないように
+  walls.push({ cx: -7, cz: 4, hw: 4, hd: 0.5 });
+  walls.push({ cx: 9, cz: -3, hw: 0.5, hd: 4 });
+
+  // 後方の掩蔽壕(支援壕の後ろ)。立て直しの遮蔽
+  const dugout: Bounds = { minX: -128, maxX: -110, minZ: -112, maxZ: -100 };
+  addBuilding(out, id.v++, dugout, "north");
+  addBuilding(out, id.v++, mirrorRect(dugout), "south");
+
+  return {
+    bounds: BOUNDS,
+    walls: [...out.walls, ...mirrorAll(walls)],
+    windowPlugs: out.windowPlugs,
+    buildings: out.buildings,
+    navFromStart,
+    // **拠点は2つ、両軍の堡塁そのもの。** 中央のクレーターは遮蔽として残すが拠点に
+    // しない — 露出した拠点を火線下で保持することが現状のC2にはできず
+    // (`[v6.10]` F-9 の残件)、600秒かけて0%のままだった。3つのうち2つが必要な
+    // 規則のもとで中央が永久に中立だと、**決着が構造的に起こらない**。
+    //
+    // 2つにすると過半数=2、つまり「自分の堡塁を保ちつつ敵の堡塁を奪う」が勝利条件に
+    // なる。塹壕戦の勝ち方そのもので、しかも到達できることは実測済み
+    // (青の前縁は敵前線壕の +36m まで届いている)。
+    objectives: [
+      { pos: centreOf(strong), radius: OBJECTIVE.RADIUS.small },
+      { pos: centreOf(mirrorRect(strong)), radius: OBJECTIVE.RADIUS.small },
+    ],
+  };
+}
+

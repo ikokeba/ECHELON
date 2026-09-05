@@ -218,3 +218,75 @@ export function centreOf(b: Bounds): Vec2 {
   return { x: (b.minX + b.maxX) / 2, z: (b.minZ + b.maxZ) / 2 };
 }
 
+/**
+ * 塹壕の一区画を作る(`[v6.12]` 仕様 §7)。
+ *
+ * **細長い建物として作る**のが要点。塹壕を新しい地形種として足すのではなく、
+ * すでにある「建物」の形をそのまま使うと、必要なものが全部ついてくる:
+ *
+ *   - 胸壁 = 建物の外壁(視線も移動も止める)
+ *   - 塹壕の底 = 部屋(細グリッドが張られれば歩ける)
+ *   - **銃眼 = 窓**(`[v6.10]`)。就いた側は被命中 −60% / 命中 +30%、
+ *     しかも守勢のFTは到着すると自動で窓へ散る
+ *   - 交通壕の入口 = 扉
+ *   - 塹壕の掃討 = 突入ドリル(仕様 §7.2)。実際の「塹壕を爆撃で潰していく」に対応する
+ *
+ * 区画(bay)を短く区切って**横墻(traverse)で前後にずらす**のは実物どおりで、
+ * これがあると縦射(enfilade)が通らない — 1区画を制圧しても隣は見えない。
+ *
+ * @param z 塹壕の中心線。区画は `traverse` ぶん前後に振れる
+ * @param bay 1区画の長さ m
+ * @param gap 区画のあいだの切れ目 m。ここを通って隣の区画へ移る
+ */
+export function trenchBays(
+  x0: number,
+  x1: number,
+  z: number,
+  opts?: { bay?: number; gap?: number; width?: number; traverse?: number },
+): Bounds[] {
+  const bay = opts?.bay ?? 16;
+  const gap = opts?.gap ?? 3.2;
+  const width = opts?.width ?? 4.4;
+  const traverse = opts?.traverse ?? 2.6;
+  const out: Bounds[] = [];
+  let x = x0;
+  let k = 0;
+  while (x + bay <= x1) {
+    const zc = z + (k % 2 === 0 ? -traverse : traverse) / 2;
+    out.push({ minX: x, maxX: x + bay, minZ: zc - width / 2, maxZ: zc + width / 2 });
+    x += bay + gap;
+    k++;
+  }
+  return out;
+}
+
+/**
+ * 鉄条網の帯(`[v6.12]`)。低い壁を千鳥に並べ、**通れる隙間を数か所だけ残す**。
+ *
+ * engine には「速度を落とす障害」が無い(移動は通れるか通れないかの二択)ので、
+ * 鉄条網は**通路を絞るもの**として表現する。攻撃側は隙間へ吸い寄せられ、
+ * 守勢はそこへ火力を集める — 実際の鉄条網が果たす役割はそれなので、
+ * 速度低下を足さなくても意図は成立する。
+ */
+export function wireBelt(
+  x0: number,
+  x1: number,
+  z: number,
+  salt: number,
+  opts?: { run?: number; gap?: number; rows?: number },
+): AABB[] {
+  const run = opts?.run ?? 26;
+  const gap = opts?.gap ?? 9;
+  const rows = opts?.rows ?? 2;
+  const out: AABB[] = [];
+  for (let r = 0; r < rows; r++) {
+    // 列ごとに半ピッチずらす。同じ位相で重ねると隙間が筒抜けの通路になる
+    const phase = r * (run + gap) * 0.5;
+    let x = x0 + phase + hashRange(x0, z, salt + r, 0, gap);
+    while (x + run <= x1) {
+      out.push({ cx: x + run / 2, cz: z + r * 3.4, hw: run / 2, hd: 0.4 });
+      x += run + gap;
+    }
+  }
+  return out;
+}

@@ -506,6 +506,8 @@ function buildWorld(scenario: Scenario): World {
       )
       .map((b) => b.id),
   );
+  // `[v6.12]` シナリオが指定した建物(塹壕)も最初から張る
+  for (const id of scenario.navBuildingIds ?? []) navBuildings.add(id);
   const nav = buildNavSet(
     navWalls,
     scenario.bounds,

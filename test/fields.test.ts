@@ -120,22 +120,43 @@ describe("盤面の健全性(`[v6.11]`)", () => {
   });
 
   /**
-   * `[v6.11]` 新しい盤面の拠点はすべて**屋外**(広場・塀で囲った敷地)。
+   * `[v6.11]` 市街地の盤面の拠点はすべて**屋外**(広場・塀で囲った敷地)。
    * 室内の一室を拠点にすると確保が最良22%で止まる(`[v6.10]` F-9 の残件)ので、
-   * 盤面を足すときはここを守る。格子盤面だけは室内拠点のまま(基準として残す)。
+   * 盤面を足すときはここを守る。
+   *
+   * 除外が2枚ある。格子盤面は室内拠点のまま(比較の基準として残す)。
+   * **塹壕戦は意図的に室内**(堡塁の中)— そこが拠点であることが、守る側を塹壕へ
+   * 入れて銃眼に就かせ、攻める側に塹壕の掃討を強いる仕掛けそのものだから。
+   * しかも堡塁は単純な形の1棟なので、市街地の奥の一室のようには迷わない
+   * (実測でも両軍とも自分の堡塁を確保できている)。
    */
-  it.each(KEYS.filter((k) => k !== "company"))("'%s' の拠点は建物の中に無い", (key) => {
-    const w = createWorld(SCENARIOS[key].make());
-    expect(w.objectives.length).toBeGreaterThan(0);
-    for (const o of w.objectives) {
-      const inside = w.buildings.some(
-        (b) =>
-          o.pos.x >= b.bounds.minX &&
-          o.pos.x <= b.bounds.maxX &&
-          o.pos.z >= b.bounds.minZ &&
-          o.pos.z <= b.bounds.maxZ,
-      );
-      expect.soft(inside, `${o.label} が建物の中にある`).toBe(false);
-    }
+  it.each(KEYS.filter((k) => k !== "company" && k !== "trench"))(
+    "'%s' の拠点は建物の中に無い",
+    (key) => {
+      const w = createWorld(SCENARIOS[key].make());
+      expect(w.objectives.length).toBeGreaterThan(0);
+      for (const o of w.objectives) {
+        const inside = w.buildings.some(
+          (b) =>
+            o.pos.x >= b.bounds.minX &&
+            o.pos.x <= b.bounds.maxX &&
+            o.pos.z >= b.bounds.minZ &&
+            o.pos.z <= b.bounds.maxZ,
+        );
+        expect.soft(inside, `${o.label} が建物の中にある`).toBe(false);
+      }
+    },
+  );
+
+  /**
+   * `[v6.12]` 塹壕は「細長い建物」として作ってあり、**最初から屋内ナビが張られて
+   * いなければただの障害物になる**(誰も「突入」しないまま守る側が入って戦う場所
+   * なので、通常の遅延構築では張られない)。張り忘れると部隊は塹壕を迂回する。
+   */
+  it("塹壕はすべて最初から屋内ナビが張られている", () => {
+    const w = createWorld(SCENARIOS.trench.make());
+    // 堡塁・交通壕・前線壕・支援壕 — 掩蔽壕2棟を除く全部
+    expect(w.navBuildings.size).toBeGreaterThanOrEqual(w.buildings.length - 2);
+    expect(w.buildings.reduce((a, b) => a + b.windows.length, 0)).toBeGreaterThan(100);
   });
 });

@@ -17,6 +17,7 @@ import {
   boulevardField,
   oldQuarterField,
   plannedDistrictField,
+  trenchField,
   type Field,
 } from "./fields.ts";
 import { traitProfile } from "./traits.ts";
@@ -72,6 +73,11 @@ export const SCENARIOS = {
     label: "新市街",
     detail: "段違いに並ぶ長い街区。斜行した街路に沿って中距離の射線が通る",
     make: (seed?: number, force?: Record<Side, ForceSpec>) => plannedDistrictScenario(seed, force),
+  },
+  trench: {
+    label: "塹壕戦",
+    detail: "対峙する2本の塹壕線と、そのあいだの無人地帯。渡らなければ決着しない",
+    make: (seed?: number, force?: Record<Side, ForceSpec>) => trenchScenario(seed, force),
   },
   company: {
     label: "格子街区",
@@ -924,6 +930,7 @@ function companyOnField(
     walls: field.walls,
     windowPlugs: field.windowPlugs,
     buildings: field.buildings,
+    navBuildingIds: field.navFromStart,
     soldiers,
     fireteamPlans,
     squadPlans,
@@ -988,6 +995,17 @@ export function boulevardScenario(
   force: Record<Side, ForceSpec> = defaultForce(),
 ): Scenario {
   return companyOnField("boulevard", boulevardField(), seed, force);
+}
+
+/**
+ * 塹壕戦(`[v6.12]`)。市街地の3枚とは戦い方が根本的に違う唯一の盤面。
+ * 塹壕は細長い建物として作ってあるので、銃眼は窓、掃討は突入ドリルがそのまま使える。
+ */
+export function trenchScenario(
+  seed = 1,
+  force: Record<Side, ForceSpec> = defaultForce(),
+): Scenario {
+  return companyOnField("trench-line", trenchField(), seed, force);
 }
 
 /**
