@@ -247,7 +247,19 @@ const WINDOW_EDGE_MARGIN = 1.6;
 
 function outerShell(
   bounds: Bounds,
-  doorSide: DoorSide,
+  /**
+   * 扉を開ける面。**複数指定できる**(`[v6.14]`)。
+   *
+   * 入口が1つしかないと、両軍が同じ扉を使うことになり**屋内で出会えない** —
+   * 実測で、両軍が同じ建物の中にいた時間は5枚の盤面すべてで **0秒**、
+   * 同一建物内での発砲は 0% だった。CQBの機構は動いていたが、掃討しているのは
+   * 空の部屋ばかりだった。対面する2つの扉を開ければ、青は南から赤は北から入り、
+   * 中で当たる。
+   *
+   * **対になる面で指定すること**(北+南、東+西)。点対称のもとで集合が保たれるので、
+   * 鏡像の建物は鏡像の扉配置になる(仕様 §2/§13)。
+   */
+  doorSides: readonly DoorSide[],
   t: number,
   dw: number,
 ): {
@@ -262,7 +274,7 @@ function outerShell(
    * 差分だけを返せば、どこにどれだけ壁を足しても取りこぼしようがない。
    */
   windowPlugs: AABB[];
-  opening: { pos: Vec2; normal: Vec2 };
+  openings: Array<{ pos: Vec2; normal: Vec2 }>;
   windows: Array<{ pos: Vec2; normal: Vec2 }>;
 } {
   const cx = (bounds.minX + bounds.maxX) / 2;
@@ -275,7 +287,7 @@ function outerShell(
   const face = (side: DoorSide): { pos: Vec2; normal: Vec2 } | null => {
     const horizontal = side === "north" || side === "south";
     const sign = side === "north" || side === "east" ? 1 : -1;
-    const openHere = doorSide === side;
+    const openHere = doorSides.includes(side);
     if (horizontal) {
       const z = cz + sign * hd;
       if (!openHere) {
@@ -298,12 +310,12 @@ function outerShell(
     return { pos: { x, z: cz }, normal: { x: -sign, z: 0 } };
   };
 
-  let opening: { pos: Vec2; normal: Vec2 } | null = null;
+  const openings: Array<{ pos: Vec2; normal: Vec2 }> = [];
   for (const side of ["north", "south", "east", "west"] as const) {
     const o = face(side);
-    if (o) opening = o;
+    if (o) openings.push(o);
   }
-  if (!opening) throw new Error("outerShell: 扉の面が作られなかった");
+  if (openings.length === 0) throw new Error("outerShell: 扉の面が作られなかった");
 
   // ── 窓(`[v6.10]` 仕様 §7)──
   //
@@ -374,7 +386,7 @@ function outerShell(
     }
   }
 
-  return { walls: punched, windowPlugs, opening, windows };
+  return { walls: punched, windowPlugs, openings, windows };
 }
 
 /**
@@ -384,12 +396,13 @@ function outerShell(
 export function makeSimpleBuilding(
   id: number,
   bounds: Bounds,
-  doorSide: DoorSide,
+  doorSide: DoorSide | readonly DoorSide[],
   opts?: { wallThickness?: number; doorWidth?: number },
 ): { building: Building; walls: AABB[]; windowPlugs: AABB[] } {
   const t = opts?.wallThickness ?? 0.25;
   const dw = opts?.doorWidth ?? 1.2;
-  const { walls, windowPlugs, opening, windows } = outerShell(bounds, doorSide, t, dw);
+  const sides = typeof doorSide === "string" ? [doorSide] : doorSide;
+  const { walls, windowPlugs, openings, windows } = outerShell(bounds, sides, t, dw);
 
   const inset = t + 0.05;
   const room: Room = {
@@ -402,18 +415,19 @@ export function makeSimpleBuilding(
       maxZ: bounds.maxZ - inset,
     },
   };
-  const door: Door = {
-    id: id * 10,
+  // 開口ごとに扉を作る(`[v6.14]`)。単室なので行き先はすべて同じ部屋
+  const doors: Door[] = openings.map((o, i) => ({
+    id: id * 10 + i,
     buildingId: id,
     roomId: room.id,
-    pos: opening.pos,
-    normal: opening.normal,
+    pos: o.pos,
+    normal: o.normal,
     width: dw,
     open: false,
     exterior: true,
-  };
+  }));
 
-  return { building: { id, bounds, rooms: [room], doors: [door], windows }, walls, windowPlugs };
+  return { building: { id, bounds, rooms: [room], doors, windows }, walls, windowPlugs };
 }
 
 /** 中廊下の幅 m。扉から1.5mのスタック位置が廊下に収まる幅を確保する。`[v6.2]` */
@@ -448,12 +462,17 @@ const BAY_SPLIT_DEPTH = 13;
 export function makeCorridorBuilding(
   id: number,
   bounds: Bounds,
-  doorSide: DoorSide,
+  doorSide: DoorSide | readonly DoorSide[],
   opts?: { wallThickness?: number; doorWidth?: number },
 ): { building: Building; walls: AABB[]; windowPlugs: AABB[] } {
   const t = opts?.wallThickness ?? 0.25;
   const dw = opts?.doorWidth ?? 1.2;
-  const { walls, windowPlugs, opening, windows } = outerShell(bounds, doorSide, t, dw);
+  const sides = typeof doorSide === "string" ? [doorSide] : doorSide;
+  // 最初の面が**正面**。中廊下はこの面に沿って走り、間取りの向きを決める。
+  // 残りの面の扉は、間取りができたあとで「その開口の内側にある部屋」へ付ける
+  const primary = sides[0]!;
+  const { walls, windowPlugs, openings, windows } = outerShell(bounds, sides, t, dw);
+  const opening = openings[0]!;
 
   const inner: Bounds = {
     minX: bounds.minX + t,
@@ -463,8 +482,8 @@ export function makeCorridorBuilding(
   };
 
   // ── 局所座標: `a` = 扉面に沿う方向、`d` = 扉面から室内へ入る奥行き ──
-  const horizontal = doorSide === "north" || doorSide === "south";
-  const posSide = doorSide === "north" || doorSide === "east";
+  const horizontal = primary === "north" || primary === "south";
+  const posSide = primary === "north" || primary === "east";
   const aMin = horizontal ? inner.minX : inner.minZ;
   const aMax = horizontal ? inner.maxX : inner.maxZ;
   const face = horizontal
@@ -496,7 +515,7 @@ export function makeCorridorBuilding(
   const bayD0 = corridorD + t;
   // 区画が取れないほど浅い建物は単室でよい(その場合 makeSimpleBuilding と同じ形になる)
   if (depth - bayD0 < 4 || aMax - aMin < 6) {
-    return makeSimpleBuilding(id, bounds, doorSide, opts);
+    return makeSimpleBuilding(id, bounds, sides, opts);
   }
 
   const rooms: Room[] = [];
@@ -609,6 +628,43 @@ export function makeCorridorBuilding(
 
   // 廊下と区画列を仕切る横壁。区画ごとの扉ぶんを開けておく
   wallAlong(corridorD, aMin, aMax, corridorDoorAt);
+
+  // ── 正面以外の外扉(`[v6.14]`)──
+  //
+  // 間取りができてから、開口の**内側にある部屋**へ扉を付ける。裏口は中廊下ではなく
+  // 奥の区画へ通じるので、青が正面から赤が裏から入れば**中で当たる**。
+  // 入口が1つだと両軍が同じ扉を使うことになり、屋内で出会えなかった
+  // (実測: 両軍が同じ建物にいた時間は5枚とも0秒、同一建物内の発砲0%)。
+  for (const o of openings.slice(1)) {
+    const inside = { x: o.pos.x + o.normal.x * 0.8, z: o.pos.z + o.normal.z * 0.8 };
+    // **「内側の点を含む部屋」では駄目。** 開口の真裏は部屋の境界すれすれなので、
+    // 丸めの向きひとつで入ったり入らなかったりする — 実際、24×12 の建物とその
+    // 点対称の双子で外扉の数が 1 と 2 に割れた(仕様 §2/§13 が崩れる)。
+    // 矩形までの距離で最も近い部屋を採れば、境界上でも必ず同じ答えになる。
+    let room: Room | null = null;
+    let bestD = Infinity;
+    for (const r of rooms) {
+      const dx = Math.max(r.bounds.minX - inside.x, 0, inside.x - r.bounds.maxX);
+      const dz = Math.max(r.bounds.minZ - inside.z, 0, inside.z - r.bounds.maxZ);
+      const d = Math.hypot(dx, dz);
+      if (d < bestD - 1e-9) {
+        bestD = d;
+        room = r;
+      }
+    }
+    // 1m以上離れているなら、その面の内側には部屋が無い(廊下の端など)
+    if (!room || bestD > 1) continue;
+    doors.push({
+      id: nextDoor++,
+      buildingId: id,
+      roomId: room.id,
+      pos: o.pos,
+      normal: o.normal,
+      width: dw,
+      open: false,
+      exterior: true,
+    });
+  }
 
   return { building: { id, bounds, rooms, doors, windows }, walls, windowPlugs };
 }

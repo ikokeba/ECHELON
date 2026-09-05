@@ -26,6 +26,7 @@ import {
   hashRange,
   mirrorAll,
   mirrorRect,
+  mosqueComplex,
   subdivideBlock,
   trenchBays,
   walledCompound,
@@ -151,7 +152,10 @@ export function oldQuarterField(): Field {
   ];
   // 先に空地を予約してから街区を敷く。順序が逆だと手置きの建物と必ずぶつかる
   const shrine: Bounds = { minX: -84, maxX: -52, minZ: -46, maxZ: -22 };
-  const plaza: Bounds = { minX: -22, maxX: 22, minZ: -18, maxZ: 18 };
+  // `[v6.14]` 中央は広場ではなく**モスク**。両軍がここを抜けないと中央の拠点へ届かず、
+  // 礼拝堂の中で当たる(市街地で室内戦が起きなかった原因への対処)
+  const mosque = mosqueComplex(out, id, { hallHalfW: 30, hallHalfD: 19, yard: 13 });
+  const plaza = mosque.reserved;
   // 廟そのものは中庭の**外**へ置く。中庭に建てると拠点の判定円と重なり、
   // 「屋外の拠点」でなくなってしまう(それが確保の成立する理由なので)
   const tomb: Bounds = { minX: -94, maxX: -86, minZ: -42, maxZ: -26 };
@@ -185,12 +189,7 @@ export function oldQuarterField(): Field {
   addBuilding(out, id.v++, tomb, "east");
   addBuilding(out, id.v++, mirrorRect(tomb), "west");
 
-  // 中央の広場を囲う塀。原点の拠点が完全な射殺場にならないよう、視線を切る
-  walls.push(
-    { cx: -13, cz: -11, hw: 7, hd: 0.5 },
-    { cx: 14, cz: -9, hw: 0.5, hd: 6 },
-    { cx: 8, cz: -17, hw: 5, hd: 0.5 },
-  );
+  walls.push(...mosque.walls);
 
   // 袋小路 — 街区の縁から内側へ刺さる短い路地。抜けられないので、
   // 追い込まれると詰む場所が生まれる(参照した写真にいくつも写っている)
@@ -218,7 +217,8 @@ export function oldQuarterField(): Field {
     windowPlugs: out.windowPlugs,
     buildings: out.buildings,
     objectives: [
-      { pos: { x: 0, z: 0 }, radius: OBJECTIVE.RADIUS.small },
+      // 中央はモスクの中庭(屋外)。礼拝堂を抜けた先にある
+      { pos: { x: 0, z: 0 }, radius: OBJECTIVE.RADIUS.large },
       { pos: centreOf(shrine), radius: OBJECTIVE.RADIUS.large },
       { pos: centreOf(mirrorRect(shrine)), radius: OBJECTIVE.RADIUS.large },
     ],
@@ -250,7 +250,9 @@ export function plannedDistrictField(): Field {
     { z0: -118, z1: -98, salt: 139 },
   ];
   const mosque: Bounds = { minX: -140, maxX: -96, minZ: -44, maxZ: -14 };
-  const roundabout: Bounds = { minX: -26, maxX: 26, minZ: -20, maxZ: 20 };
+  // `[v6.14]` 中央は環状交差点ではなく**大モスク**(`[v6.14]`)
+  const grand = mosqueComplex(out, id, { hallHalfW: 34, hallHalfD: 21, yard: 15 });
+  const roundabout = grand.reserved;
   // 礼拝堂は中庭の**外**。中庭は空地のまま残す(屋外の拠点として使うため)
   const prayerHall: Bounds = { minX: -158, maxX: -144, minZ: -42, maxZ: -18 };
   const reserved = [mosque, roundabout, prayerHall];
@@ -282,12 +284,7 @@ export function plannedDistrictField(): Field {
   addBuilding(out, id.v++, prayerHall, "east");
   addBuilding(out, id.v++, mirrorRect(prayerHall), "west");
 
-  // 中央の環状交差点まわり。原点の拠点を囲う植樹帯
-  walls.push(
-    { cx: 0, cz: -14, hw: 10, hd: 0.5 },
-    { cx: -16, cz: -4, hw: 0.5, hd: 8 },
-    { cx: 22, cz: -9, hw: 0.5, hd: 5 },
-  );
+  walls.push(...grand.walls);
 
   // 段違いの継ぎ目に立つ袖壁。斜行した通りの見通しを切る
   walls.push(
@@ -313,7 +310,7 @@ export function plannedDistrictField(): Field {
     windowPlugs: out.windowPlugs,
     buildings: out.buildings,
     objectives: [
-      { pos: { x: 0, z: 0 }, radius: OBJECTIVE.RADIUS.small },
+      { pos: { x: 0, z: 0 }, radius: OBJECTIVE.RADIUS.large },
       { pos: centreOf(mosque), radius: OBJECTIVE.RADIUS.large },
       { pos: centreOf(mirrorRect(mosque)), radius: OBJECTIVE.RADIUS.large },
     ],
@@ -344,9 +341,11 @@ export function boulevardField(): Field {
     { z0: -98, z1: -78, jog: 19, salt: 233, small: false },
     { z0: -126, z1: -106, jog: 3, salt: 241, small: false },
   ];
-  const hall: Bounds = { minX: -34, maxX: 10, minZ: -46, maxZ: -26 };
   const khan: Bounds = { minX: -186, maxX: -150, minZ: -48, maxZ: -24 };
-  const reserved = [hall, khan];
+  // `[v6.14]` 大通りを跨ぐ**大市場の建物**。渡り切った先ではなく、
+  // 渡る途中に室内戦が挟まる
+  const bazaarHall = mosqueComplex(out, id, { hallHalfW: 28, hallHalfD: 16, yard: 12 });
+  const reserved = [khan, bazaarHall.reserved];
 
   for (const r of rows) {
     const blocks = carve(
@@ -386,9 +385,7 @@ export function boulevardField(): Field {
     { cx: -34, cz: 12, hw: 4, hd: 0.5 },
   );
 
-  // 大通りに面した大きな商館(予約した空地の内側に収める)
-  addBuilding(out, id.v++, { minX: -32, maxX: 8, minZ: -44, maxZ: -28 }, "north");
-  addBuilding(out, id.v++, mirrorRect({ minX: -32, maxX: 8, minZ: -44, maxZ: -28 }), "south");
+  walls.push(...bazaarHall.walls);
 
   // 側面の拠点は塀で囲った隊商宿の中庭。屋外だが射線は切れる
   walls.push(...walledCompound(khan, "east", { gateWidth: 5 }));

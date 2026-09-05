@@ -64,15 +64,52 @@ export function doorTowardCentre(b: Bounds): DoorSide {
   return cx < 0 ? "east" : "west";
 }
 
+/**
+ * この建物に開ける扉の面(`[v6.14]`)。
+ *
+ * **大きい建物には裏口を付ける。** 入口が1つだと両軍が同じ扉を使うことになり、
+ * 屋内で出会えない — 実測で、両軍が同じ建物の中にいた時間は5枚の盤面すべてで
+ * **0秒**、同一建物内での発砲は **0%** だった。CQBの機構は動いていたが、
+ * 掃討しているのは空の部屋ばかりだった。
+ *
+ * 対になる面(北+南 / 東+西)で開けるので、点対称のもとで扉の集合が保たれる
+ * (仕様 §2/§13)。小さな民家は1つのまま — 裏口のある平屋ばかりでは街が嘘になる。
+ */
+function doorSidesFor(rect: Bounds, primary: DoorSide): DoorSide[] {
+  const w = rect.maxX - rect.minX;
+  const d = rect.maxZ - rect.minZ;
+  const span = Math.max(w, d);
+  if (span < BACK_DOOR_MIN_SPAN) return [primary];
+  const opposite: Record<DoorSide, DoorSide> = {
+    north: "south",
+    south: "north",
+    east: "west",
+    west: "east",
+  };
+  const sides: DoorSide[] = [primary, opposite[primary]];
+  // 特に大きい建物は側面にも。四方から入れる建物が1棟あると、そこが争点になる
+  if (span >= FOUR_DOOR_MIN_SPAN && Math.min(w, d) >= 16) {
+    const cross: DoorSide[] =
+      primary === "north" || primary === "south" ? ["east", "west"] : ["north", "south"];
+    sides.push(...cross);
+  }
+  return sides;
+}
+
+/** 裏口を付ける最小の長辺 m。これ未満は入口1つの民家のまま */
+const BACK_DOOR_MIN_SPAN = 20;
+/** 四方に扉を開ける最小の長辺 m。モスクや庁舎のような大規模建築だけ */
+const FOUR_DOOR_MIN_SPAN = 34;
+
 /** 矩形1つを建物にして `out` へ積む。小さすぎるものは単室になる(`makeSimpleBuilding`)。 */
 export function addBuilding(out: Structures, id: number, rect: Bounds, door?: DoorSide): void {
   const w = rect.maxX - rect.minX;
   const d = rect.maxZ - rect.minZ;
-  const side = door ?? doorTowardCentre(rect);
+  const sides = doorSidesFor(rect, door ?? doorTowardCentre(rect));
   const b =
     Math.min(w, d) >= 9 && Math.max(w, d) >= 14
-      ? makeCorridorBuilding(id, rect, side)
-      : makeSimpleBuilding(id, rect, side);
+      ? makeCorridorBuilding(id, rect, sides)
+      : makeSimpleBuilding(id, rect, sides);
   out.buildings.push(b.building);
   out.walls.push(...b.walls);
   out.windowPlugs.push(...b.windowPlugs);
@@ -289,4 +326,74 @@ export function wireBelt(
     }
   }
   return out;
+}
+
+/**
+ * モスクの大礼拝堂(`[v6.14]` 仕様 §7)。市街地の中央に置く**争点になる大規模建築**。
+ *
+ * ── なぜ必要だったか ──
+ *
+ * 掃討そのものは動いていた(300秒で35〜40棟に進入、15〜29棟を掃討)。しかし
+ * **両軍が同じ建物にいた時間は5枚の盤面すべてで0秒**、同一建物内での発砲も0% —
+ * 掃討しているのは常に空の部屋だった。接触線は実測で盤面中央(z≈−30〜+27)にできる
+ * ので、位置は合っている。足りなかったのは「**両軍が同じ建物へ、別々の側から入る**」
+ * という状況そのもの。
+ *
+ * 最初は中庭を南北の礼拝堂で挟む形(サハンとリワーク)にしたが、それだと青は南の堂・
+ * 赤は北の堂へ入り、出会うのは屋外の中庭になる — 屋内戦は起きなかった。
+ * **1棟の大きな広間**にして四方に扉を開けると、両軍は同じ部屋へ別々の扉から入る。
+ *
+ * ── 形 ──
+ *
+ * 多柱式(hypostyle)の礼拝堂。中廊下+区画ではなく**柱が立つ1つの大部屋**にする。
+ * 区画に割ると内壁が視線を切って、結局「別々の部屋を掃討する」に戻ってしまう。
+ * 柱は遮蔽になるので、広間が単なる射殺場にもならない。周囲は塀で囲い、四方に門を開ける。
+ */
+export function mosqueComplex(
+  out: Structures,
+  nextId: { v: number },
+  opts?: { hallHalfW?: number; hallHalfD?: number; yard?: number },
+): { reserved: Bounds; hall: Bounds; walls: AABB[] } {
+  const hw = opts?.hallHalfW ?? 30;
+  const hd = opts?.hallHalfD ?? 20;
+  const yard = opts?.yard ?? 14;
+  const walls: AABB[] = [];
+
+  // ── 大礼拝堂。原点対称なので、鏡像の盤面でも同じ1棟になる ──
+  const hall: Bounds = { minX: -hw, maxX: hw, minZ: -hd, maxZ: hd };
+  const b = makeSimpleBuilding(nextId.v++, hall, ["north", "south", "east", "west"], {
+    doorWidth: 2.2,
+  });
+  out.buildings.push(b.building);
+  out.walls.push(...b.walls);
+  out.windowPlugs.push(...b.windowPlugs);
+
+  // 柱列。原点対称に並べる。遮蔽になり、広間の中でも身を寄せる場所ができる
+  for (let i = -2; i <= 2; i++) {
+    for (const dz of [-hd * 0.45, hd * 0.45]) {
+      if (i === 0 && dz < 0) continue; // 中央は拠点なので空けておく
+      walls.push({ cx: i * hw * 0.36, cz: dz, hw: 0.7, hd: 0.7 });
+    }
+  }
+
+  // ── 外周の塀。四方に門を1つずつ ──
+  const ox = hw + yard;
+  const oz = hd + yard;
+  const gate = 7;
+  for (const sz of [-1, 1]) {
+    const seg = (ox * 2 - gate) / 4;
+    walls.push({ cx: -gate / 2 - seg, cz: sz * oz, hw: seg, hd: 0.5 });
+    walls.push({ cx: gate / 2 + seg, cz: sz * oz, hw: seg, hd: 0.5 });
+  }
+  for (const sx of [-1, 1]) {
+    const seg = (oz * 2 - gate) / 4;
+    walls.push({ cx: sx * ox, cz: -gate / 2 - seg, hw: 0.5, hd: seg });
+    walls.push({ cx: sx * ox, cz: gate / 2 + seg, hw: 0.5, hd: seg });
+  }
+
+  return {
+    reserved: { minX: -ox - 6, maxX: ox + 6, minZ: -oz - 6, maxZ: oz + 6 },
+    hall,
+    walls,
+  };
 }

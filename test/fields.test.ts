@@ -120,33 +120,61 @@ describe("盤面の健全性(`[v6.11]`)", () => {
   });
 
   /**
-   * `[v6.11]` 市街地の盤面の拠点はすべて**屋外**(広場・塀で囲った敷地)。
-   * 室内の一室を拠点にすると確保が最良22%で止まる(`[v6.10]` F-9 の残件)ので、
-   * 盤面を足すときはここを守る。
+   * 拠点が建物の中にある場合、**その建物には複数の入口が要る**(`[v6.14]`)。
    *
-   * 除外が2枚ある。格子盤面は室内拠点のまま(比較の基準として残す)。
-   * **塹壕戦は意図的に室内**(堡塁の中)— そこが拠点であることが、守る側を塹壕へ
-   * 入れて銃眼に就かせ、攻める側に塹壕の掃討を強いる仕掛けそのものだから。
-   * しかも堡塁は単純な形の1棟なので、市街地の奥の一室のようには迷わない
-   * (実測でも両軍とも自分の堡塁を確保できている)。
+   * `[v6.11]` の段階では「拠点はすべて屋外」を規則にしていた。室内の一室を拠点に
+   * すると確保が最良22%で止まったから(`[v6.10]` F-9 の残件)。
+   *
+   * `[v6.14]` でその規則を緩めた。屋内の拠点そのものが悪いのではなく、**入口が1つの
+   * 奥まった部屋**が悪い。入口が複数ある大きな1部屋(モスクの大礼拝堂、塹壕の堡塁)なら、
+   * 両軍が別々の扉から入って中で戦える — 市街地で室内戦が0だったのを、そこを争点に
+   * することで起こした。したがって規則は「屋外であること」ではなく
+   * 「**屋内なら複数の入口があること**」。
+   *
+   * 「屋内の拠点は1つまで」といった上限は置かない。塹壕戦は2つとも堡塁(屋内)だが、
+   * どちらも実測で 100% 確保され 160秒以上保持されている — 効くのは入口の数であって
+   * 屋内か屋外かではない、というのがここで分かったこと。
+   *
+   * 格子街区だけは旧来のまま(入口1つの奥の部屋)。比較の基準として残す。
    */
-  it.each(KEYS.filter((k) => k !== "company" && k !== "trench"))(
-    "'%s' の拠点は建物の中に無い",
+  it.each(KEYS.filter((k) => k !== "company"))(
+    "'%s' の屋内拠点には複数の入口がある",
     (key) => {
       const w = createWorld(SCENARIOS[key].make());
       expect(w.objectives.length).toBeGreaterThan(0);
       for (const o of w.objectives) {
-        const inside = w.buildings.some(
+        const host = w.buildings.find(
           (b) =>
             o.pos.x >= b.bounds.minX &&
             o.pos.x <= b.bounds.maxX &&
             o.pos.z >= b.bounds.minZ &&
             o.pos.z <= b.bounds.maxZ,
         );
-        expect.soft(inside, `${o.label} が建物の中にある`).toBe(false);
+        if (!host) continue;
+        const exterior = host.doors.filter((d) => d.exterior).length;
+        expect
+          .soft(exterior, `${o.label} の建物 ${host.id} の外扉が ${exterior} 個`)
+          .toBeGreaterThanOrEqual(2);
       }
     },
   );
+
+  /**
+   * `[v6.14]` **大きい建物には裏口がある。** 入口が1つだと両軍が同じ扉を使うことに
+   * なり、屋内で出会えない(実測: 両軍が同じ建物にいた時間は5枚とも0秒)。
+   */
+  it.each(KEYS.filter((k) => k !== "company"))("'%s' の大きな建物に裏口がある", (key) => {
+    const w = createWorld(SCENARIOS[key].make());
+    const big = w.buildings.filter(
+      (b) => Math.max(b.bounds.maxX - b.bounds.minX, b.bounds.maxZ - b.bounds.minZ) >= 20,
+    );
+    expect(big.length).toBeGreaterThan(5);
+    for (const b of big) {
+      expect
+        .soft(b.doors.filter((d) => d.exterior).length, `建物 ${b.id} の外扉`)
+        .toBeGreaterThanOrEqual(2);
+    }
+  });
 
   /**
    * `[v6.12]` 塹壕は「細長い建物」として作ってあり、**最初から屋内ナビが張られて
