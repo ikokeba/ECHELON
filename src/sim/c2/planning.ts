@@ -28,6 +28,7 @@
  */
 
 import { COVER_SEEK, PLANNING } from "../constants.ts";
+import { assembleForBattle } from "./assembly.ts";
 import { findPathSet } from "../navgrid.ts";
 import { bestOverwatchPoint } from "../cover.ts";
 import { insideBounds } from "../cqb.ts";
@@ -353,6 +354,15 @@ export function applyPlan(world: World, co: CompanyState): void {
  */
 export function beginPlanning(world: World): void {
   world.phase = "planning";
+  // `[v6.13]` **まず集結地を取り、そこから計画を立てる**(仕様 §3① / §11)。
+  //
+  // 開けた土地に整列したまま戦闘を始めるのは指揮の結果ではなく、シナリオが展開線を
+  // 直値(z=±140)で持っていて、そこが盤面の市街地より手前の何も無い場所だったから。
+  //
+  // 順序が重要。立案のあとに動かすと、接近経路も「目標まで何m」も**動く前の位置**から
+  // 計算されてしまい、命令書と部隊の居場所が食い違う。実際に一度そう書いて、
+  // 34m前進したのに命令が「南へ143m」のままになった。
+  assembleForBattle(world);
   for (const co of world.companies) {
     co.plan = planOperation(world, co);
     applyPlan(world, co);

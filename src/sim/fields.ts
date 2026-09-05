@@ -533,6 +533,22 @@ export function trenchField(): Field {
   addBuilding(out, id.v++, dugout, "north");
   addBuilding(out, id.v++, mirrorRect(dugout), "south");
 
+  // ── 後方陣地(`[v6.13]`)──
+  //
+  // 予備壕と掩体。**集結地に使うためのもの**で、無いと中隊が盤端の何も無い草地に
+  // 整列したまま戦闘を始めることになる(実測: 他の盤面が開豁地率 8〜31% まで下がる
+  // なか、ここだけ 72% のままだった)。実際の塹壕陣地にも後方地域はある。
+  layTrench(-190, -96, -132, { bay: 20, gap: 6 });
+  layTrench(96, 190, -132, { bay: 20, gap: 6 });
+  for (const [cx, cz] of [
+    [-158, -146], [-118, -142], [-64, -148], [-20, -144],
+    [34, -146], [82, -142], [136, -148], [176, -144],
+  ] as const) {
+    // 掩体(土嚢を積んだ胸墻)。L字にして正面と側面を切る
+    walls.push({ cx, cz, hw: 5.5, hd: 0.5 });
+    walls.push({ cx: cx - 5, cz: cz + 3, hw: 0.5, hd: 3 });
+  }
+
   return {
     bounds: BOUNDS,
     walls: [...out.walls, ...mirrorAll(walls)],
