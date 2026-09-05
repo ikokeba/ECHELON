@@ -115,7 +115,7 @@ const MAX_DEBRIS = 240;
 /** 着弾前の警告リングの最大数(同時に飛んでいる射撃任務の数) */
 const MAX_INCOMING = 8;
 /** 窓を描く幅 m。実際の開口(1.1m)より気持ち広く取ると遠景で消えない */
-const WINDOW_DRAW_W = 1.5;
+const WINDOW_DRAW_W = 1.6;
 /** 指揮線の最大本数。中隊長でも小隊3+本部数名なので十分 */
 const MAX_COMMAND_LINKS = 64;
 /** 隠蔽率グリッドの1セルの1辺 m と最大セル数 */
@@ -558,23 +558,24 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   // **枠**を1枚置いて、そこが銃眼であることを示す。壁より明るく、扉より暗い —
   // 通れないが見通せる、という中間の性質をそのまま明度で並べてある。
   const windowMat = keepMat(
-    new THREE.MeshBasicMaterial({ color: MAP.window, transparent: true, opacity: 0.9 }),
+    new THREE.MeshBasicMaterial({ color: MAP.window }),
   );
   for (const b of world.buildings) {
     for (const win of b.windows) {
       // 開口の向きに合わせて細長い板を置く(法線方向に薄く、面に沿って窓幅)
       const along = Math.abs(win.normal.x) > 0.5;
-      // 壁(高さ2)より低く、床から浮かせる。上から見たとき壁の切れ目に
-      // 明るい帯が入る形になり、開口であることが縮尺を落としても残る
+      // **壁と同じ高さにする**(`[v6.15]`)。以前は高さ1.25で上端が1.93、壁の上端2.0
+      // より低かったので、真上から見ると壁の天面に隠れて見えなかった。
+      // 気持ち高く(2.1)して、隣の壁と重なる部分でも必ず手前に出す
       const m = new THREE.Mesh(
         keepGeo(
           along
-            ? new THREE.BoxGeometry(0.5, 1.25, WINDOW_DRAW_W)
-            : new THREE.BoxGeometry(WINDOW_DRAW_W, 1.25, 0.5),
+            ? new THREE.BoxGeometry(0.55, 2.1, WINDOW_DRAW_W)
+            : new THREE.BoxGeometry(WINDOW_DRAW_W, 2.1, 0.55),
         ),
         windowMat,
       );
-      m.position.set(win.pos.x, 1.3, win.pos.z);
+      m.position.set(win.pos.x, 1.05, win.pos.z);
       scene.add(m);
     }
   }
