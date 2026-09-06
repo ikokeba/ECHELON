@@ -255,6 +255,7 @@ export function storeSubordinate(
   // 遅延の揺れで古い報告が後から届くことがある。新しいほうだけを残す
   if (prev && prev.sentTick >= r.sentTick) return;
   into.set(fromUnitId, {
+    unitId: fromUnitId,
     pos: { ...r.ownStatus.posCentroid },
     posLead: { ...r.ownStatus.posLead },
     effective: r.ownStatus.effective,

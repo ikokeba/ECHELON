@@ -20,7 +20,7 @@ import { chance, next, type Rng } from "../rng.ts";
 import { decayedConfidence } from "../belief.ts";
 import { isOffField } from "./litter.ts";
 import { sideDoctrine } from "../world.ts";
-import { forwardOf } from "../c2/flot.ts";
+import { distToFlot } from "../c2/flot.ts";
 import type { CompanyState, Side, Soldier, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
@@ -104,8 +104,16 @@ function pickTarget(world: World, co: CompanyState): Vec2 | null {
   //
   // 報告が無ければ線が引けない。**線が引けないなら撃たない** — 実際の射撃統制でも
   // クリアランスの取れない射撃は行わない。
-  if (co.flot.sources === 0 || !Number.isFinite(co.flot.lead)) return null;
-  if (forwardOf(co.advanceDir, best) < co.flot.lead + MORTAR.DANGER_CLOSE) return null;
+  //
+  // `[v6.17]` **前線からの距離で測る。前後の半平面ではない。** 前進フレームの前方
+  // 成分だけで見ていたときは、**側面へ張り出した部隊の頭上が抜けていた** — 前線より
+  // 前でありさえすれば、真横に自軍がいても撃ててしまう。折れ線からの距離なら、
+  // 線がどう曲がっていても、その近傍はすべて危険近接として弾かれる。
+  if (co.flot.sources === 0) return null;
+  if (distToFlot(co.flot, best) < MORTAR.DANGER_CLOSE) return null;
+  // 指揮所は前線の折れ線に乗らない(部下の報告で引くので)。自分の位置は自分で
+  // 知っているから、ここだけは中隊長自身の座標で見てよい(仕様 §5)。
+  if (dist(co.cp, best) < MORTAR.DANGER_CLOSE) return null;
   return best;
 }
 

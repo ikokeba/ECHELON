@@ -6,7 +6,7 @@ import { beginPlanning, beginBattle } from "../src/sim/c2/planning.ts";
 import { MORTAR, SIM_HZ } from "../src/sim/constants.ts";
 import { DOCTRINES } from "../src/sim/doctrine.ts";
 import { defaultForce } from "../src/sim/force.ts";
-import { forwardOf } from "../src/sim/c2/flot.ts";
+import { distToFlot } from "../src/sim/c2/flot.ts";
 import type { Side, Vec2 } from "../src/sim/types.ts";
 
 /**
@@ -104,9 +104,10 @@ describe("迫撃砲の火力支援(`[v6.9]` 仕様 §10/§11)", () => {
         const co = w.companies.find((c) => c.side === m.side)!;
         // 線が引けていること(引けなければ撃たない、が規則)
         expect(co.flot.sources).toBeGreaterThan(0);
-        // 照準点は、報告で把握している先頭より危険近接ぶん前にあること
-        expect(forwardOf(co.advanceDir, m.target)).toBeGreaterThanOrEqual(
-          co.flot.lead + MORTAR.DANGER_CLOSE - 1e-6,
+        // 照準点は、把握している前線(折れ線)から危険近接ぶん離れていること。
+        // `[v6.17]` 前後の半平面ではなく距離で見る — 側面へ張り出した部隊も守る
+        expect(distToFlot(co.flot, m.target)).toBeGreaterThanOrEqual(
+          MORTAR.DANGER_CLOSE - 1e-6,
         );
         // その線は必ず過去のもの(仕様 §5)。現在ティックの真値ではない
         expect(co.flot.asOfTick).toBeLessThan(w.tick);

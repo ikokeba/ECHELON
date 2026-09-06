@@ -44,26 +44,55 @@ describe("前線と統合・再編(`[v6.16]`)", () => {
         sampled++;
         // 線の根拠は送信済みの報告なので、必ず現在ティックより前
         expect(co.flot.asOfTick).toBeLessThan(w.tick);
-        // 真の「前から2番目の小隊重心」と比べる
-        const fwd = w.platoons
-          .filter((p) => p.side === co.side)
-          .map((p) => {
-            const m = w.soldiers.filter(
-              (s) => s.side === p.side && s.platoonId === p.platoonId && s.status === "ok",
-            );
-            if (m.length === 0) return -Infinity;
-            return forwardOf(p.advanceDir, {
-              x: m.reduce((a, s) => a + s.pos.x, 0) / m.length,
-              z: m.reduce((a, s) => a + s.pos.z, 0) / m.length,
-            });
-          })
-          .sort((a, b) => b - a);
-        const truth = fwd.length >= 2 ? fwd[1]! : fwd[0]!;
-        if (Number.isFinite(truth) && Math.abs(truth - co.flot.forward) > 2) everDiffered = true;
+        // 頂点は小隊の真の先頭位置とずれる(報告が古いぶん)
+        for (const node of co.flot.trace) {
+          const men = w.soldiers.filter(
+            (s) => s.side === co.side && s.platoonId === node.unitId && s.status === "ok",
+          );
+          if (men.length === 0) continue;
+          const pl = w.platoons.find((p) => p.side === co.side && p.platoonId === node.unitId)!;
+          let truth = -Infinity;
+          for (const m of men) truth = Math.max(truth, forwardOf(pl.advanceDir, m.pos));
+          if (Math.abs(truth - forwardOf(pl.advanceDir, node.pos)) > 2) everDiffered = true;
+        }
       }
     }
     expect(sampled).toBeGreaterThan(0);
     expect(everDiffered, "前線が常に真値と一致している = 盤面を直読みしている").toBe(true);
+  }, 300000);
+
+  /**
+   * `[v6.17]` **前線は直線ではない。** 部下の報告位置を結んだ折れ線なので、部隊が
+   * 展開していれば頂点は一直線に乗らない。ここが常に一直線なら、どこかで
+   * 「前進フレームでの前方距離」1個に潰している(= 初期配置の軸に固定されている)。
+   */
+  it("前線は部隊の展開に沿った折れ線になる(直線ではない)", () => {
+    const w = createWorld(SCENARIOS.oldQuarter.make(2));
+    beginPlanning(w);
+    beginBattle(w);
+    let maxBend = 0;
+    let multiNode = 0;
+    for (let t = 0; t < 180 * SIM_HZ; t++) {
+      stepWorld(w);
+      if (t % (5 * SIM_HZ) !== 0) continue;
+      for (const co of w.companies) {
+        const tr = co.flot.trace;
+        if (tr.length < 3) continue;
+        multiNode++;
+        // 端点を結んだ直線から中間の頂点がどれだけ外れているか
+        const a = tr[0]!.pos;
+        const b = tr[tr.length - 1]!.pos;
+        const len = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+        for (let i = 1; i + 1 < tr.length; i++) {
+          const p = tr[i]!.pos;
+          const off = Math.abs((p.x - a.x) * (b.z - a.z) - (p.z - a.z) * (b.x - a.x)) / len;
+          maxBend = Math.max(maxBend, off);
+        }
+      }
+    }
+    expect(multiNode, "頂点が3つ以上の前線が一度も引かれていない").toBeGreaterThan(0);
+    // 実測では数十m膨らむ。10m を下回るなら実質まっすぐ = 潰れている
+    expect(maxBend, `前線の凹凸が ${maxBend.toFixed(1)}m しかない`).toBeGreaterThan(10);
   }, 300000);
 
   /**
@@ -91,8 +120,15 @@ describe("前線と統合・再編(`[v6.16]`)", () => {
       [co(a, "red"), co(b, "blue")],
     ] as const) {
       expect(y.flot.sources).toBe(x.flot.sources);
-      expect(y.flot.forward).toBeCloseTo(x.flot.forward, 6);
-      expect(y.flot.lead).toBeCloseTo(x.flot.lead, 6);
+      // ラベルの入替は陣営名を替えるだけで盤面を動かさないので、対応する部隊の
+      // 折れ線は**同じ順・同じ座標**になる。ずれたら側を見て分岐している
+      expect(y.flot.trace.length).toBe(x.flot.trace.length);
+      x.flot.trace.forEach((n, i) => {
+        const m = y.flot.trace[i]!;
+        expect(m.unitId).toBe(n.unitId);
+        expect(m.pos.x).toBeCloseTo(n.pos.x, 6);
+        expect(m.pos.z).toBeCloseTo(n.pos.z, 6);
+      });
     }
   }, 300000);
 

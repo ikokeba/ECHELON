@@ -120,10 +120,15 @@ const MAX_INCOMING = 8;
 const WINDOW_DRAW_W = 1.6;
 /** 指揮線の最大本数。中隊長でも小隊3+本部数名なので十分 */
 const MAX_COMMAND_LINKS = 64;
-/** 前線を描く破線の本数と1本の長さ・間隔 m(`[v6.16]`)。盤の対角より長く取る */
-const FLOT_DASHES = 44;
-const FLOT_DASH_LEN = 7;
-const FLOT_DASH_GAP = 5;
+/**
+ * 前線の破線1本の長さ・間隔 m(`[v6.16]`、`[v6.17]` で折れ線化)。
+ * 本数は中隊の線 + 小隊3本ぶんの折れ線を賄える程度に取る。
+ */
+const FLOT_DASHES = 260;
+/** 中隊長の線。長い破線 + 両端を延ばす — 図の中で主となる1本 */
+const FLOT_CO = { dash: 8, gap: 5, extend: 60 };
+/** 小隊長の線。細かい破線で延長なし。中隊の線の下に敷く「解像度の細かい層」 */
+const FLOT_PL = { dash: 3, gap: 4, extend: 0 };
 /** 隠蔽率グリッドの1セルの1辺 m と最大セル数 */
 const GRID_CELL = 2.5;
 const MAX_GRID_CELLS = 6000;
@@ -910,7 +915,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   // 2本ある(`sim/c2/flot.ts` の Flot が2つの値を持つのと同じ理由):
   //   前線     部隊の指向に使う線。掩護部隊を除いた線(FM 3-90)
   //   統制線   ここより手前へは迫撃砲を撃たない線(FSCM)。先頭 + 危険近接
-  const makeDashes = (color: number, opacity: number, width: number) => {
+  const makeDashes = (color: number, opacity: number) => {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(FLOT_DASHES * 2 * 3), 3));
     const l = new THREE.LineSegments(
@@ -921,41 +926,71 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     l.frustumCulled = false;
     l.visible = false;
     scene.add(l);
-    void width;
-    return { geo: g, line: l, pos: g.getAttribute("position") as THREE.BufferAttribute };
+    return { geo: g, line: l, pos: g.getAttribute("position") as THREE.BufferAttribute, n: 0 };
   };
-  const flotLine = makeDashes(MAP.live, 0.7, 1);
-  const fscmLine = makeDashes(MAP.warn, 0.55, 1);
+  type Dashes = ReturnType<typeof makeDashes>;
+  /** 中隊長の前線(太い1本)/ 小隊長の前線(細い複数)/ 火力の統制線 */
+  const flotLine = makeDashes(MAP.live, 0.9);
+  const flotSubLine = makeDashes(MAP.live, 0.28);
+  const fscmLine = makeDashes(MAP.warn, 0.45);
 
-  /** 前進フレームで `forward` の位置に、前進方向と直交する破線を1本置く。 */
-  const setFlotDashes = (
-    d: { line: THREE.LineSegments; geo: THREE.BufferGeometry; pos: THREE.BufferAttribute },
-    advanceDir: Vec2,
-    forward: number,
-    on: boolean,
+  /**
+   * 折れ線を破線として `d` へ書き足す(`[v6.17]`)。
+   *
+   * 頂点そのものではなく**線分に沿って等間隔に刻む**ので、部隊の間隔が広くても
+   * 破線の見た目が変わらない。両端は末端の線分の向きへ `FLOT_EXTEND` だけ延ばす —
+   * 実際の作戦図でも前線は隣接部隊の担当区域へ続いていく。
+   */
+  const addPolylineDashes = (
+    d: Dashes,
+    pts: ReadonlyArray<Vec2>,
+    y: number,
+    style: { dash: number; gap: number; extend: number },
   ): void => {
-    if (!on || !Number.isFinite(forward)) {
-      d.line.visible = false;
-      return;
+    if (pts.length === 0) return;
+    const path: Vec2[] = [...pts];
+    if (path.length === 1) return; // 1点では線にならない(部下が1個だけ)
+    if (style.extend > 0) {
+      const ext = (from: Vec2, to: Vec2): Vec2 => {
+        const dx = to.x - from.x;
+        const dz = to.z - from.z;
+        const len = Math.hypot(dx, dz) || 1;
+        return { x: to.x + (dx / len) * style.extend, z: to.z + (dz / len) * style.extend };
+      };
+      path.unshift(ext(path[1]!, path[0]!));
+      path.push(ext(path[path.length - 2]!, path[path.length - 1]!));
     }
-    const len = Math.hypot(advanceDir.x, advanceDir.z) || 1;
-    const fx = advanceDir.x / len;
-    const fz = advanceDir.z / len;
-    // 線上の1点 = 前進方向へ forward だけ進んだところ。線の向きはその直交方向
-    const bx = fx * forward;
-    const bz = fz * forward;
-    const rx = -fz;
-    const rz = fx;
-    const span = FLOT_DASH_LEN + FLOT_DASH_GAP;
-    const half = (FLOT_DASHES * span) / 2;
-    for (let i = 0; i < FLOT_DASHES; i++) {
-      const a = -half + i * span;
-      d.pos.setXYZ(2 * i, bx + rx * a, 0.05, bz + rz * a);
-      d.pos.setXYZ(2 * i + 1, bx + rx * (a + FLOT_DASH_LEN), 0.05, bz + rz * (a + FLOT_DASH_LEN));
+
+    const span = style.dash + style.gap;
+    let carry = 0; // 前の線分から持ち越した「次の破線が始まるまでの距離」
+    for (let i = 0; i + 1 < path.length; i++) {
+      const a = path[i]!;
+      const b = path[i + 1]!;
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const len = Math.hypot(dx, dz);
+      if (len < 1e-6) continue;
+      const ux = dx / len;
+      const uz = dz / len;
+      for (let s = carry; s < len; s += span) {
+        if (d.n >= FLOT_DASHES) return;
+        const e = Math.min(s + style.dash, len);
+        d.pos.setXYZ(2 * d.n, a.x + ux * s, y, a.z + uz * s);
+        d.pos.setXYZ(2 * d.n + 1, a.x + ux * e, y, a.z + uz * e);
+        d.n++;
+      }
+      // 線分をまたいでも破線の刻みが揃うように余りを持ち越す
+      carry = ((carry - len) % span + span) % span;
     }
-    d.geo.setDrawRange(0, FLOT_DASHES * 2);
+  };
+
+  const beginDashes = (d: Dashes): void => {
+    d.n = 0;
+  };
+  const endDashes = (d: Dashes): void => {
+    d.geo.setDrawRange(0, d.n * 2);
     d.pos.needsUpdate = true;
-    d.line.visible = true;
+    d.line.visible = d.n > 0;
   };
 
   // ── 配置エディタの計画マーカー(`[v6.4]`)──
@@ -1719,17 +1754,42 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
         }
       }
     }
-    // ── 前線と火力の統制線(`[v6.16]`)──
-    // 見ている陣営の中隊長が持っている線。報告が無ければ引けないので描かない。
-    const viewCo = world.companies.find((c) => c.side === opts.viewSide) ?? null;
-    const showLine = opts.debug.showFlot && viewCo !== null && viewCo.flot.sources > 0;
-    setFlotDashes(flotLine, viewCo?.advanceDir ?? { x: 0, z: 1 }, viewCo?.flot.forward ?? 0, showLine);
-    setFlotDashes(
-      fscmLine,
-      viewCo?.advanceDir ?? { x: 0, z: 1 },
-      (viewCo?.flot.lead ?? 0) + MORTAR.DANGER_CLOSE,
-      showLine,
-    );
+    // ── 前線と火力の統制線(`[v6.16]`、`[v6.17]` で折れ線化)──
+    //
+    // **盤面の事実ではなく指揮官の像。** 報告からしか引いていないので兵士の実際の
+    // 位置とずれる — ずれて見えるのが正しい(仕様 §5)。真値で描くと §5 が守られて
+    // いることを画面から確認できなくなる。
+    //
+    // 3種類を重ねる。中隊長の線は小隊3個を結んだ粗い折れ線、その下に各小隊長が
+    // 持っている分隊3〜4個ぶんの細かい線が入る。**階層ごとに解像度の違う線が
+    // 重なった形**が、指揮官たちが実際に持っている前線像そのもの。
+    beginDashes(flotLine);
+    beginDashes(flotSubLine);
+    beginDashes(fscmLine);
+    if (opts.debug.showFlot) {
+      const viewCo = world.companies.find((c) => c.side === opts.viewSide) ?? null;
+      if (viewCo && viewCo.flot.sources > 0) {
+        const pts = viewCo.flot.trace.map((n) => n.pos);
+        addPolylineDashes(flotLine, pts, 0.055, FLOT_CO);
+        // 統制線は前線を前進方向へ危険近接ぶん押し出したもの。ここより手前へは撃たない
+        const len = Math.hypot(viewCo.advanceDir.x, viewCo.advanceDir.z) || 1;
+        const ox = (viewCo.advanceDir.x / len) * MORTAR.DANGER_CLOSE;
+        const oz = (viewCo.advanceDir.z / len) * MORTAR.DANGER_CLOSE;
+        addPolylineDashes(
+          fscmLine,
+          pts.map((p) => ({ x: p.x + ox, z: p.z + oz })),
+          0.05,
+          FLOT_CO,
+        );
+      }
+      for (const pl of world.platoons) {
+        if (pl.side !== opts.viewSide || pl.flot.sources === 0) continue;
+        addPolylineDashes(flotSubLine, pl.flot.trace.map((n) => n.pos), 0.045, FLOT_PL);
+      }
+    }
+    endDashes(flotLine);
+    endDashes(flotSubLine);
+    endDashes(fscmLine);
 
     subRingMesh.count = subN;
     subRingMesh.instanceMatrix.needsUpdate = true;
@@ -2238,6 +2298,8 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       }
       flotLine.geo.dispose();
       (flotLine.line.material as THREE.Material).dispose();
+      flotSubLine.geo.dispose();
+      (flotSubLine.line.material as THREE.Material).dispose();
       fscmLine.geo.dispose();
       (fscmLine.line.material as THREE.Material).dispose();
       linkGeo.dispose();
