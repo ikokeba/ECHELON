@@ -28,7 +28,8 @@ import {
   REPORT_INTERVAL_SEC,
   SIM_HZ,
 } from "./constants.ts";
-import type { Contact, Report, Side, Vec2 } from "./types.ts";
+import { forwardOf } from "./c2/flot.ts";
+import type { Contact, Report, Side, SubordinateReport, Vec2 } from "./types.ts";
 import type { World } from "./world.ts";
 
 const REPORT_INTERVAL_TICKS = Math.round(REPORT_INTERVAL_SEC * SIM_HZ);
@@ -46,6 +47,23 @@ const REPORT_CONFIDENCE_FLOOR = 0.25;
  * 1ホップごとの位置誤差の増加として表現する。
  */
 const HOP_POS_ERROR = 1.5;
+
+/**
+ * 自陣営の前進フレームで最も前に出ている位置(`[v6.16]`)。
+ * 「うちの先頭はここ」は部隊が自分で把握している事実なので、報告に載せてよい。
+ */
+function leadOf(points: readonly Vec2[], advanceDir: Vec2): Vec2 {
+  let best = points[0] ?? { x: 0, z: 0 };
+  let bestF = -Infinity;
+  for (const p of points) {
+    const f = forwardOf(advanceDir, p);
+    if (f > bestF) {
+      bestF = f;
+      best = p;
+    }
+  }
+  return { ...best };
+}
 
 function centroidOf(points: readonly Vec2[]): Vec2 {
   if (points.length === 0) return { x: 0, z: 0 };
@@ -123,10 +141,16 @@ export function radioSystem(world: World): void {
       }
       if (r.fromEchelon === "squad") {
         const pl = world.platoons.find((p) => p.side === r.side && p.platoonId === r.toUnitId);
-        if (pl) for (const c of r.contacts) mergeContact(pl.belief, c);
+        if (pl) {
+          for (const c of r.contacts) mergeContact(pl.belief, c);
+          storeSubordinate(pl.squadReports, r.fromUnitId, r);
+        }
       } else if (r.fromEchelon === "platoon") {
         const co = world.companies.find((c) => c.side === r.side && c.companyId === r.toUnitId);
-        if (co) for (const c of r.contacts) mergeContact(co.belief, c);
+        if (co) {
+          for (const c of r.contacts) mergeContact(co.belief, c);
+          storeSubordinate(co.platoonReports, r.fromUnitId, r);
+        }
       }
     }
     world.reports = stillInFlight;
@@ -175,6 +199,7 @@ export function radioSystem(world: World): void {
         effective: effective.length,
         total: members.length,
         posCentroid: centroidOf(effective.map((s) => s.pos)),
+        posLead: leadOf(effective.map((s) => s.pos), sq.advanceDir),
       },
     });
   }
@@ -211,7 +236,29 @@ export function radioSystem(world: World): void {
         effective: effective.length,
         total: members.length,
         posCentroid: centroidOf(effective.map((s) => s.pos)),
+        posLead: leadOf(effective.map((s) => s.pos), pl.advanceDir),
       },
     });
   }
+}
+
+/**
+ * 到着した報告の `ownStatus` を、上位が持つ「部下の最新状況」へ留め置く(`[v6.16]`)。
+ * 前線(FLOT)はここに溜まったものだけから引く — 盤面を見ない、が要点(仕様 §5)。
+ */
+export function storeSubordinate(
+  into: Map<number, SubordinateReport>,
+  fromUnitId: number,
+  r: Report,
+): void {
+  const prev = into.get(fromUnitId);
+  // 遅延の揺れで古い報告が後から届くことがある。新しいほうだけを残す
+  if (prev && prev.sentTick >= r.sentTick) return;
+  into.set(fromUnitId, {
+    pos: { ...r.ownStatus.posCentroid },
+    posLead: { ...r.ownStatus.posLead },
+    effective: r.ownStatus.effective,
+    total: r.ownStatus.total,
+    sentTick: r.sentTick,
+  });
 }

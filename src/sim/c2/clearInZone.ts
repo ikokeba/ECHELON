@@ -141,6 +141,41 @@ export function nextBuildingToClear(
   return best;
 }
 
+/**
+ * 拠点のまわりで、まだ掃討していない**最寄り**の建物(`[v6.16]`)。
+ *
+ * `nextBuildingToClear` との違いは向きを見ないこと。統合・再編(ATP 3-21.8)では
+ * 部隊は前進を止めているので、前後の区別は無く「拠点を見下ろせる建物から潰す」が
+ * 正しい。前進中の部隊にこの選び方をさせると、後ろの建物へ引き返して往復する。
+ */
+export function nextBuildingNearObjective(
+  world: World,
+  at: Vec2,
+  radius: number,
+  taken: ReadonlySet<number>,
+  cleared: ReadonlySet<number>,
+): Building | null {
+  let best: Building | null = null;
+  let bestD = Infinity;
+  /** 取り付き済みの建物を優先する(0 = 途中、1 = 手つかず)。`[v6.4]` と同じ規則 */
+  let bestRank = 2;
+  for (const b of world.buildings) {
+    if (taken.has(b.id)) continue;
+    const cx = (b.bounds.minX + b.bounds.maxX) / 2;
+    const cz = (b.bounds.minZ + b.bounds.maxZ) / 2;
+    const d = Math.hypot(cx - at.x, cz - at.z);
+    if (d > radius) continue;
+    if (buildingClearedIn(cleared, b)) continue;
+    const rank = buildingStarted(cleared, b) ? 0 : 1;
+    if (rank < bestRank || (rank === bestRank && d < bestD)) {
+      bestRank = rank;
+      bestD = d;
+      best = b;
+    }
+  }
+  return best;
+}
+
 /** 掃討対象の建物に対する分隊の任務目標。最奥の部屋を取れば建物を掃討したことになる。 */
 export function clearingObjective(b: Building): Vec2 {
   return deepestRoomCenter(b);

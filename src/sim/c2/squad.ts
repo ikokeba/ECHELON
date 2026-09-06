@@ -168,6 +168,7 @@ function directFireteams(world: World, sq: SquadState, idx: LivingIndex): void {
     // 占領中の突撃組だけ、判定円の中の持ち場に差し替える(`[v6.9]`)
     ft.objective = occupySeat && ftIdx === 0 ? { ...occupySeat } : { ...ftObjective };
     ft.technique = ftTechnique;
+    ft.watch = sq.watch ? { ...sq.watch } : null; // 警戒方向(`[v6.16]`)
     // support_by_fire は全FTをベース・オブ・ファイアに固定して踏み込ませない
     ft.assignedRole = mk === "support_by_fire" ? "base" : null;
   }

@@ -1075,6 +1075,17 @@ body {
   background: var(--live);
 }
 
+/* 前線 / 火力統制線(`[v6.16]`)。盤面では破線なので凡例も破線で示す */
+.lg-hline {
+  height: 0;
+  align-self: center;
+  border-top: 2px dashed var(--live);
+}
+
+.lg-hline-fscm {
+  border-top-color: var(--warn);
+}
+
 .lg-open {
   pointer-events: auto;
   background: var(--panel);

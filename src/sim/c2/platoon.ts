@@ -16,6 +16,30 @@
 import { SIM_HZ } from "../constants.ts";
 import { aiSuppressed } from "../control.ts";
 import { commandFactor } from "./succession.ts";
+import { flotFrom } from "./flot.ts";
+import { nextBuildingNearObjective } from "./clearInZone.ts";
+
+/**
+ * 逆襲が来ると見ている方角(`[v6.16]` ATP 3-21.8)。
+ *
+ * **敵を見ない**(仕様 §5)。使うのはその小隊長の belief と前進方向だけで、
+ * `world.soldiers` は読まない。
+ *   - 接触を把握していれば、拠点から見たその方角
+ *   - 何も無ければ前進方向 — 敵は自分が来たのと反対側から来る
+ */
+function counterattackWatch(pl: PlatoonState, at: Vec2): Vec2 {
+  const threat = primaryThreat(pl.belief);
+  if (threat) {
+    const dx = threat.pos.x - at.x;
+    const dz = threat.pos.z - at.z;
+    const d = Math.hypot(dx, dz);
+    if (d > 1e-6) return { x: dx / d, z: dz / d };
+  }
+  const d = Math.hypot(pl.advanceDir.x, pl.advanceDir.z) || 1;
+  return { x: pl.advanceDir.x / d, z: pl.advanceDir.z / d };
+}
+
+
 import { assignHolders, assignOccupiers, clampToObjective } from "./objectiveHold.ts";
 import { sideDoctrine } from "../world.ts";
 import {
@@ -62,6 +86,19 @@ const SQUAD_FRONTAGE = 26;
  * 小隊の正面幅(分隊3個 × 26m)におおむね合わせ、軸から大きく外れた建物までは追わない。
  */
 const CLEAR_ZONE_RADIUS = 40;
+/**
+ * 統合・再編中に掃討して回る、拠点からの半径 m(`[v6.16]`)。
+ * 「拠点を見下ろせる建物」の範囲。広げると小隊が拠点から離れて統合の意味が消える。
+ */
+const CONSOLIDATE_CLEAR_RADIUS = 46;
+/** 警戒方向の目印を置く距離 m(`[v6.16]`)。向きを表すためだけの点で、そこへは行かない */
+const WATCH_MARK_DIST = 70;
+/**
+ * 統合・再編中、戦列を拠点の**どれだけ前**に張るか m(`[v6.16]`)。
+ * 0 にすると全分隊が判定円に重なって戦列が消える(`[v6.9]` F-9 で計測済みの失敗)。
+ * 拠点を見下ろせる距離に置き、拠点そのものは占領分隊が押さえる。
+ */
+const HASTY_STANDOFF = 24;
 /**
  * 拠点を守る分隊の持ち場を、拠点中心からこれだけは広げてよい m。`[v6.2]`
  * 拠点が1室(半径3m)でも、分隊9名は部屋と入口まわりの遮蔽に散って守る。
@@ -195,6 +232,11 @@ export function platoonAI(world: World): void {
     anchor.x /= anchorSquads.length;
     anchor.z /= anchorSquads.length;
 
+    // ── 前線(FLOT、`[v6.16]` 仕様 §5/§6)──
+    // 麾下分隊からの**報告だけ**で引く。無線1ホップぶん古いが、それが小隊長の
+    // 持っている前線像そのもの(仕様 §5)。
+    pl.flot = flotFrom(pl.squadReports.values(), pl.advanceDir, world.tick);
+
     const technique = selectTechnique(pl, anchor, world.posture[pl.side].techniqueRangeMul);
     const threat = primaryThreat(pl.belief);
 
@@ -206,27 +248,6 @@ export function platoonAI(world: World): void {
     // 拠点内滞在 28→0秒、BLUE生存 74→62名。担当区域が敵と無関係に置かれると、
     // 分隊は戦列を作らずに目標へ歩き、隊形が伸びたところを各個に撃たれる。
     // 敵の位置は**戦列をどこに作るか**を決めており、それを外すと火力の集中が消える。
-    const aim = threat ? threat.pos : pl.objective;
-    const dx = aim.x - anchor.x;
-    const dz = aim.z - anchor.z;
-    const d = Math.hypot(dx, dz) || 1;
-    const forward = { x: dx / d, z: dz / d };
-    const right = { x: -forward.z, z: forward.x };
-
-    postPlatoonHq(world, pl, anchor, forward);
-
-    // 小隊の任務(WHAT。`[v6.1]` OQ-3)を麾下分隊へ翻訳する。
-    //   seize          : 3個ライフル分隊が担当区域を確保、火器分隊は support_by_fire で支援
-    //   support_by_fire : 全分隊が制圧目標へ射線の通る位置に就く(踏み込まない)
-    //   screen         : 全分隊を掩護軸に沿って広く展開(踏み込まない)
-    const plMission = pl.mission;
-    const isWeaponsSquad = (sq: (typeof livingSquads)[number]): boolean =>
-      world.soldiers.some(
-        (s) => s.side === sq.side && s.squadId === sq.squadId && s.role === "mg",
-      );
-    // screen は正面幅を広く取って薄く展開する
-    const frontage = plMission.kind === "screen" ? SQUAD_FRONTAGE * 1.8 : SQUAD_FRONTAGE;
-
     // 拠点ごとに守備へ付くのは最寄りの1個分隊だけ(`[v6.2]`、c2/objectiveHold.ts)
     const sqCentroidOf = (sq: (typeof livingSquads)[number]): Vec2 | null => {
       const men = world.soldiers.filter(
@@ -248,6 +269,65 @@ export function platoonAI(world: World): void {
         .map((sq) => ({ key: sq.squadId, centroid: sqCentroidOf(sq) }))
         .filter((e): e is { key: number; centroid: Vec2 } => e.centroid !== null),
     );
+
+    // ── 統合・再編に入るか(consolidation & reorganization、ATP 3-21.8)`[v6.16]` ──
+    //
+    // **拠点は奪った瞬間が最も脆い。** ドクトリンは奪取の直後を独立した段階として
+    // 扱う: 部隊は前進を止め、逆襲の予想方向へ正対した応急の防御に就き、隣接する
+    // 未掃討の建物を潰す。これが無いと部隊は拠点を「通過」してしまう。
+    //
+    // 入る条件は既存の守備割当をそのまま使う — **自軍所有の拠点に、麾下のどれかの
+    // 分隊が守備として付いている**なら、その小隊は統合中。専用の状態機械を増やさない。
+    const ownHeld = [...holders.values()].find((o) => o.owner === pl.side) ?? null;
+    if (ownHeld) {
+      const watch = counterattackWatch(pl, ownHeld.pos);
+      pl.consolidation =
+        pl.consolidation?.objectiveId === ownHeld.id
+          ? { ...pl.consolidation, watch }
+          : { objectiveId: ownHeld.id, sinceTick: world.tick, watch };
+    } else {
+      pl.consolidation = null;
+    }
+
+    //
+    // `[v6.16]` **統合・再編中(ATP 3-21.8)は別の置き方をする。** 奪った拠点に
+    // 留まる小隊は、前進軸の延長ではなく**拠点を中心に、逆襲の予想方向へ正対して**
+    // 戦列を張る(hasty defence)。上の `[v6.7]` の教訓はそのまま生きている —
+    // 戦列そのものは作る。作る**場所**が前進軸上ではなく拠点まわりになるだけ。
+    const consolidating = pl.consolidation;
+    const consObjective = consolidating
+      ? (world.objectives.find((o) => o.id === consolidating.objectiveId)?.pos ?? null)
+      : null;
+    const aim =
+      consolidating && consObjective
+        ? {
+            x: consObjective.x + consolidating.watch.x * HASTY_STANDOFF,
+            z: consObjective.z + consolidating.watch.z * HASTY_STANDOFF,
+          }
+        : threat
+          ? threat.pos
+          : pl.objective;
+    // 戦列の起点。統合中は拠点そのもの(いま立っている場所ではなく守る場所が基準)
+    const base = consObjective ?? anchor;
+    const dx = aim.x - base.x;
+    const dz = aim.z - base.z;
+    const d = Math.hypot(dx, dz) || 1;
+    const forward = { x: dx / d, z: dz / d };
+    const right = { x: -forward.z, z: forward.x };
+
+    postPlatoonHq(world, pl, anchor, forward);
+
+    // 小隊の任務(WHAT。`[v6.1]` OQ-3)を麾下分隊へ翻訳する。
+    //   seize          : 3個ライフル分隊が担当区域を確保、火器分隊は support_by_fire で支援
+    //   support_by_fire : 全分隊が制圧目標へ射線の通る位置に就く(踏み込まない)
+    //   screen         : 全分隊を掩護軸に沿って広く展開(踏み込まない)
+    const plMission = pl.mission;
+    const isWeaponsSquad = (sq: (typeof livingSquads)[number]): boolean =>
+      world.soldiers.some(
+        (s) => s.side === sq.side && s.squadId === sq.squadId && s.role === "mg",
+      );
+    // screen は正面幅を広く取って薄く展開する
+    const frontage = plMission.kind === "screen" ? SQUAD_FRONTAGE * 1.8 : SQUAD_FRONTAGE;
 
     // ── 占領する分隊の指名(`[v6.9]` F-9、仕様 §12)──
     //
@@ -290,10 +370,22 @@ export function platoonAI(world: World): void {
         // (ATP 3-06.11: 未掃討の部屋を側背に残さない)。接敵で前進軸が振れると
         // 掃討途中の建物が担当区域から外れ、二度と戻らないまま放置されていた。
         const own = unfinishedBuildingOf(world, cleared, sq.clearedDoorIds);
+        // `[v6.16]` 統合・再編中は前進軸ではなく**拠点のまわり**を掃討する。
+        // 「前線を下げないように前線付近の建物をクリアリングする」の実体で、
+        // 前進中にこれをやると分隊が振り返って往復するので(実測: 掃討済が
+        // 4面すべてで減少)、止まっている小隊にだけ許す。
         const b =
           own && !taken.has(own.id)
             ? own
-            : nextBuildingToClear(world, pl.side, c, aim, CLEAR_ZONE_RADIUS, taken, cleared);
+            : consolidating
+              ? nextBuildingNearObjective(
+                  world,
+                  world.objectives.find((o) => o.id === consolidating.objectiveId)?.pos ?? aim,
+                  CONSOLIDATE_CLEAR_RADIUS,
+                  taken,
+                  cleared,
+                )
+              : nextBuildingToClear(world, pl.side, c, aim, CLEAR_ZONE_RADIUS, taken, cleared);
         if (!b) continue;
         taken.add(b.id);
         clearAssign.set(sq.squadId, clearingObjective(b));
@@ -315,6 +407,16 @@ export function platoonAI(world: World): void {
       const sqKind: Mission["kind"] = isWeaponsSquad(sq)
         ? "support_by_fire"
         : plMission.kind;
+
+      // ── 警戒方向を分隊へ下ろす(`[v6.16]` ATP 3-21.8)──
+      // 統合・再編中だけ非 null。分隊はこれをFTへ流し、FTは接触が無いときの
+      // 「どちらの銃眼に就くか」をこれで決める。
+      sq.watch = consolidating
+        ? {
+            x: objective.x + consolidating.watch.x * WATCH_MARK_DIST,
+            z: objective.z + consolidating.watch.z * WATCH_MARK_DIST,
+          }
+        : null;
 
       // 確保済み拠点の保持(`[v6.1]`、`[v6.2]` で最寄り1個分隊に限定)。
       // 0.7: 拠点の縁寄りまで許して守備隊を中心に固めず、拠点内の遮蔽へ分散させる

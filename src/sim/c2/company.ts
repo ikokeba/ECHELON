@@ -29,6 +29,7 @@ import {
   SIM_HZ,
 } from "../constants.ts";
 import { aiSuppressed } from "../control.ts";
+import { flotFrom } from "./flot.ts";
 import { clamp } from "../geometry.ts";
 import { next } from "../rng.ts";
 import { commandFactor } from "./succession.ts";
@@ -209,6 +210,7 @@ function postCompanyHq(world: World, co: CompanyState): void {
   }
 }
 
+
 export function companyAI(world: World): void {
   for (const co of world.companies) {
     // 後送アセットは中隊長の意思決定周期に関係なく走らせる。これは指揮判断ではなく
@@ -258,6 +260,12 @@ export function companyAI(world: World): void {
     }
     anchor.x /= living.length;
     anchor.z /= living.length;
+
+    // ── 前線(FLOT、`[v6.16]` 仕様 §5/§11)──
+    // 中隊長は麾下小隊からの**報告だけ**で引く。無線2ホップぶん古いので、小隊長が
+    // 持っている線よりさらに遅れる — それが指揮階層を分けていることの意味そのもの。
+    // 火力の統制(`systems/indirect.ts`)がこの線を使う。
+    co.flot = flotFrom(co.platoonReports.values(), co.advanceDir, world.tick);
 
     const threat = primaryThreat(co.belief);
     const aim = threat ? threat.pos : co.objective;
@@ -390,6 +398,7 @@ export function companyAI(world: World): void {
         : (claimed.get(pl.platoonId) ?? sectorOf(i));
 
       const held = holders.get(pl.platoonId) ?? null;
+
       // 0.7: 守備の小隊を拠点中心に固めず、拠点内の遮蔽へ広めに散らす(`[v6.1]`)。
       // 下限 PLATOON_HOLD_SPREAD: 拠点が1室でも小隊が点に固まらないだけの床を残す。
       if (held) objective = clampToObjective(objective, held, 0.7, PLATOON_HOLD_SPREAD);

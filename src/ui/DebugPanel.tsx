@@ -74,6 +74,7 @@ export function DebugPanel() {
         {chk("showShotLines", "発砲線")}
         {chk("showOrders", "操作中ユニットの移動命令ライン")}
         {chk("showContactRings", "敵接触の不確度円")}
+        {chk("showFlot", "中隊長の前線と火力統制線")}
       </div>
 
       <div className="ov-sec">

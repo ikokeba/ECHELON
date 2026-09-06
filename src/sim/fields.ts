@@ -54,6 +54,44 @@ export interface Field {
 
 const BOUNDS: Bounds = { minX: -220, maxX: 220, minZ: -170, maxZ: 170 };
 
+/**
+ * 側面の拠点になる地物を置く帯の中心 z(`[v6.16]`)。
+ *
+ * **拠点は両軍からほぼ等距離になければ、奪ってから守る局面が起きない。**
+ * `[v6.15]` までは側面の地物が自陣側の深いところ(z ≈ −30)にあり、展開線からの
+ * 距離が青 109m / 赤 177m と大きく違った。実測すると、拠点は 105〜160秒で確保された
+ * あと**12戦すべてで一度も陣営が入れ替わらない** — 遠いほうの軍は到達する前に
+ * 決着がついていた。奪取の直後に何も起きないなら、統合・再編(ATP 3-21.8)を
+ * 実装しても守る相手がいない。
+ *
+ * 中央のモスクと同じ帯(z ≈ 0)へ寄せると、3個の拠点が横一線に並ぶ。これは
+ * ドクトリンの「phase line 上に objectives を並べる」そのもので、両軍が同じ頃に
+ * 同じ場所へ届く。地物そのもの(廟・隊商宿・礼拝堂)は動かすだけで、形は変えない。
+ */
+/**
+ * 側面の拠点になる地物を置く帯の中心 z(`[v6.16]`)。盤面ごとに1つ。
+ *
+ * **拠点が両軍からほぼ等距離でなければ、奪ってから守る局面が起きない。**
+ * `[v6.15]` までは側面の地物が自陣側の深いところ(z ≒ −30)にあり、展開線からの
+ * 距離が青 109m / 赤 177m と大きく違った。実測すると拠点は 105〜160秒で確保された
+ * あと**12戦すべてで一度も陣営が入れ替わらない** — 遠いほうの軍は到達する前に
+ * 決着がついていた。奪取の直後に何も起きないなら、統合・再編(ATP 3-21.8)を
+ * 実装しても守る相手がいない。
+ *
+ * 中央の大建築と同じ帯へ寄せると、拠点が横一線に並ぶ。ドクトリンの
+ * 「phase line 上に objectives を並べる」そのもので、両軍が同じ頃に同じ場所へ届く。
+ * 地物(廟・モスク・隊商宿)は**動かすだけ**で、形は変えていない。
+ *
+ * 値が盤面ごとに違うのは、寄せられる限界が盤面の構造で決まるから:
+ *   旧市街   −8  中央のモスクと同じ帯まで寄せられる。実測でいちばんよく効く
+ *   新市街  −26  −20 まで寄せると中央拠点が一度も落ちなくなった(実測 57→0秒)
+ *   大通り  −30  **大通りの帯(z ∈ [−20,20])を食えない。** そこへ置くと拠点が
+ *                開豁地の真ん中になり、確保が 193→0秒 まで落ちた
+ */
+const FLANK_Z_OLD_QUARTER = -8;
+const FLANK_Z_PLANNED = -26;
+const FLANK_Z_BAZAAR = -30;
+
 /** 2つの矩形が重なるか(接触は重なりとみなさない)。 */
 function overlaps(a: Bounds, b: Bounds): boolean {
   return (
@@ -151,14 +189,25 @@ export function oldQuarterField(): Field {
     { z0: -126, z1: -110, jog: 5, salt: 67 },
   ];
   // 先に空地を予約してから街区を敷く。順序が逆だと手置きの建物と必ずぶつかる
-  const shrine: Bounds = { minX: -84, maxX: -52, minZ: -46, maxZ: -22 };
+  // 廟の敷地。`[v6.16]` 中央のモスクと同じ帯へ寄せる(`FLANK_Z_OLD_QUARTER`)
+  const shrine: Bounds = {
+    minX: -84,
+    maxX: -52,
+    minZ: FLANK_Z_OLD_QUARTER - 12,
+    maxZ: FLANK_Z_OLD_QUARTER + 12,
+  };
   // `[v6.14]` 中央は広場ではなく**モスク**。両軍がここを抜けないと中央の拠点へ届かず、
   // 礼拝堂の中で当たる(市街地で室内戦が起きなかった原因への対処)
   const mosque = mosqueComplex(out, id, { hallHalfW: 30, hallHalfD: 19, yard: 13 });
   const plaza = mosque.reserved;
   // 廟そのものは中庭の**外**へ置く。中庭に建てると拠点の判定円と重なり、
   // 「屋外の拠点」でなくなってしまう(それが確保の成立する理由なので)
-  const tomb: Bounds = { minX: -94, maxX: -86, minZ: -42, maxZ: -26 };
+  const tomb: Bounds = {
+    minX: -94,
+    maxX: -86,
+    minZ: FLANK_Z_OLD_QUARTER - 8,
+    maxZ: FLANK_Z_OLD_QUARTER + 8,
+  };
   const reserved = [shrine, plaza, tomb];
 
   for (const r of rows) {
@@ -249,12 +298,23 @@ export function plannedDistrictField(): Field {
     { z0: -92, z1: -72, salt: 127 },
     { z0: -118, z1: -98, salt: 139 },
   ];
-  const mosque: Bounds = { minX: -140, maxX: -96, minZ: -44, maxZ: -14 };
+  // `[v6.16]` 側面のモスクを中央寄りの帯へ(`FLANK_Z_PLANNED`)
+  const mosque: Bounds = {
+    minX: -140,
+    maxX: -96,
+    minZ: FLANK_Z_PLANNED - 15,
+    maxZ: FLANK_Z_PLANNED + 15,
+  };
   // `[v6.14]` 中央は環状交差点ではなく**大モスク**(`[v6.14]`)
   const grand = mosqueComplex(out, id, { hallHalfW: 34, hallHalfD: 21, yard: 15 });
   const roundabout = grand.reserved;
   // 礼拝堂は中庭の**外**。中庭は空地のまま残す(屋外の拠点として使うため)
-  const prayerHall: Bounds = { minX: -158, maxX: -144, minZ: -42, maxZ: -18 };
+  const prayerHall: Bounds = {
+    minX: -158,
+    maxX: -144,
+    minZ: FLANK_Z_PLANNED - 12,
+    maxZ: FLANK_Z_PLANNED + 12,
+  };
   const reserved = [mosque, roundabout, prayerHall];
 
   rows.forEach((r, ri) => {
@@ -341,7 +401,14 @@ export function boulevardField(): Field {
     { z0: -98, z1: -78, jog: 19, salt: 233, small: false },
     { z0: -126, z1: -106, jog: 3, salt: 241, small: false },
   ];
-  const khan: Bounds = { minX: -186, maxX: -150, minZ: -48, maxZ: -24 };
+  // `[v6.16]` 隊商宿を大通りの手前まで寄せる(`FLANK_Z_BAZAAR`)。渡った先ではなく
+  // **渡る途中**に拠点が来るので、塀で囲われた敷地が大通りの中の遮蔽になる
+  const khan: Bounds = {
+    minX: -186,
+    maxX: -150,
+    minZ: FLANK_Z_BAZAAR - 12,
+    maxZ: FLANK_Z_BAZAAR + 12,
+  };
   // `[v6.14]` 大通りを跨ぐ**大市場の建物**。渡り切った先ではなく、
   // 渡る途中に室内戦が挟まる
   const bazaarHall = mosqueComplex(out, id, { hallHalfW: 28, hallHalfD: 16, yard: 12 });

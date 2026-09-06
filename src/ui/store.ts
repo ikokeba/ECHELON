@@ -181,6 +181,11 @@ export interface DebugState {
   showOrders: boolean;
   /** 敵接触の不確度円(既存表示) */
   showContactRings: boolean;
+  /**
+   * 中隊長が持っている前線(FLOT)と火力の統制線(`[v6.16]`)。
+   * **盤面の事実ではなく指揮官の像**なので、兵士の位置とずれて見えるのが正しい。
+   */
+  showFlot: boolean;
 }
 
 /** デバッグパネルのスライダーが持つ共通チューニング(表示は度、シムへ渡すときrad化)。 */
@@ -460,6 +465,7 @@ export const useSimStore = create<UiState>((set) => ({
     showShotLines: true,
     showOrders: true,
     showContactRings: true,
+    showFlot: true,
   },
   tuning: { ...DEFAULT_TUNING_UI },
   posture: {

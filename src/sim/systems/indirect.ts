@@ -20,6 +20,7 @@ import { chance, next, type Rng } from "../rng.ts";
 import { decayedConfidence } from "../belief.ts";
 import { isOffField } from "./litter.ts";
 import { sideDoctrine } from "../world.ts";
+import { forwardOf } from "../c2/flot.ts";
 import type { CompanyState, Side, Soldier, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
@@ -89,11 +90,22 @@ function pickTarget(world: World, co: CompanyState): Vec2 | null {
   const range = dist(co.cp, best);
   if (range < MORTAR.MIN_RANGE || range > MORTAR.MAX_RANGE) return null;
 
-  // 危険近接 — 自軍が近い目標へは撃たない(仕様 §8.2 の同士討ち抽象化に合わせる)
-  for (const s of world.soldiers) {
-    if (s.side !== co.side || !standing(s)) continue;
-    if (dist(s.pos, best) < MORTAR.DANGER_CLOSE) return null;
-  }
+  // ── 火力の統制線(FSCM、`[v6.16]` 仕様 §5/§8.2)──
+  //
+  // 危険近接の判断は、**中隊長が報告で把握している前線**に照らして行う。射撃の
+  // 可否を決めるのは指揮官の持っている線であって盤面の事実ではない、というのが
+  // FSCM の要点で、実際の射撃要請でも「前線はどこか」は報告で決まる。
+  //
+  // 以前はここで `world.soldiers` を舐めて全隊員の真の位置を見ていた。判定としては
+  // 完璧だが、それは**中隊長が全隊員の位置を遅延ゼロで知っている**ということで、
+  // 仕様 §5 が破れていた。線は無線2ホップぶん古いので、前へ出た部隊の頭越しに
+  // 落ちることがある — その代償は自軍の**制圧**であって損害ではない(仕様 §8.2、
+  // `resolveImpact` を参照)。
+  //
+  // 報告が無ければ線が引けない。**線が引けないなら撃たない** — 実際の射撃統制でも
+  // クリアランスの取れない射撃は行わない。
+  if (co.flot.sources === 0 || !Number.isFinite(co.flot.lead)) return null;
+  if (forwardOf(co.advanceDir, best) < co.flot.lead + MORTAR.DANGER_CLOSE) return null;
   return best;
 }
 
@@ -106,9 +118,15 @@ function disperse(rng: Rng, at: Vec2, spread: number): Vec2 {
 }
 
 /**
- * 着弾1発の解決。殺傷半径の内側は判定を引き、制圧半径の内側は仕様 §8.6 の
- * 制圧(-40%)を受ける。**敵味方を問わない** — 砲弾は陣営を見ない。
- * 危険近接の判断で自軍を近づけないことが、同士討ちを起こさない仕組みになっている。
+ * 着弾1発の解決。
+ *
+ * **制圧は敵味方を問わない**(仕様 §8.6)。砲弾は陣営を見ないので、自軍の頭越しに
+ * 落ちれば自軍も伏せる。統制線が古いことの代償はここに出る(`[v6.16]`)。
+ *
+ * **損害は敵にしか出さない**(仕様 §8.2)。仕様は同士討ちを「起きないもの」として
+ * 抽象化しているので、砲でも例外を作らない。統制線を報告由来にした `[v6.16]` から
+ * は自軍の上に落ちることが実際に起こるため、この分岐が §8.2 を保つ最後の砦になる
+ * (それ以前は危険近接の判定が盤面の真値だったので、そもそも起こらなかった)。
  */
 function resolveImpact(world: World, side: Side, at: Vec2): number {
   const rng = world.rngBySide[side];
@@ -125,6 +143,7 @@ function resolveImpact(world: World, side: Side, at: Vec2): number {
         world.tick + INTERVAL_TICKS + SUPPRESSION_GRACE_TICKS,
       );
     }
+    if (s.side === side) continue; // 仕様 §8.2 同士討ちは起こさない。制圧までは受ける
     if (d <= MORTAR.BLAST_RADIUS && chance(rng, MORTAR.CASUALTY_CHANCE)) {
       // 擲弾と同じ扱い。負傷か戦死かは casualties 側の既定の分岐へ委ねる
       s.status = "wia";

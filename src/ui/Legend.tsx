@@ -81,6 +81,21 @@ const MARKER_ITEMS: Item[] = [
     title: "指揮官を選ぶと麾下が光る(仕様 §12 の継承結果)",
   },
   {
+    cls: "lg-hline",
+    label: "前線",
+    title:
+      "中隊長が持っている前線(FLOT、米軍 ADP 1-02)。麾下小隊からの無線報告だけで"
+      + "引いていて2ホップぶん古いので、兵士の実際の位置とずれる — ずれて見えるのが"
+      + "正しい(仕様 §5)。掩護部隊は線に含めない(FM 3-90)",
+  },
+  {
+    cls: "lg-hline lg-hline-fscm",
+    label: "火力統制線",
+    title:
+      "ここより手前へは迫撃砲を撃たない線(FSCM)。報告された先頭 + 危険近接で引く。"
+      + "線が古いぶん自軍の頭越しに落ちることがあるが、損害は出ない(仕様 §8.2)",
+  },
+  {
     cls: "lg-fill",
     label: "閉じた扉",
     style: { background: "var(--door-closed)", borderRadius: "2px", width: "5px" },

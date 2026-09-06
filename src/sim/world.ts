@@ -8,6 +8,7 @@
 import { appendBuildingNav, buildNavSet, type NavSet } from "./navgrid.ts";
 import { buildCoverIndex, buildCoverPoints, type CoverIndex, type CoverPoint } from "./cover.ts";
 import { successionSystem } from "./c2/succession.ts";
+import { NO_FLOT } from "./c2/flot.ts";
 import { clamp } from "./geometry.ts";
 import { createRng, type Rng } from "./rng.ts";
 import { buildWallIndex, type WallIndex } from "./wallIndex.ts";
@@ -238,6 +239,7 @@ function buildFireteams(scenario: Scenario, soldiers: Soldier[]): FireteamState[
       advanceDir: { ...advanceDir },
       rallyPoint: { ...rallyPoint },
       technique: "traveling",
+      watch: null,
       assignedRole: null,
       cqbDoorId: null,
       cqbStage: "stack",
@@ -273,6 +275,7 @@ function buildSquads(scenario: Scenario, soldiers: Soldier[]): SquadState[] {
       lastReportTick: 0,
       lastDecisionTick: 0,
       casevacOrders: [],
+      watch: null,
       commanderId: null,
       degradedSinceTick: null,
       assaultDoorId: null,
@@ -302,6 +305,9 @@ function buildPlatoons(scenario: Scenario, soldiers: Soldier[]): PlatoonState[] 
       squadObjectives: new Map(),
       squadMissions: new Map(),
       squadTechniques: new Map(),
+      squadReports: new Map(),
+      flot: { ...NO_FLOT },
+      consolidation: null,
       objective: { ...(spec?.objective ?? { x: 0, z: 0 }) },
       mission: { kind: "seize", target: { ...(spec?.objective ?? { x: 0, z: 0 }) } },
       advanceDir: { ...(spec?.advanceDir ?? s.facing) },
@@ -367,6 +373,8 @@ function buildCompanies(scenario: Scenario, soldiers: Soldier[]): CompanyState[]
       cp: { ...cp },
       platoonObjectives: new Map(),
       platoonMissions: new Map(),
+      platoonReports: new Map(),
+      flot: { ...NO_FLOT },
       objective: { ...(spec?.objective ?? { x: 0, z: 0 }) },
       advanceDir: { ...advanceDir },
       rallyPoint: { ...(spec?.rallyPoint ?? cp) },

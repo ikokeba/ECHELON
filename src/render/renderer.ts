@@ -10,7 +10,7 @@ import * as THREE from "three";
 import type { World } from "@sim/world.ts";
 import type { Side, Soldier, Vec2 } from "@sim/types.ts";
 import type { ViewResult } from "@sim/viewpoint.ts";
-import { LITTER, SIM_HZ, SOLDIER_RADIUS } from "@sim/constants.ts";
+import { LITTER, MORTAR, SIM_HZ, SOLDIER_RADIUS } from "@sim/constants.ts";
 import { collidesWall, hasLineOfSight } from "@sim/geometry.ts";
 import { coverBonus } from "@sim/cover.ts";
 import { MAP } from "../theme.ts";
@@ -27,6 +27,8 @@ export interface RenderOpts {
     showShotLines: boolean;
     showOrders: boolean;
     showContactRings: boolean;
+    /** 中隊長が持っている前線(FLOT)と火力の統制線(`[v6.16]`) */
+    showFlot: boolean;
   };
   /** クリック選択した兵士(デバッグ表示の基準) */
   selectedId: number | null;
@@ -118,6 +120,10 @@ const MAX_INCOMING = 8;
 const WINDOW_DRAW_W = 1.6;
 /** 指揮線の最大本数。中隊長でも小隊3+本部数名なので十分 */
 const MAX_COMMAND_LINKS = 64;
+/** 前線を描く破線の本数と1本の長さ・間隔 m(`[v6.16]`)。盤の対角より長く取る */
+const FLOT_DASHES = 44;
+const FLOT_DASH_LEN = 7;
+const FLOT_DASH_GAP = 5;
 /** 隠蔽率グリッドの1セルの1辺 m と最大セル数 */
 const GRID_CELL = 2.5;
 const MAX_GRID_CELLS = 6000;
@@ -894,6 +900,64 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   scene.add(linkLines);
   const linkPos = linkGeo.getAttribute("position") as THREE.BufferAttribute;
 
+  // ── 前線(FLOT)と火力の統制線(`[v6.16]` 仕様 §5/§11)──
+  //
+  // **これは盤面の事実ではなく、中隊長の頭の中にある線である。** 麾下小隊からの
+  // 無線報告だけで引かれていて、2ホップぶん古い。だから兵士の実際の位置とずれる
+  // ことがあり、**ずれて見えるのが正しい**。ここを真値で描くと、仕様 §5 が守られて
+  // いることが画面から確認できなくなる。
+  //
+  // 2本ある(`sim/c2/flot.ts` の Flot が2つの値を持つのと同じ理由):
+  //   前線     部隊の指向に使う線。掩護部隊を除いた線(FM 3-90)
+  //   統制線   ここより手前へは迫撃砲を撃たない線(FSCM)。先頭 + 危険近接
+  const makeDashes = (color: number, opacity: number, width: number) => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(FLOT_DASHES * 2 * 3), 3));
+    const l = new THREE.LineSegments(
+      g,
+      new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthTest: false }),
+    );
+    l.renderOrder = 16;
+    l.frustumCulled = false;
+    l.visible = false;
+    scene.add(l);
+    void width;
+    return { geo: g, line: l, pos: g.getAttribute("position") as THREE.BufferAttribute };
+  };
+  const flotLine = makeDashes(MAP.live, 0.7, 1);
+  const fscmLine = makeDashes(MAP.warn, 0.55, 1);
+
+  /** 前進フレームで `forward` の位置に、前進方向と直交する破線を1本置く。 */
+  const setFlotDashes = (
+    d: { line: THREE.LineSegments; geo: THREE.BufferGeometry; pos: THREE.BufferAttribute },
+    advanceDir: Vec2,
+    forward: number,
+    on: boolean,
+  ): void => {
+    if (!on || !Number.isFinite(forward)) {
+      d.line.visible = false;
+      return;
+    }
+    const len = Math.hypot(advanceDir.x, advanceDir.z) || 1;
+    const fx = advanceDir.x / len;
+    const fz = advanceDir.z / len;
+    // 線上の1点 = 前進方向へ forward だけ進んだところ。線の向きはその直交方向
+    const bx = fx * forward;
+    const bz = fz * forward;
+    const rx = -fz;
+    const rz = fx;
+    const span = FLOT_DASH_LEN + FLOT_DASH_GAP;
+    const half = (FLOT_DASHES * span) / 2;
+    for (let i = 0; i < FLOT_DASHES; i++) {
+      const a = -half + i * span;
+      d.pos.setXYZ(2 * i, bx + rx * a, 0.05, bz + rz * a);
+      d.pos.setXYZ(2 * i + 1, bx + rx * (a + FLOT_DASH_LEN), 0.05, bz + rz * (a + FLOT_DASH_LEN));
+    }
+    d.geo.setDrawRange(0, FLOT_DASHES * 2);
+    d.pos.needsUpdate = true;
+    d.line.visible = true;
+  };
+
   // ── 配置エディタの計画マーカー(`[v6.4]`)──
   // 「これから作り直す盤面の予定」を薄く重ねる。実際の兵士・拠点とは別物なので、
   // 塗りつぶさず輪郭だけにして、現在の戦況の上に重なっても読み取りを邪魔しない。
@@ -1655,6 +1719,18 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
         }
       }
     }
+    // ── 前線と火力の統制線(`[v6.16]`)──
+    // 見ている陣営の中隊長が持っている線。報告が無ければ引けないので描かない。
+    const viewCo = world.companies.find((c) => c.side === opts.viewSide) ?? null;
+    const showLine = opts.debug.showFlot && viewCo !== null && viewCo.flot.sources > 0;
+    setFlotDashes(flotLine, viewCo?.advanceDir ?? { x: 0, z: 1 }, viewCo?.flot.forward ?? 0, showLine);
+    setFlotDashes(
+      fscmLine,
+      viewCo?.advanceDir ?? { x: 0, z: 1 },
+      (viewCo?.flot.lead ?? 0) + MORTAR.DANGER_CLOSE,
+      showLine,
+    );
+
     subRingMesh.count = subN;
     subRingMesh.instanceMatrix.needsUpdate = true;
     linkGeo.setDrawRange(0, linkN * 2);
@@ -2160,6 +2236,10 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
         m.geometry.dispose();
         (m.material as THREE.Material).dispose();
       }
+      flotLine.geo.dispose();
+      (flotLine.line.material as THREE.Material).dispose();
+      fscmLine.geo.dispose();
+      (fscmLine.line.material as THREE.Material).dispose();
       linkGeo.dispose();
       (linkLines.material as THREE.Material).dispose();
       orderMarkerGeo.dispose();

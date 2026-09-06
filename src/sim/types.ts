@@ -452,7 +452,63 @@ export interface Report {
     effective: number;
     total: number;
     posCentroid: Vec2;
+    /**
+     * 送信元の**先頭**の位置(`[v6.16]`)。自陣営の前進フレームで最も前に出ている隊員。
+     * 「うちの先頭は今ここ」は部隊が自分で分かる情報なので、報告に載せてよい。
+     * 火力の統制線(FSCM)はこちらで引く — 味方を撃たない線を重心で引いてはいけない。
+     */
+    posLead: Vec2;
   };
+}
+
+/**
+ * 上位が保持している「部下1個の最新の状況」(`[v6.16]`)。
+ * 到着した報告の `ownStatus` をそのまま留め置いたもので、前線を引く材料になる。
+ */
+export interface SubordinateReport {
+  /** 報告された重心 */
+  pos: Vec2;
+  /** 報告された先頭の位置 */
+  posLead: Vec2;
+  effective: number;
+  total: number;
+  /** その報告が**送信された**ティック。到着ティックではない(仕様 §5 の遅延) */
+  sentTick: number;
+}
+
+/**
+ * 指揮官が持っている前線(FLOT、`[v6.16]` 仕様 §5/§11)。
+ * 値は自陣営の前進フレームでの前方距離(仕様 §2/§13)。詳細は `c2/flot.ts`。
+ */
+export interface Flot {
+  /** 部隊の指向に使う線。掩護部隊を除く(FM 3-90)= 前から2番目の部下重心 */
+  forward: number;
+  /** 火力の統制に使う線。最も前に出ている先頭の位置 */
+  lead: number;
+  /** 根拠になった報告のうち最も古いものの送信ティック。線の古さ */
+  asOfTick: number;
+  /** 根拠になった報告の数。0 なら前線は未知 */
+  sources: number;
+}
+
+/**
+ * 統合・再編(consolidation & reorganization、ATP 3-21.8 "actions on the objective")。
+ * `[v6.16]`
+ *
+ * 拠点は**奪った瞬間が最も脆い**。ドクトリンは奪取の直後を独立した段階として扱い、
+ * 部隊はそこで前進を止め、逆襲の予想方向へ火器を指向し、隣接する未掃討の建物を
+ * 潰し、負傷者と指揮を整理する。これが無いと部隊は拠点を「通過」してしまう。
+ */
+export interface Consolidation {
+  /** 統合の対象になっている拠点 */
+  objectiveId: number;
+  /** この段階に入ったティック */
+  sinceTick: number;
+  /**
+   * 逆襲が来ると見ている方向(単位ベクトル)。奪取した側から見て**さらに前方** —
+   * 敵は自分が来たのと反対側から来る。ここが「警戒方向」の実体。
+   */
+  watch: Vec2;
 }
 
 /** 1個ファイアチームに対するシナリオ側の意図。コントローラの初期化に使う。 */
@@ -501,6 +557,9 @@ export interface SquadState {
    */
   casevacOrders: number[];
 
+  /** 小隊長から下ろされた警戒方向の目印(`[v6.16]`)。統合・再編中のみ非 null */
+  watch: Vec2 | null;
+
   /** 現在この分隊の指揮を執っている兵士のID(仕様 §12 の指揮継承) */
   commanderId: number | null;
   /** 指揮継承が起きたティック(null = 継承していない) */
@@ -541,6 +600,16 @@ export interface PlatoonState {
   squadMissions: Map<number, Mission>;
   /** 麾下分隊へ指示した移動技術 */
   squadTechniques: Map<number, MovementTechnique>;
+  /** 麾下分隊から届いた最新の状況(`[v6.16]`)。前線を引く材料。squadId → 報告 */
+  squadReports: Map<number, SubordinateReport>;
+  /** 小隊長が持っている前線(`[v6.16]`)。`squadReports` からのみ引く(仕様 §5) */
+  flot: Flot;
+
+  /**
+   * 統合・再編(consolidation & reorganization、ATP 3-21.8)。`[v6.16]`
+   * 拠点を奪取した小隊が、そこに留まって逆襲に備えている間だけ非 null。
+   */
+  consolidation: Consolidation | null;
 
   objective: Vec2;
   /** 中隊長から下ろされた任務(WHAT。`[v6.1]` OQ-3)。既定は objective への seize */
@@ -585,6 +654,10 @@ export interface CompanyState {
   platoonObjectives: Map<number, Vec2>;
   /** 麾下小隊へ下ろした任務(WHAT。`[v6.1]` OQ-3) */
   platoonMissions: Map<number, Mission>;
+  /** 麾下小隊から届いた最新の状況(`[v6.16]`)。前線を引く材料。platoonId → 報告 */
+  platoonReports: Map<number, SubordinateReport>;
+  /** 中隊長が持っている前線(`[v6.16]`)。2ホップぶん古い(仕様 §5) */
+  flot: Flot;
 
   objective: Vec2;
   advanceDir: Vec2;
@@ -695,6 +768,14 @@ export interface FireteamState {
   advanceDir: Vec2;
   /** 後退時の集結地点 */
   rallyPoint: Vec2;
+
+  /**
+   * 警戒方向の**目印**(`[v6.16]`)。統合・再編中だけ非 null で、逆襲が来ると
+   * 見ている方角に置かれた遠い1点。接触が分かっていないときの「どちらを向くか」を
+   * これで決める(接触があればそちらが優先)。方向ではなく点で持つのは、銃眼の
+   * 選定が「その窓の外側に敵がいるか」という点の判定でできているため。
+   */
+  watch: Vec2 | null;
 
   /** 分隊長から指示された移動技術(仕様 §6)。ADVANCE時の動き方を決める */
   technique: MovementTechnique;

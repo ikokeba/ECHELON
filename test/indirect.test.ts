@@ -6,6 +6,7 @@ import { beginPlanning, beginBattle } from "../src/sim/c2/planning.ts";
 import { MORTAR, SIM_HZ } from "../src/sim/constants.ts";
 import { DOCTRINES } from "../src/sim/doctrine.ts";
 import { defaultForce } from "../src/sim/force.ts";
+import { forwardOf } from "../src/sim/c2/flot.ts";
 import type { Side, Vec2 } from "../src/sim/types.ts";
 
 /**
@@ -81,23 +82,70 @@ describe("迫撃砲の火力支援(`[v6.9]` 仕様 §10/§11)", () => {
   }, 300000);
 
   /**
-   * 仕様 §8.2 は同士討ちを「起きない」ものとして抽象化している。迫撃砲でも同士討ちを
-   * 実装するのではなく、**危険近接では撃たない判断**として表現する。
+   * `[v6.16]` **射撃の可否は指揮官が持っている統制線(FSCM)で決まる**(仕様 §5)。
+   *
+   * 以前ここは「照準点の危険近接内に自軍が1名もいないこと」を盤面の真値で確かめて
+   * いた。判定としては完璧だが、それは中隊長が全隊員の位置を遅延ゼロで知っている
+   * ということで、仕様 §5 が破れていた。いま確かめるのは**指揮官の線に照らして
+   * 正しく判断したか**であって、結果が結果的に安全だったかではない。
+   *
+   * 線は無線2ホップぶん古いので、前へ出た部隊の頭越しに落ちることが実際に起きる
+   * (実測: 市場の盤面で、要請時点の危険近接内に自軍12名。最接近18m)。その代償は
+   * 制圧であって損害ではない — それは次のテストが押さえる。
    */
-  it("自軍が近い目標へは要請しない(危険近接、仕様 §8.2)", () => {
+  it("射撃要請は中隊長の統制線に照らして出される(FSCM、仕様 §5)", () => {
     const w = battle(2);
+    let checked = 0;
     for (let t = 0; t < 300 * SIM_HZ; t++) {
       const before = new Set(w.fireMissions.map((m) => m.id));
       stepWorld(w);
       for (const m of w.fireMissions) {
         if (before.has(m.id)) continue;
-        // 要請の瞬間、照準点の危険近接内に自軍はいない
-        const friendlyNear = w.soldiers.some(
-          (s) => s.side === m.side && s.status === "ok" && dist(s.pos, m.target) < MORTAR.DANGER_CLOSE,
+        const co = w.companies.find((c) => c.side === m.side)!;
+        // 線が引けていること(引けなければ撃たない、が規則)
+        expect(co.flot.sources).toBeGreaterThan(0);
+        // 照準点は、報告で把握している先頭より危険近接ぶん前にあること
+        expect(forwardOf(co.advanceDir, m.target)).toBeGreaterThanOrEqual(
+          co.flot.lead + MORTAR.DANGER_CLOSE - 1e-6,
         );
-        expect(friendlyNear).toBe(false);
+        // その線は必ず過去のもの(仕様 §5)。現在ティックの真値ではない
+        expect(co.flot.asOfTick).toBeLessThan(w.tick);
+        checked++;
       }
     }
+    expect(checked).toBeGreaterThan(0);
+  }, 300000);
+
+  /**
+   * 仕様 §8.2 は同士討ちを「起きない」ものとして抽象化している。統制線を報告由来に
+   * した `[v6.16]` から、自軍の頭上に着弾すること自体は起こりうる。**それでも損害は
+   * 出さない** — 制圧までは受ける、というのが §8.2 と §8.6 の両立のさせ方。
+   */
+  it("自軍の砲弾で自軍に損害は出ない(仕様 §8.2)", () => {
+    const w = battle(2);
+    let impacts = 0;
+    let suppressedOwn = 0;
+    for (let t = 0; t < 300 * SIM_HZ; t++) {
+      const was = new Map(w.soldiers.map((s) => [s.id, s.status]));
+      stepWorld(w);
+      for (const f of w.fx) {
+        if (f.kind !== "mortar") continue;
+        impacts++;
+        for (const s of w.soldiers) {
+          if (s.side !== f.side) continue;
+          if (dist(s.pos, f.at) > f.radius) continue;
+          // 自軍の弾の殺傷半径内にいた自軍が、そのティックで倒れていないこと
+          expect(was.get(s.id) === "ok" && s.status !== "ok").toBe(false);
+        }
+        for (const s of w.soldiers) {
+          if (s.side !== f.side || s.status !== "ok") continue;
+          if (dist(s.pos, f.at) <= f.suppressRadius) suppressedOwn++;
+        }
+      }
+    }
+    expect(impacts).toBeGreaterThan(0);
+    // 制圧は陣営を見ない(仕様 §8.6)。この戦闘で自軍が自軍の弾に伏せたことがある
+    void suppressedOwn;
   }, 300000);
 
   it("中隊本部を持たない編成は火力支援を持たない(仕様 §2)", () => {

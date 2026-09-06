@@ -445,13 +445,16 @@ function postAtWindows(world: World, ft: FireteamState, members: Soldier[]): boo
   if (objectiveCoveringPoint(world, ft.objective)) return false;
   const mc = centroid(members);
   if (dist(mc, ft.objective) > WINDOW_HOLD_DIST) return false;
-  const threat = ftThreat(ft);
+  // **警戒方向**(`[v6.16]` ATP 3-21.8 consolidation)。接触を把握していればそちら、
+  // 無ければ小隊長から下ろされた逆襲の予想方向。どちらも無ければ従来どおり目標。
+  // 「奪ったら火器を敵の接近経路へ向ける」を、就く銃眼の選定として表現している。
+  const threat = ftThreat(ft) ?? ft.watch;
   const posts = manWindows(world, members, threat);
   if (posts.size === 0) return false;
   for (const u of members) {
     const p = posts.get(u.id);
     if (!p) continue;
-    // 監視方向は窓の外側。脅威が分かっていればそちら、無ければ目標の方向
+    // 監視方向は窓の外側。警戒方向が決まっていればそちら、無ければ目標の方向
     issue(world, u, "hold", p, dirTo(u.pos, threat ?? ft.objective));
     u.speedMul = 1;
   }
