@@ -1399,3 +1399,150 @@ body {
   color: var(--warn);
   background: #3a2f14;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   `[v6.18]` 狭い画面(スマホでの動作確認)
+
+   HUD は3列+2レールの flow で組んである(`[v6.6]`)ので、狭くするのは
+   **列幅と余白を縮めることと、畳めるようにすること**で足りる。絶対座標を
+   持ち込まない、という `[v6.6]` の原則はここでも崩さない。
+
+   これは「スマホで遊べる」ではなく「スマホで動作確認できる」ための最小限。
+   本格的にプレイ可能にするなら、パネルをボトムシートへ作り替える必要がある。
+   ───────────────────────────────────────────────────────────────────────── */
+
+/** 側面パネルを畳む切替。常に右上へ。畳んでいる間も出したままにする */
+.hud-toggle {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 40;
+  pointer-events: auto;
+  display: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1;
+}
+
+@media (max-width: 1180px) {
+  :root {
+    --col-w: 224px;
+    --gap: 8px;
+    --pad: 10px;
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 820px) {
+  :root {
+    --col-w: 178px;
+    --gap: 6px;
+    --pad: 6px;
+    font-size: 12px;
+  }
+
+  .hud-toggle {
+    display: block;
+  }
+
+  /* 列は盤面に重なる。畳めるので、覆ったままにはならない */
+  .hud-col {
+    overflow-y: auto;
+    max-height: 100%;
+  }
+
+  /* 畳んだら地図だけになる。時間と権限のレールだけ残す */
+  .hud-collapsed .hud-col,
+  .hud-collapsed .legend {
+    display: none;
+  }
+
+  /* 凡例は横に長いので折り返す。潰れると読めない */
+  .hud-rail {
+    gap: 4px;
+  }
+}
+
+/** 縦持ちのスマホ。左右の列を上下に積み、地図を横幅いっぱいに使う */
+@media (max-width: 560px) {
+  .hud {
+    flex-direction: column;
+  }
+
+  .hud-col {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    max-height: 34vh;
+  }
+
+  .hud-col > * {
+    flex: 1 1 46%;
+    min-width: 0;
+  }
+
+  /* 文脈スロットだけは中身が縦に長いので1行占有させる */
+  .hud-slot {
+    flex: 1 1 100%;
+  }
+}
+
+/* ── 初期条件コード(`[v6.18]`)── */
+.setup-code {
+  gap: 6px;
+}
+
+.setup-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.setup-row > span {
+  flex: none;
+  color: var(--muted);
+}
+
+.setup-row input {
+  width: 88px;
+}
+
+.setup-code-box {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgb(0 0 0 / 28%);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  /* 選んで手でコピーできること。https でない LAN 越しでは clipboard API が使えない */
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+
+.setup-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.setup-actions input {
+  flex: 1;
+  min-width: 0;
+}
+
+.setup-note {
+  color: var(--live);
+  font-size: 11px;
+}
+
+.setup-hint {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}

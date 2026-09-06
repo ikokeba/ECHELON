@@ -304,7 +304,10 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
   // 既定値を編集の出発点としてストアへ返し、パネルがそこから触れるようにする。
   // `[v6.9]` 編成は世界の**構造**なので、毎フレーム反映する tuning/doctrine と違い、
   // 生成のときにだけ読む。変更すると `deploymentNonce` が動いてここから作り直される。
-  const base = SCENARIOS[scenarioKey].make(undefined, useSimStore.getState().force);
+  const base = SCENARIOS[scenarioKey].make(
+    useSimStore.getState().seed,
+    useSimStore.getState().force,
+  );
   useSimStore.getState().initDeployment(defaultDeploymentOf(base));
   const plan = useSimStore.getState().deployment;
   const world = createWorld(plan ? applyDeployment(base, plan) : base);
@@ -338,16 +341,57 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
    * ポーズ中でも発行でき、解除後にタイムラグなく実行される(仕様 §6)。
    * 発行できたら OrderToast 用に記録する(指摘: 移動命令が出せているか分からない)。
    */
-  const onContextMenu = (e: MouseEvent) => {
-    e.preventDefault();
+  const issueMoveOrder = (clientX: number, clientY: number): void => {
     const c = world.control;
     if (!c) return;
-    const p = renderer.screenToWorld(e.clientX, e.clientY);
+    const p = renderer.screenToWorld(clientX, clientY);
     if (orderControlledTo(world, p)) {
       useSimStore.getState().setLastOrder({ target: p, tick: world.tick, echelon: c.echelon });
     }
   };
+  const onContextMenu = (e: MouseEvent) => {
+    e.preventDefault();
+    issueMoveOrder(e.clientX, e.clientY);
+  };
   canvas.addEventListener("contextmenu", onContextMenu);
+
+  /**
+   * `[v6.18]` **タッチには右クリックが無いので、長押しを移動命令にする。**
+   * 指を置いたまま `LONG_PRESS_MS` 動かさなければ発行する。少しでも動けば
+   * レンダラのパン、すぐ離せば選択 — 3つが同じ指の1操作から分岐する。
+   *
+   * 対象は `pointerType === "touch"` だけ。マウスの長押しまで拾うと、
+   * 盤面を掴んで考えているあいだに命令が飛ぶ。
+   */
+  const LONG_PRESS_MS = 480;
+  const LONG_PRESS_SLOP = 10;
+  let pressTimer: number | null = null;
+  let pressX = 0;
+  let pressY = 0;
+  const cancelPress = (): void => {
+    if (pressTimer !== null) {
+      window.clearTimeout(pressTimer);
+      pressTimer = null;
+    }
+  };
+  const onTouchDown = (e: PointerEvent) => {
+    if (e.pointerType !== "touch") return;
+    cancelPress();
+    pressX = e.clientX;
+    pressY = e.clientY;
+    pressTimer = window.setTimeout(() => {
+      pressTimer = null;
+      issueMoveOrder(pressX, pressY);
+    }, LONG_PRESS_MS);
+  };
+  const onTouchMove = (e: PointerEvent) => {
+    if (pressTimer === null) return;
+    if (Math.hypot(e.clientX - pressX, e.clientY - pressY) > LONG_PRESS_SLOP) cancelPress();
+  };
+  canvas.addEventListener("pointerdown", onTouchDown);
+  canvas.addEventListener("pointermove", onTouchMove);
+  canvas.addEventListener("pointerup", cancelPress);
+  canvas.addEventListener("pointercancel", cancelPress);
 
   /**
    * 左クリックでユニットを選択する(デバッグ表示・思考パネルの基準)。
@@ -486,6 +530,11 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
     running = false;
     window.removeEventListener("resize", onResize);
     canvas.removeEventListener("contextmenu", onContextMenu);
+    cancelPress();
+    canvas.removeEventListener("pointerdown", onTouchDown);
+    canvas.removeEventListener("pointermove", onTouchMove);
+    canvas.removeEventListener("pointerup", cancelPress);
+    canvas.removeEventListener("pointercancel", cancelPress);
     canvas.removeEventListener("mousedown", onMouseDown);
     canvas.removeEventListener("click", onClick);
     renderer.dispose();

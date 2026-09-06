@@ -2195,17 +2195,51 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     return { x: target.x + ndcX * halfW, z: target.z - ndcY * halfH };
   }
 
-  // ── カメラ操作: ドラッグでパン、ホイールでズーム ──
+  // ── カメラ操作: ドラッグでパン、ホイール/ピンチでズーム ──
+  //
+  // `[v6.18]` **指2本のピンチを足した。** ポインタは PointerEvent で受けているので
+  // マウスもタッチも同じ経路を通る。2本目が触れているあいだはパンを止め、
+  // 2本の間隔の比でズームする(指を離すと、残った1本を新しい基準にしてパンへ戻る)。
+  const active = new Map<number, { x: number; y: number }>();
   let dragging = false;
   let lastX = 0;
   let lastY = 0;
+  /** ピンチ中の直前の指の間隔。0 ならピンチしていない */
+  let pinchDist = 0;
+
+  const twoPointers = (): [{ x: number; y: number }, { x: number; y: number }] | null => {
+    if (active.size !== 2) return null;
+    const [a, b] = [...active.values()];
+    return [a!, b!];
+  };
+
   const onDown = (e: PointerEvent) => {
+    active.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    canvas.setPointerCapture(e.pointerId);
+    const two = twoPointers();
+    if (two) {
+      // 2本目が触れた瞬間にパンをやめる。やらないと拡縮しながら盤面が飛ぶ
+      dragging = false;
+      pinchDist = Math.hypot(two[0].x - two[1].x, two[0].y - two[1].y);
+      return;
+    }
     dragging = true;
     lastX = e.clientX;
     lastY = e.clientY;
-    canvas.setPointerCapture(e.pointerId);
   };
+
   const onMove = (e: PointerEvent) => {
+    if (active.has(e.pointerId)) active.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const two = twoPointers();
+    if (two) {
+      const d = Math.hypot(two[0].x - two[1].x, two[0].y - two[1].y);
+      if (pinchDist > 1 && d > 1) {
+        viewSpan = THREE.MathUtils.clamp(viewSpan * (pinchDist / d), 12, 220);
+        updateCamera();
+      }
+      pinchDist = d;
+      return;
+    }
     if (!dragging) return;
     const rect = canvas.getBoundingClientRect();
     const perPxY = viewSpan / rect.height;
@@ -2215,9 +2249,20 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     lastY = e.clientY;
     updateCamera();
   };
+
   const onUp = (e: PointerEvent) => {
-    dragging = false;
+    active.delete(e.pointerId);
     if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+    pinchDist = 0;
+    // 指が1本残っていれば、そこを基準にパンを続ける(指を1本離した瞬間に飛ばない)
+    const rest = [...active.entries()][0];
+    if (rest) {
+      dragging = true;
+      lastX = rest[1].x;
+      lastY = rest[1].y;
+    } else {
+      dragging = false;
+    }
   };
   const onWheel = (e: WheelEvent) => {
     e.preventDefault();

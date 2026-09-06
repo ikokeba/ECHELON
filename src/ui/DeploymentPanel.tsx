@@ -1,4 +1,5 @@
 import { useSimStore } from "./store.ts";
+import { SetupCodePanel } from "./SetupCodePanel.tsx";
 import { isPointSymmetric } from "@sim/deployment.ts";
 import { OBJECTIVE } from "@sim/constants.ts";
 import { DOCTRINES, DOCTRINE_KEYS } from "@sim/doctrine.ts";
@@ -66,6 +67,9 @@ export function DeploymentPanel() {
           ×
         </button>
       </div>
+
+      {/* `[v6.18]` 初期条件コード。配置と同じ「戦闘を作る」画面に置く */}
+      <SetupCodePanel />
 
       <div className="ov-sec">
         <div className="dbg-k">

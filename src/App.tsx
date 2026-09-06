@@ -47,5 +47,31 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  /**
+   * 初期条件コードを URL の `#` に載せ続ける(`[v6.18]`)。
+   *
+   * **パネルの中ではなくここでやる。** 配置パネルを開かないと URL が更新されない
+   * のでは、「いま見ている条件をそのまま共有する」という用途に使えない
+   * (LAN内の別端末で同じ URL を開く、が主目的)。
+   *
+   * `setupCode()` が副作用を持たないことがここの前提。書き戻す実装だと
+   * 「導く → state が変わる → 依存が変わる → 導き直す」で止まらなくなる。
+   */
+  const scenarioKey = useSimStore((s) => s.scenarioKey);
+  const seed = useSimStore((s) => s.seed);
+  const force = useSimStore((s) => s.force);
+  const doctrine = useSimStore((s) => s.doctrine);
+  const posture = useSimStore((s) => s.posture);
+  const tuning = useSimStore((s) => s.tuning);
+  const deployment = useSimStore((s) => s.deployment);
+  useEffect(() => {
+    const code = useSimStore.getState().setupCode();
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}#${code}`,
+    );
+  }, [scenarioKey, seed, force, doctrine, posture, tuning, deployment]);
+
   return <GameView />;
 }

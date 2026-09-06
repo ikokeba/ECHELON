@@ -16,7 +16,14 @@ import {
   TURN_RATE,
 } from "@sim/constants.ts";
 import { mirrorPlan, type DeploymentPlan, type ObjectivePlacement } from "@sim/deployment.ts";
-import type { ScenarioKey } from "@sim/scenario.ts";
+import { SCENARIOS, type ScenarioKey } from "@sim/scenario.ts";
+import {
+  decodeSetup,
+  encodeSetup,
+  quantizeDeployment,
+  quantizeRisk,
+  quantizeTuning,
+} from "@sim/setupCode.ts";
 import type { PlanRouteView } from "@render/renderer.ts";
 import type {
   BattleMode,
@@ -267,8 +274,19 @@ interface UiState extends HudSnapshot {
   /** viewEchelon === "platoon" のときに覗く小隊 */
   viewPlatoonId: number | null;
 
+  /**
+   * HUD の側面パネルを畳んでいるか(`[v6.18]`)。
+   * 狭い画面(スマホ)では列がそのまま盤面を覆うので、地図だけにできる逃げ道が要る。
+   */
+  hudCollapsed: boolean;
+
   /** 実行中のシナリオ。変えるとランタイムごと作り直される */
   scenarioKey: ScenarioKey;
+  /**
+   * 乱数種(`[v6.18]`)。両陣営に同じ値が入る(仕様 §2/§13)ので、
+   * 「どちらかが得をする種」というものは存在しない。変えると世界を作り直す。
+   */
+  seed: number;
 
   // ── 配置エディタ(`[v6.4]`)──
   /**
@@ -341,7 +359,15 @@ interface UiState extends HudSnapshot {
   setViewEchelon: (e: ViewEchelon) => void;
   setViewSquadId: (id: number | null) => void;
   setViewPlatoonId: (id: number | null) => void;
+  /** HUD の側面パネルの畳み/展開(`[v6.18]`) */
+  toggleHud: () => void;
   setScenario: (k: ScenarioKey) => void;
+  /** 乱数種を変える(`[v6.18]`)。世界を作り直す */
+  setSeed: (seed: number) => void;
+  /** いまの初期条件をコードに畳む(`[v6.18]`) */
+  setupCode: () => string;
+  /** コードから初期条件を復元する。読めなければ false を返して何も変えない */
+  applySetupCode: (code: string) => boolean;
   /** ホットスワップ要求。ランタイムが次フレームでシムへ反映する */
   requestSwap: (c: ControlState | null) => void;
   setRoster: (r: RosterCompany[]) => void;
@@ -407,7 +433,7 @@ export const DEFAULT_TUNING_UI: TuningUi = {
 /** 実行中の速度のみ(SPEED_STEPS[0] の 0 を除く) */
 export const RUN_SPEEDS = SPEED_STEPS.filter((s) => s > 0);
 
-export const useSimStore = create<UiState>((set) => ({
+export const useSimStore = create<UiState>((set, get) => ({
   tick: 0,
   simSeconds: 0,
   blueAlive: 0,
@@ -439,7 +465,9 @@ export const useSimStore = create<UiState>((set) => ({
   viewEchelon: "platoon",
   viewSquadId: null,
   viewPlatoonId: null,
+  hudCollapsed: false,
   scenarioKey: "oldQuarter",
+  seed: 1,
   phase: "battle",
   plans: [],
   planRoutes: [],
@@ -623,7 +651,8 @@ export const useSimStore = create<UiState>((set) => ({
     set((s) => (s.deploymentDraft ? { deploymentDraft: mirrorPlan(s.deploymentDraft) } : {})),
   commitDeployment: () =>
     set((s) => ({
-      deployment: s.deploymentDraft,
+      // `[v6.18]` 適用の瞬間に丸める。以後 `deployment` は常にコードで表せる値になる
+      deployment: s.deploymentDraft ? quantizeDeployment(s.deploymentDraft) : null,
       deploymentNonce: s.deploymentNonce + 1,
       setupTool: null,
       control: null,
@@ -686,14 +715,15 @@ export const useSimStore = create<UiState>((set) => ({
       // 同じ枠を使うので、デバッグパネルを開いたら配置パネルは閉じる
       ...(patch.panelOpen ? { deployOpen: false, setupTool: null } : {}),
     })),
-  setTuning: (patch) => set((s) => ({ tuning: { ...s.tuning, ...patch } })),
+  // `[v6.18]` 初期条件コードが運べる精度へ丸めてから入れる。丸めを出口(コード生成)で
+  // やると、走っている戦闘とコードが 0.001 ぶんずれる
+  setTuning: (patch) =>
+    set((s) => ({ tuning: quantizeTuning({ ...s.tuning, ...patch }) })),
   setPostureRisk: (side, riskTolerance) =>
-    set((s) => ({
-      posture: {
-        ...s.posture,
-        [side]: { riskTolerance, ...postureFromRisk(riskTolerance) },
-      },
-    })),
+    set((s) => {
+      const r = quantizeRisk(riskTolerance); // `[v6.18]` コードが運べる精度へ
+      return { posture: { ...s.posture, [side]: { riskTolerance: r, ...postureFromRisk(r) } } };
+    }),
   setPostureKnob: (side, patch) =>
     set((s) => ({
       posture: { ...s.posture, [side]: { ...s.posture[side], ...patch } },
@@ -714,6 +744,68 @@ export const useSimStore = create<UiState>((set) => ({
         selectedSoldierId: null,
       };
     }),
+  toggleHud: () => set((s) => ({ hudCollapsed: !s.hudCollapsed })),
+  setSeed: (seed) =>
+    set((s) => ({
+      seed: Math.max(0, Math.round(seed)),
+      deploymentNonce: s.deploymentNonce + 1,
+      control: null,
+      selectedSoldierId: null,
+    })),
+
+  /**
+   * いまの初期条件をコードに畳む(`[v6.18]`)。
+   *
+   * **副作用を持たない。** 一度ここで `normalizeSetup` の結果を書き戻す実装にした
+   * ところ、「コードを導く → state が変わる → 導き直す」で React の更新が止まらなく
+   * なった(画面が真っ白になる)。丸めは**値が state に入る時点**で行う
+   * (`setTuning` / `setPostureRisk` / `commitDeployment`)ので、ここは読むだけでよい。
+   */
+  setupCode: () => {
+    const s = get();
+    return encodeSetup(
+      {
+        scenario: s.scenarioKey,
+        seed: s.seed,
+        force: s.force,
+        doctrine: s.doctrine,
+        risk: { blue: s.posture.blue.riskTolerance, red: s.posture.red.riskTolerance },
+        tuning: s.tuning,
+        deployment: s.deployment,
+      },
+      DEFAULT_TUNING_UI,
+    );
+  },
+
+  /** コードから初期条件を復元する。読めなければ何も変えずに false。 */
+  applySetupCode: (code) => {
+    const setup = decodeSetup(code, DEFAULT_TUNING_UI);
+    if (!setup) return false;
+    if (!(setup.scenario in SCENARIOS)) return false;
+    set((s) => ({
+      scenarioKey: setup.scenario as ScenarioKey,
+      seed: setup.seed,
+      force: setup.force,
+      doctrine: setup.doctrine as Record<Side, DoctrineKey>,
+      tuning: { ...setup.tuning },
+      posture: {
+        blue: { riskTolerance: setup.risk.blue, ...postureFromRisk(setup.risk.blue) },
+        red: { riskTolerance: setup.risk.red, ...postureFromRisk(setup.risk.red) },
+      },
+      // 配置は下書きにも入れる。読み込んだ直後に配置エディタを開いても中身が合う
+      deployment: setup.deployment,
+      deploymentDraft: setup.deployment,
+      deploymentNonce: s.deploymentNonce + 1,
+      control: null,
+      selectedSoldierId: null,
+      viewSquadId: null,
+      viewPlatoonId: null,
+      setupTool: null,
+      selectedObjectiveIdx: null,
+    }));
+    return true;
+  },
+
   setDoctrine: (side, key) =>
     set((s) => {
       const risk = DOCTRINES[key].riskTolerance;
