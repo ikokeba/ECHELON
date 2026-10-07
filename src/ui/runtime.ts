@@ -24,7 +24,7 @@ import { createLlmSession, type LlmSession } from "../llm/session.ts";
 import { createLmStudioAgent } from "../llm/lmstudio.ts";
 import { ruleAgent } from "../llm/agent.ts";
 import { useLlmStore } from "./llmStore.ts";
-import type { Side } from "@sim/types.ts";
+import type { FxEvent, Side } from "@sim/types.ts";
 import {
   currentSpeed,
   useSimStore,
@@ -246,6 +246,9 @@ function reinforcementHud(world: World, side: Side): HudSnapshot["reinforcement"
     calls: r.spec.calls,
     size: r.spec.size,
     etaSec: next ? Math.max(0, (next.arriveTick - world.tick) * SIM_DT) : null,
+    progress: next
+      ? Math.min(1, (world.tick - next.calledTick) / Math.max(1, next.arriveTick - next.calledTick))
+      : null,
     arrived: r.arrived,
     canCall:
       top !== null && c !== null && c.side === side && c.echelon === top.echelon && c.unitId === top.unitId,
@@ -542,7 +545,13 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
     }
 
     const ticks = world.phase === "planning" ? 0 : drainTicks(clock, elapsed);
-    for (let t = 0; t < ticks; t++) stepWorld(world);
+    // `[v7.1]` 弾道表現のため、このフレームで進んだ全ティックの描画イベントを貯める
+    // (world.fx はティックの頭で空になるので、最後のティックのぶんしか残らない)
+    const frameFx: FxEvent[] = [];
+    for (let t = 0; t < ticks; t++) {
+      stepWorld(world);
+      for (const f of world.fx) frameFx.push(f);
+    }
 
     // ── LLM の座席(`[v7.0]`)。設定が変わったら張り直し、毎フレーム問い合わせを回す ──
     const llmConfig = useLlmStore.getState().config;
@@ -589,6 +598,7 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
       // 立案フェーズの接近経路(`[v6.5]`)。戦闘に入ったら消える
       planRoutes: world.phase === "planning" ? ui.planRoutes : null,
       hoveredPlanKey: ui.hoveredPlanKey,
+      fx: frameFx,
     });
 
     if (ticks > 0 && (hudCountdown -= 1) <= 0) {

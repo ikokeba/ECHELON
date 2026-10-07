@@ -222,6 +222,13 @@ export interface SoldierOrder {
   suppress?: boolean;
   /** この命令が発行されたティック(陳腐化判定・デバッグ用) */
   issuedTick: number;
+  /**
+   * 隊形の基準になる兵士と、その兵士から見た相対位置(`[v7.1]` 盾の密集隊形)。
+   * `follow` の目標を**毎ティック**この兵士の位置と向きから計算し直す。FTリーダーの
+   * 判断周期(0.3秒)ごとの固定点を追うと、動いている盾持ちから数メートル遅れる。
+   *   lat  = 右が正の横ずれ m / back = 後ろが正の距離 m
+   */
+  anchor?: { id: number; lat: number; back: number };
 }
 
 /**
@@ -395,6 +402,13 @@ export interface Soldier {
    * 遠距離だけ数ティックおきに更新してその間はここを使い回す。
    */
   seesFar: number[];
+  /**
+   * 最後に自分を撃ってきた者の位置と、それを覚えている期限(`[v7.1]` 個人の戦闘動作)。
+   * 「撃たれたら撃ってきた方を向く」に使う。見えていない敵の位置を知る手段ではなく、
+   * 向きを変えるきっかけにだけ使う(そこから先は自分の目で見る、仕様 §5)
+   */
+  alertFrom: Vec2 | null;
+  alertUntilTick: number;
 }
 
 export interface SoldierTraits {
@@ -1109,7 +1123,21 @@ export interface ControlMeasure {
  * ここを読んで発砲線・擲弾の着弾円・イベントログを出す(指摘: 撃った線 / 擲弾を可視化)。
  */
 export type FxEvent =
-  | { kind: "shot"; from: Vec2; to: Vec2; side: Side; hit: boolean }
+  /**
+   * 1発の射撃(描画専用)。`[v7.1]` 毎ティックの命中判定をそのまま1発として出すと
+   * 1人が毎秒30発撃っているように見えるので、命中は必ず、外れは武器ごとの
+   * 見た目の発射レート(constants `TRACER`)で間引いて出す。シムの判断には使わない。
+   */
+  | {
+      kind: "shot";
+      from: Vec2;
+      to: Vec2;
+      side: Side;
+      hit: boolean;
+      shooterId: number;
+      targetId: number;
+      weapon: "rifle" | "dm" | "pistol" | "saw" | "mg";
+    }
   | { kind: "grenade"; at: Vec2; side: Side; radius: number; victims: number }
   /** 迫撃砲の着弾(`[v6.9]`)。`radius` は殺傷半径、`suppressRadius` は制圧が及ぶ範囲 */
   | {

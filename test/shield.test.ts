@@ -3,7 +3,7 @@ import { createWorld } from "../src/sim/world.ts";
 import { runTicks, stepWorld } from "../src/sim/step.ts";
 import { companyClashScenario, makeSoldier } from "../src/sim/scenario.ts";
 import { DEFAULT_FORCE, forceSize, type ForceSpec } from "../src/sim/force.ts";
-import { shieldAccMul, shieldStackSlots } from "../src/sim/shield.ts";
+import { shieldAccMul, shieldStackSlots, stackPoint, turnMulOf } from "../src/sim/shield.ts";
 import { sightRangeOf, weaponRangeOf } from "../src/sim/weapons.ts";
 import { SHIELD, WEAPON_RANGE } from "../src/sim/constants.ts";
 import type { Scenario, Side, Soldier } from "../src/sim/types.ts";
@@ -57,6 +57,25 @@ describe("盾の命中率倍率(shield.ts)", () => {
       const t = soldier("blue", p.x, p.z);
       expect(shieldAccMul(front, t, [bearer])).toBe(SHIELD.BEHIND_ACC_MUL);
     }
+  });
+});
+
+describe("盾持ちのペナルティ(`[v7.1]`)", () => {
+  it("旋回が遅く、片手撃ちで命中が落ち、移動も遅い", () => {
+    expect(turnMulOf(soldier("blue", 0, 0, { role: "shield" }))).toBe(SHIELD.TURN_RATE_MUL);
+    expect(turnMulOf(soldier("blue", 0, 0))).toBe(1);
+    expect(SHIELD.TURN_RATE_MUL).toBeLessThan(1);
+    expect(SHIELD.PISTOL_ACC_MUL).toBeLessThan(1);
+    expect(SHIELD.MOVE_SPEED_MUL).toBeLessThan(1);
+  });
+
+  it("隊員の持ち場は盾持ちの向きに合わせて回る(盾持ちが中心)", () => {
+    const p = stackPoint({ x: 0, z: 0 }, { x: 0, z: 1 }, 0, 2);
+    expect(p.x).toBeCloseTo(0, 6);
+    expect(p.z).toBeCloseTo(-2, 6); // 盾の真後ろ
+    const q = stackPoint({ x: 0, z: 0 }, { x: 1, z: 0 }, 0, 2);
+    expect(q.x).toBeCloseTo(-2, 6);
+    expect(q.z).toBeCloseTo(0, 6);
   });
 });
 

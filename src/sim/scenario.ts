@@ -163,6 +163,8 @@ export function makeSoldier(seed: SoldierSeed): Soldier {
     },
     ordinal: seed.ordinal ?? 0,
     seesFar: [],
+    alertFrom: null,
+    alertUntilTick: 0,
   };
 }
 

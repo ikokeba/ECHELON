@@ -52,10 +52,13 @@ export interface ForceSpec {
   reinforcement?: ReinforcementSpec;
 }
 
-/** 後援部隊の既定値(UIで「あり」にしたときの出発点)。**暫定値** */
+/**
+ * 後援部隊の既定値(`[v7.1]` 確定: 1回・小隊規模・指揮所付近・90秒・AIは戦力60%割れで要請)。
+ * 回数はパラメータで、UIのスライダーで変えられる。
+ */
 export const DEFAULT_REINFORCEMENT: ReinforcementSpec = {
   calls: 1,
-  size: "squad",
+  size: "platoon",
   delaySec: 90,
   entry: "rear",
   autoCallBelow: 0.6,
@@ -135,6 +138,18 @@ export const DEFAULT_FORCE: ForceSpec = {
 
 export function defaultForce(): Record<Side, ForceSpec> {
   return { blue: { ...DEFAULT_FORCE }, red: { ...DEFAULT_FORCE } };
+}
+
+/**
+ * 画面で遊ぶときの既定の編成(`[v7.1]`)。`defaultForce()` に後援部隊(両軍とも)を足したもの。
+ * テスト・ヘッドレス実行の既定(`defaultForce()`)は変えない — 後援の有無で既存の
+ * 検証結果が動かないように。初期条件コードの差分はこちらを基準にとる。
+ */
+export function playForce(): Record<Side, ForceSpec> {
+  return {
+    blue: { ...DEFAULT_FORCE, reinforcement: { ...DEFAULT_REINFORCEMENT } },
+    red: { ...DEFAULT_FORCE, reinforcement: { ...DEFAULT_REINFORCEMENT } },
+  };
 }
 
 /** その編成が盤上に置く人数。UIの表示と、規模から展開線を決めるのに使う。 */

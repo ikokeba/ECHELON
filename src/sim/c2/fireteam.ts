@@ -47,8 +47,10 @@ import { isCommittedToLitter, isOffField } from "../systems/litter.ts";
 import { exitCqb, runCqb } from "./cqbDrill.ts";
 import { assignFires } from "./fireControl.ts";
 import { decayedConfidence } from "../belief.ts";
-import { shieldStackSlots, shieldUp } from "../shield.ts";
+import { shieldStackOffsets, shieldUp, stackPoint } from "../shield.ts";
 import type { Contact, FireteamMode, FireteamState, Soldier, Vec2 } from "../types.ts";
+
+type SoldierOrderAnchor = NonNullable<Soldier["order"]["anchor"]>;
 import type { World } from "../world.ts";
 
 // ── チューニング値(モック由来。squad-12v12 の TEAM_DEFS を参照)。
@@ -133,6 +135,8 @@ function issue(
   look: Vec2,
   /** `follow` しながら制圧射撃もする(`[v7.0]` 盾の密集隊形) */
   suppressWhileFollowing = false,
+  /** 隊形の基準の兵士と相対位置(`[v7.1]` 盾の密集隊形) */
+  anchor?: SoldierOrderAnchor,
 ): void {
   // 応急手当に拘束されている隊員へは命令を出さない(仕様 §9: 手当は命令不要の
   // 自律トリガーであり、命令系統の外側で発生する)。ここで上書きすると
@@ -158,6 +162,7 @@ function issue(
     facing: { ...look },
     issuedTick: world.tick,
     ...(suppressWhileFollowing ? { suppress: true } : {}),
+    ...(anchor ? { anchor: { ...anchor } } : {}),
   };
   // 本当に新しい目的地であればキャッシュ済みの経路を破棄する
   if (changedTarget) {
@@ -543,17 +548,26 @@ function runShieldTeam(
   face: Vec2,
   firing: boolean,
 ): void {
-  if (dest && dist(bearer.pos, dest) > DEST_ARRIVE) {
+  const moving = dest !== null && dist(bearer.pos, dest) > DEST_ARRIVE;
+  if (moving) {
     issue(world, bearer, firing ? "suppress" : "move", dest, face);
   } else {
     issue(world, bearer, firing ? "suppress" : "hold", null, face);
   }
+  // `[v7.1]` 隊員の持ち場は**盾持ちの今の位置と盾の向き**に結びつける(movement.ts が
+  // 毎ティック計算し直す)。盾持ちを中心に隊がまとまって動き、盾が回れば隊も回る。
   const others = living.filter((u) => u !== bearer);
-  const slots = shieldStackSlots(bearer.pos, face, others.length);
+  const offsets = shieldStackOffsets(others.length);
+  let straggling = false;
   others.forEach((u, i) => {
-    issue(world, u, "follow", slots[i]!, face, firing);
+    const o = offsets[i]!;
+    const slot = stackPoint(bearer.pos, bearer.facing, o.lat, o.back);
+    if (dist(u.pos, slot) > SHIELD.STACK_WAIT_DIST) straggling = true;
+    issue(world, u, "follow", slot, face, firing, { id: bearer.id, lat: o.lat, back: o.back });
     u.holdFireUntilTick = 0;
   });
+  // 遅れた隊員がいれば盾持ちは足を緩めて待つ(隊は最後尾の者の速さで動く)
+  if (moving && straggling) bearer.speedMul = SHIELD.STACK_WAIT_SPEED;
 }
 
 /** 兵士の目的地を決める。ばたつき防止の保持時間を尊重する。 */

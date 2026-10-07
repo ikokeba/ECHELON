@@ -38,7 +38,7 @@ import type {
 import type { ControlState } from "@sim/control.ts";
 import { postureFromRisk } from "@sim/tuning.ts";
 import { DOCTRINES, type DoctrineKey } from "@sim/doctrine.ts";
-import { defaultForce, type ForceSpec } from "@sim/force.ts";
+import { playForce, type ForceSpec } from "@sim/force.ts";
 
 const RAD2DEG = 180 / Math.PI;
 
@@ -181,6 +181,8 @@ export interface HudReinforcement {
   size: "squad" | "platoon";
   /** 要請済みで、いちばん早く着くものまでの秒数。要請していなければ null */
   etaSec: number | null;
+  /** そのいちばん早い要請の進み具合 0..1(到着ゲージ `[v7.1]`)。要請していなければ null */
+  progress: number | null;
   arrived: number;
   /** 人間がこの陣営の最上位の指揮官を操作している = 要請ボタンが押せる */
   canCall: boolean;
@@ -520,7 +522,7 @@ export const useSimStore = create<UiState>((set, get) => ({
     red: { riskTolerance: 0.5, ...postureFromRisk(0.5) },
   },
   doctrine: { blue: "regular", red: "regular" },
-  force: defaultForce(),
+  force: playForce(),
   deploymentStale: false,
 
   togglePause: () => set((s) => ({ paused: !s.paused })),

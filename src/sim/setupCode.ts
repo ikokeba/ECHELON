@@ -34,7 +34,7 @@
  * (テストで固定している)。丸め幅は 5mm / 0.0005 で、盤面の見た目には現れない。
  */
 
-import { defaultForce, type ForceSpec } from "./force.ts";
+import { playForce, type ForceSpec } from "./force.ts";
 import type { DeploymentPlan } from "./deployment.ts";
 import type { Side, Vec2 } from "./types.ts";
 
@@ -74,7 +74,7 @@ export function defaultSetup(scenario: string, tuning: SetupTuning): BattleSetup
   return {
     scenario,
     seed: 1,
-    force: defaultForce(),
+    force: playForce(),
     doctrine: { blue: "regular", red: "regular" },
     risk: { blue: 0.5, red: 0.5 },
     tuning: { ...tuning },

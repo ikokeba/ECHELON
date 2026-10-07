@@ -72,7 +72,7 @@ export function DebugPanel() {
         </div>
         {chk("showPaths", "選択ユニットの移動予定")}
         {chk("showConcealment", "選択ユニット視点の隠蔽率グリッド")}
-        {chk("showShotLines", "発砲線")}
+        {chk("showShotLines", "弾道")}
         {chk("showOrders", "操作中ユニットの移動命令ライン")}
         {chk("showContactRings", "敵接触の不確度円")}
         {chk("showFlot", "中隊長の前線と火力統制線")}

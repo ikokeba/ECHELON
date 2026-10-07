@@ -40,7 +40,9 @@ describe("後援部隊の要請", () => {
   });
 
   it("要請から delaySec 後に分隊が後方へ現れ、最も消耗した小隊の麾下で動き出す", () => {
-    const w = createWorld(companyClashScenario(1, withReinf("company", { delaySec: 10 })));
+    const w = createWorld(
+      companyClashScenario(1, withReinf("company", { delaySec: 10, size: "squad" })),
+    );
     const before = w.soldiers.filter((s) => s.side === "blue").length;
     const squadsBefore = w.squads.filter((s) => s.side === "blue").length;
     // 第1小隊を消耗させる(戦死扱い)→ 増援はそこへ付く

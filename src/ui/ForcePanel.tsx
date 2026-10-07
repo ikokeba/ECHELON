@@ -80,6 +80,11 @@ export function ForcePanel() {
           </button>
         </div>
       )}
+      {reinf && reinf.progress !== null && (
+        <div className="reinf-gauge" title="後援部隊の到着ゲージ。満ちると指揮所付近に現れる">
+          <span style={{ width: `${Math.round(reinf.progress * 100)}%` }} />
+        </div>
+      )}
     </div>
   );
 }

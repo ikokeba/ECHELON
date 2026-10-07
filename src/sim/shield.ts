@@ -69,22 +69,38 @@ export function shieldAccMul(
  * 埋める。盾の陰(`SHADOW_DEPTH`・`SHADOW_HALF_WIDTH`)に収まるよう間隔を取ってある。
  */
 export function shieldStackSlots(bearer: Vec2, face: Vec2, n: number): Vec2[] {
+  return shieldStackOffsets(n).map((o) => stackPoint(bearer, face, o.lat, o.back));
+}
+
+/** 密集隊形の相対位置(右が正の横ずれ lat、後ろが正の back)。i 番目の隊員の持ち場 */
+export function shieldStackOffsets(n: number): Array<{ lat: number; back: number }> {
+  const offsets: [number, number][] = [
+    [-SHIELD.STACK_COL / 2, SHIELD.STACK_ROW],
+    [SHIELD.STACK_COL / 2, SHIELD.STACK_ROW],
+    [0, SHIELD.STACK_ROW * 2],
+    [-SHIELD.STACK_COL / 2, SHIELD.STACK_ROW * 3],
+    [SHIELD.STACK_COL / 2, SHIELD.STACK_ROW * 3],
+  ];
+  const out: Array<{ lat: number; back: number }> = [];
+  for (let i = 0; i < n; i++) {
+    const [lat, back] = offsets[Math.min(i, offsets.length - 1)]!;
+    out.push({ lat, back });
+  }
+  return out;
+}
+
+/**
+ * 盾持ちの位置と盾の向きから、相対位置 (lat, back) の地点を出す。
+ * 右 = 向き (fx,fz) に対する (−fz, fx)。
+ */
+export function stackPoint(bearer: Vec2, face: Vec2, lat: number, back: number): Vec2 {
   const fl = Math.hypot(face.x, face.z) || 1;
   const fx = face.x / fl;
   const fz = face.z / fl;
-  const rx = -fz;
-  const rz = fx;
-  const offsets: [number, number][] = [
-    [-SHIELD.STACK_COL / 2, -SHIELD.STACK_ROW],
-    [SHIELD.STACK_COL / 2, -SHIELD.STACK_ROW],
-    [0, -SHIELD.STACK_ROW * 2],
-    [-SHIELD.STACK_COL / 2, -SHIELD.STACK_ROW * 3],
-    [SHIELD.STACK_COL / 2, -SHIELD.STACK_ROW * 3],
-  ];
-  const out: Vec2[] = [];
-  for (let i = 0; i < n; i++) {
-    const [lat, back] = offsets[Math.min(i, offsets.length - 1)]!;
-    out.push({ x: bearer.x + rx * lat + fx * back, z: bearer.z + rz * lat + fz * back });
-  }
-  return out;
+  return { x: bearer.x - fz * lat - fx * back, z: bearer.z + fx * lat - fz * back };
+}
+
+/** 盾持ちの旋回の遅さ(`[v7.1]`)。それ以外の兵は 1 */
+export function turnMulOf(s: Soldier): number {
+  return s.role === "shield" ? SHIELD.TURN_RATE_MUL : 1;
 }
