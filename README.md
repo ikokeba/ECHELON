@@ -47,7 +47,7 @@ every one of them simulated, not animated.
 
 ![The camera dives from the full board into a firefight: individual soldiers, tracer lines and wounded markers come into view](docs/media/firefight.gif)
 
-*Pulling in from the whole board to the point of contact.*
+*Pulling in from the whole board to the point of contact. (Front-line overlay hidden for the clip.)*
 
 ### Objective capture
 
@@ -57,7 +57,7 @@ both sides are inside, the count stops (contested).
 
 ![A BLUE fire team enters an objective; a pale-blue disc expands to fill the ring until the capture is complete](docs/media/capture.gif)
 
-*A BLUE fire team holds a room-sized objective while the capture disc fills.*
+*A BLUE fire team approaches, enters a room-sized objective, and the capture disc fills.*
 
 ### Casualties are carried, not deleted
 
@@ -67,7 +67,7 @@ the squad is weaker for it.
 
 ![A RED litter team carries a wounded soldier across the board; the cyan rings mark the bearers](docs/media/casevac.gif)
 
-*A four-man litter team (cyan rings) carrying a wounded soldier to the CCP.*
+*From the hit and buddy aid, to a four-man litter team (cyan rings) carrying the wounded soldier away.*
 
 ### Five boards, from alley fights to no-man's-land
 
