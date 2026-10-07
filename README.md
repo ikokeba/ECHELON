@@ -14,7 +14,7 @@ command (company → platoon → squad → fire team → soldier).
 **Phase: playable prototype.** The seven prototype mocks have been merged into one game state
 and one simulation loop under `src/`. All five echelons run on the same world, in your browser.
 
-![A platoon-level view of a battle in the Old Quarter: BLUE advances on three objectives while the HUD shows the echelon tree, force strength and capture progress](docs/media/overview.gif)
+![A platoon-level view of a battle in the Old Quarter: BLUE squads converge on the central objective while the HUD shows the echelon tree, force strength and capture progress](docs/media/overview.gif)
 
 *Watching a battle through the platoon leader's eyes. Every unit is AI-controlled; the panels
 show the chain of command, force strength and objective-capture progress in real time.*
@@ -27,9 +27,10 @@ Pick any company, platoon or squad and take its seat. The AI immediately keeps r
 else, and you receive **exactly the orders the AI can issue — no more, no less** (spec §4).
 Right-click to give a move order; hand the seat back whenever you like.
 
-![Hot-swapping into 1st Squad: the banner switches to MANUAL and right-click move orders send the squad toward new positions](docs/media/hotswap.gif)
+![Hot-swapping into 1st Squad: the camera closes in on the squad, the banner switches to MANUAL, and a right-click move order sends the squad along a route](docs/media/hotswap.gif)
 
-*Hot-swap into a squad, then steer it with move orders while the rest of the force keeps fighting.*
+*Hot-swap into a squad, then steer it with move orders while the rest of the force keeps fighting.
+The orange diamond is the destination; the line is the route.*
 
 ### Command is lossy — information flows up the chain, not out of thin air
 
@@ -38,20 +39,41 @@ of his fireteams'. Above that it is radio only — delayed, decaying, and coarse
 hop. The company's picture is measurably older and vaguer than the platoon's. Switch the
 viewpoint between company / platoon / squad / "god" and watch the fog of war change.
 
+### From the whole board down to a single soldier
+
+The camera zooms from the full battlefield to the point of contact. Down there you see
+individual soldiers, fire teams, tracers, and the markers for suppressed and wounded men —
+every one of them simulated, not animated.
+
+![The camera dives from the full board into a firefight: individual soldiers, tracer lines and wounded markers come into view](docs/media/firefight.gif)
+
+*Pulling in from the whole board to the point of contact.*
+
+### Objective capture
+
+An objective is taken by standing in it. A pale disc grows outward from the centre while the
+capture progresses, and the ring switches to the capturer's colour when it is complete. If
+both sides are inside, the count stops (contested).
+
+![A BLUE fire team enters an objective; a pale-blue disc expands to fill the ring until the capture is complete](docs/media/capture.gif)
+
+*A BLUE fire team holds a room-sized objective while the capture disc fills.*
+
+### Casualties are carried, not deleted
+
+Hit → wounded → buddy aid → a litter team of two or four picks the casualty up and carries him
+to the casualty collection point (spec §9). Bearers cannot use their weapons while carrying, and
+the squad is weaker for it.
+
+![A RED litter team carries a wounded soldier across the board; the cyan rings mark the bearers](docs/media/casevac.gif)
+
+*A four-man litter team (cyan rings) carrying a wounded soldier to the CCP.*
+
 ### Five boards, from alley fights to no-man's-land
 
 Close-quarters streets, a 40 m boulevard you have to cross, staggered new-town blocks, trench
-lines — and a regular grid used as the baseline for balance comparisons. Fight over objectives
-with up to **91 men a side** in the company-level scenario.
-
-![Close-up of the boulevard-and-market board: both sides' units fight around the central objective while tracers cross the open ground, and the objective ring turns BLUE](docs/media/capture.gif)
-
-*Boulevard & Market: a central objective is contested across open ground; once BLUE holds it,
-the ring changes colour.*
-
-![The trench board: two opposing trench lines with no-man's-land between them, and the objective at the top-left flipping to RED](docs/media/trench.gif)
-
-*Trench warfare: you cannot win without crossing the no-man's-land between the lines.*
+lines — and a regular grid used as the baseline for balance comparisons. The company-level
+scenario fields up to **91 men a side**.
 
 ## Features
 
