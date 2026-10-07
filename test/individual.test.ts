@@ -55,7 +55,7 @@ describe("個人の戦闘動作", () => {
     const spec = { ...DEFAULT_FORCE, scale: "platoon" as const };
     let pairs = 0;
     let unseen = 0;
-    for (const seed of [1, 2]) {
+    for (const seed of [1, 2, 3]) {
       const w = createWorld(companyClashScenario(seed, { blue: spec, red: { ...spec } }));
       for (let t = 0; t < 4500; t++) {
         stepWorld(w);
@@ -65,7 +65,7 @@ describe("個人の戦闘動作", () => {
           if (a.side !== "blue") continue;
           for (const b of ok) {
             if (b.side !== "red") continue;
-            if (Math.hypot(a.pos.x - b.pos.x, a.pos.z - b.pos.z) > 15) continue;
+            if (Math.hypot(a.pos.x - b.pos.x, a.pos.z - b.pos.z) > 25) continue;
             if (!hasLineOfSightIndexed(w.wallIndex, a.pos.x, a.pos.z, b.pos.x, b.pos.z)) continue;
             pairs++;
             if (!a.sees.includes(b.id) && !b.sees.includes(a.id)) unseen++;
@@ -73,8 +73,9 @@ describe("個人の戦闘動作", () => {
         }
       }
     }
-    expect(pairs).toBeGreaterThan(20);
-    // 以前は 27%。目が進行方向に縛られなくなったので、ほぼ必ずどちらかが気づく
+    // `[v7.1]` 近距離の命中率を上げてからは至近まで寄る前に決着するので、25m以内で数える
+    expect(pairs).toBeGreaterThan(10);
+    // 以前は(15m以内で)27%。目が進行方向に縛られなくなったので、ほぼ必ずどちらかが気づく
     expect(unseen / pairs).toBeLessThan(0.05);
   });
 });
