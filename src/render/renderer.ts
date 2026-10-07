@@ -8,7 +8,7 @@
 
 import * as THREE from "three";
 import type { World } from "@sim/world.ts";
-import type { Side, Soldier, Vec2 } from "@sim/types.ts";
+import type { FxEvent, Side, Soldier, Vec2 } from "@sim/types.ts";
 import type { ViewResult } from "@sim/viewpoint.ts";
 import { LITTER, MORTAR, SIM_HZ, SOLDIER_RADIUS } from "@sim/constants.ts";
 import { collidesWall, hasLineOfSight } from "@sim/geometry.ts";
@@ -56,6 +56,11 @@ export interface RenderOpts {
    */
   planRoutes?: PlanRouteView[] | null;
   hoveredPlanKey?: string | null;
+  /**
+   * このフレームのあいだに進んだティックぶんの描画イベント(`[v7.1]`)。
+   * 省略時は world.fx(最後のティックのぶんだけ)を使う。
+   */
+  fx?: readonly FxEvent[];
 }
 
 /** レンダラが描く接近経路1本。ui/store の PlanTask と構造的に一致していればよい。 */
@@ -95,11 +100,21 @@ const SHADOW_OPACITY = 0.3;
 
 /** 配置エディタの「予定」。実際の拠点や陣営色と必ず違う見た目にする(`[v6.4]`) */
 const PLAN_COLOR = 0xf2ecdd;
-/** 発砲線: 命中 / 外れ */
+/** 弾道(`[v7.1]`): 着弾の閃光の色 */
 const TRACER_HIT_COLOR = 0xfff0a0;
-const TRACER_MISS_COLOR = 0x5c5341;
-/** 発砲線の寿命(秒)。短く光ってすぐ消える */
-const TRACER_LIFE = 0.11;
+/**
+ * 弾の見た目の速さ m/s(`[v7.1]`)。実弾(約900m/s)だと一瞬で消えて目で追えないので、
+ * 「撃った方向へ飛んでいく」のが見える速さまで落としてある。60m を約0.3秒
+ */
+const TRACER_SPEED = 200;
+/** 弾の光跡の長さ m */
+const TRACER_STREAK = 3.2;
+/** 着弾の閃光が残る秒数 */
+const IMPACT_LIFE = 0.16;
+/** 外れ弾が標的の横を抜けたあと、さらに飛ぶ距離 m(下限・幅) */
+const MISS_OVERSHOOT = { min: 6, span: 14 };
+/** 外れ弾が標的からそれる横の距離 m(下限・幅) */
+const MISS_LATERAL = { min: 0.7, span: 1.8 };
 /** 擲弾の着弾円の寿命(秒) */
 const BLAST_LIFE = 0.55;
 /**
@@ -112,6 +127,8 @@ const DEBRIS_LIFE = 0.7;
 /** 1発あたりの破片線の本数 */
 const DEBRIS_PER_BLAST = 14;
 const MAX_TRACERS = 400;
+/** 1発あたりの線分: 光跡1 + 着弾の閃光2 */
+const TRACER_SEGS = 3;
 const MAX_BLASTS = 24;
 const MAX_DEBRIS = 240;
 /** 着弾前の警告リングの最大数(同時に飛んでいる射撃任務の数) */
@@ -133,14 +150,52 @@ const FLOT_PL = { dash: 3, gap: 4, extend: 0 };
 const GRID_CELL = 2.5;
 const MAX_GRID_CELLS = 6000;
 
+/**
+ * 飛んでいる弾1発(`[v7.1]`)。始点から終点へ `TRACER_SPEED` で進む光跡として描く。
+ * 命中弾の終点は撃った瞬間の標的の位置(=標的に重なって消える)。外れ弾の終点は
+ * 標的の横を抜けた先(=それて飛び去る)。
+ */
 interface Tracer {
-  fx: number;
-  fz: number;
-  tx: number;
-  tz: number;
+  sx: number;
+  sz: number;
+  ex: number;
+  ez: number;
   hit: boolean;
-  life: number;
+  side: Side;
+  /** 撃ってからの経過秒 */
+  age: number;
+  /** 終点に着くまでの秒 */
+  dur: number;
 }
+/** 射撃イベントから弾1発を作る。外れ弾のそれ方は描画だけの乱数で決める(シムに影響しない) */
+function makeTracer(f: Extract<FxEvent, { kind: "shot" }>): Tracer {
+  const dx = f.to.x - f.from.x;
+  const dz = f.to.z - f.from.z;
+  const d = Math.hypot(dx, dz) || 1;
+  const ux = dx / d;
+  const uz = dz / d;
+  let ex = f.to.x;
+  let ez = f.to.z;
+  if (!f.hit) {
+    const side = Math.random() < 0.5 ? -1 : 1;
+    const lat = (MISS_LATERAL.min + Math.random() * MISS_LATERAL.span) * side;
+    const over = MISS_OVERSHOOT.min + Math.random() * MISS_OVERSHOOT.span;
+    ex = f.to.x - uz * lat + ux * over;
+    ez = f.to.z + ux * lat + uz * over;
+  }
+  const len = Math.hypot(ex - f.from.x, ez - f.from.z);
+  return {
+    sx: f.from.x,
+    sz: f.from.z,
+    ex,
+    ez,
+    hit: f.hit,
+    side: f.side,
+    age: 0,
+    dur: Math.max(0.05, len / TRACER_SPEED),
+  };
+}
+
 interface Blast {
   x: number;
   z: number;
@@ -787,6 +842,13 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   wedgeGeo.rotateX(-Math.PI / 2);
   const wedgeMesh = makeInstanced(wedgeGeo, MAX_SOLDIERS);
 
+  // 盾(`[v7.0]`)。盾持ちのトークンの前縁に、向きに合わせて回る短い板を置く。
+  // 明るい鋼色にして陣営色の芯とは別物に見せる — 盾が「どちらを向いているか」が
+  // そのまま「どちらからの弾を止めるか」なので、向きが読めることが要点
+  const shieldGeo = new THREE.PlaneGeometry(TOKEN_R * 2.1, TOKEN_R * 0.42);
+  shieldGeo.rotateX(-Math.PI / 2);
+  const shieldMesh = makeInstanced(shieldGeo, MAX_SOLDIERS, {}, 13);
+
   // 階級章。単位平面を1枚用意し、横棒の長さにスケールする(UIレビュー 診断D)
   const rankGeo = new THREE.PlaneGeometry(1, 1);
   rankGeo.rotateX(-Math.PI / 2);
@@ -1142,9 +1204,12 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   const tracerGeo = new THREE.BufferGeometry();
   tracerGeo.setAttribute(
     "position",
-    new THREE.BufferAttribute(new Float32Array(MAX_TRACERS * 2 * 3), 3),
+    new THREE.BufferAttribute(new Float32Array(MAX_TRACERS * TRACER_SEGS * 2 * 3), 3),
   );
-  tracerGeo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(MAX_TRACERS * 2 * 3), 3));
+  tracerGeo.setAttribute(
+    "color",
+    new THREE.BufferAttribute(new Float32Array(MAX_TRACERS * TRACER_SEGS * 2 * 3), 3),
+  );
   const tracerMesh = new THREE.LineSegments(
     tracerGeo,
     new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, depthTest: false }),
@@ -1525,6 +1590,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     let haloN = 0;
     let kiaN = 0;
     let wedgeN = 0;
+    let shieldN = 0;
     let litterN = 0;
     for (const s of tokens) {
       const p = prev.pos.get(s.id) ?? cur.pos.get(s.id)!;
@@ -1621,6 +1687,21 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
           wedgeN++;
         }
 
+        // 盾(`[v7.0]`)。構えている間だけ、遠景以外で描く
+        if (lod !== "far" && s.role === "shield" && s.status === "ok" && !s.routed) {
+          dummy.position.set(
+            x + Math.sin(heading) * TOKEN_R * 1.25,
+            0.07,
+            z + Math.cos(heading) * TOKEN_R * 1.25,
+          );
+          dummy.rotation.set(0, heading, 0);
+          dummy.scale.setScalar(1);
+          dummy.updateMatrix();
+          shieldMesh.setMatrixAt(shieldN, dummy.matrix);
+          shieldMesh.setColorAt(shieldN, col.setHex(MAP.shield));
+          shieldN++;
+        }
+
         // ── 担架搬送の関係線(UIレビュー 診断C)。運ぶ側から負傷者へ引く ──
         if (bearer && lod !== "far" && litterN < MAX_SOLDIERS) {
           const cas = s.bearing !== null ? interp(s.bearing) : null;
@@ -1660,8 +1741,9 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     haloRingMesh.count = haloN;
     kiaMesh.count = kiaN;
     wedgeMesh.count = wedgeN;
+    shieldMesh.count = shieldN;
     rankMesh.count = rankN;
-    for (const m of [discMesh, soldierShadowMesh, bodyRingMesh, haloRingMesh, kiaMesh, wedgeMesh, rankMesh]) {
+    for (const m of [discMesh, soldierShadowMesh, bodyRingMesh, haloRingMesh, kiaMesh, wedgeMesh, shieldMesh, rankMesh]) {
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }
@@ -1930,11 +2012,13 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     }
 
     // ── 発砲線 / 擲弾の着弾円(指摘: 撃った線 / 榴弾を可視化) ──
-    if (world.tick !== lastFxTick) {
-      for (const f of world.fx) {
+    // `[v7.1]` 1フレームに複数ティック進んだときは、runtime がその間の出来事を
+    // まとめて `opts.fx` で渡す(world.fx は最後のティックのぶんしか持たない)
+    const fxNow = opts.fx ?? (world.tick !== lastFxTick ? world.fx : []);
+    if (fxNow.length > 0 || world.tick !== lastFxTick) {
+      for (const f of fxNow) {
         if (f.kind === "shot") {
-          if (tracers.length < MAX_TRACERS)
-            tracers.push({ fx: f.from.x, fz: f.from.z, tx: f.to.x, tz: f.to.z, hit: f.hit, life: TRACER_LIFE });
+          if (tracers.length < MAX_TRACERS) tracers.push(makeTracer(f));
         } else if (blasts.length < MAX_BLASTS) {
           const mortar = f.kind === "mortar";
           blasts.push({
@@ -1965,23 +2049,45 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       }
       lastFxTick = world.tick;
     }
-    for (const t of tracers) t.life -= dt;
+    for (const t of tracers) t.age += dt;
     for (const b of blasts) b.life -= dt;
     for (const d of debris) d.life -= dt;
-    tracers = tracers.filter((t) => t.life > 0);
+    tracers = tracers.filter((t) => t.age < t.dur + (t.hit ? IMPACT_LIFE : 0));
     blasts = blasts.filter((b) => b.life > 0);
     debris = debris.filter((d) => d.life > 0);
 
-    const nT = Math.min(tracers.length, MAX_TRACERS);
-    for (let j = 0; j < nT; j++) {
-      const t = tracers[j]!;
-      const fade = Math.max(0, t.life / TRACER_LIFE);
-      tracerPos.setXYZ(2 * j, t.fx, 0.5, t.fz);
-      tracerPos.setXYZ(2 * j + 1, t.tx, 0.5, t.tz);
-      col.setHex(t.hit ? TRACER_HIT_COLOR : TRACER_MISS_COLOR).multiplyScalar(0.35 + 0.65 * fade);
-      tracerColArr.setXYZ(2 * j, col.r, col.g, col.b);
-      tracerColArr.setXYZ(2 * j + 1, col.r, col.g, col.b);
+    // 弾道(`[v7.1]`)。光跡は「弾の先端」と「その STREAK 手前」を結ぶ短い線で、
+    // 始点から終点へ進む。命中弾は終点(標的)で閃光を残して消え、外れ弾は抜けて消える
+    let seg = 0;
+    const putSeg = (ax: number, az: number, bx: number, bz: number, c: THREE.Color): void => {
+      if (seg >= MAX_TRACERS * TRACER_SEGS) return;
+      tracerPos.setXYZ(2 * seg, ax, 0.5, az);
+      tracerPos.setXYZ(2 * seg + 1, bx, 0.5, bz);
+      tracerColArr.setXYZ(2 * seg, c.r, c.g, c.b);
+      tracerColArr.setXYZ(2 * seg + 1, c.r, c.g, c.b);
+      seg++;
+    };
+    for (const t of tracers) {
+      const len = Math.hypot(t.ex - t.sx, t.ez - t.sz) || 1;
+      const ux = (t.ex - t.sx) / len;
+      const uz = (t.ez - t.sz) / len;
+      if (t.age < t.dur) {
+        const head = Math.min(len, t.age * TRACER_SPEED);
+        const tail = Math.max(0, head - TRACER_STREAK);
+        // 外れ弾は飛び去りながら薄れる
+        const fade = t.hit ? 1 : 1 - 0.6 * (head / len);
+        col.setHex(SIDE_COLOR[t.side]).lerp(col2.setHex(0xffffff), 0.55).multiplyScalar(fade);
+        putSeg(t.sx + ux * tail, t.sz + uz * tail, t.sx + ux * head, t.sz + uz * head, col);
+      } else if (t.hit) {
+        // 着弾の閃光: 標的の位置に小さな×
+        const k = 1 - (t.age - t.dur) / IMPACT_LIFE;
+        const r = 0.35 + 0.35 * k;
+        col.setHex(TRACER_HIT_COLOR).multiplyScalar(0.4 + 0.6 * k);
+        putSeg(t.ex - r, t.ez - r, t.ex + r, t.ez + r, col);
+        putSeg(t.ex - r, t.ez + r, t.ex + r, t.ez - r, col);
+      }
     }
+    const nT = seg;
     tracerGeo.setDrawRange(0, nT * 2);
     tracerPos.needsUpdate = true;
     tracerColArr.needsUpdate = true;
@@ -2310,6 +2416,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
         haloRingGeo,
         kiaGeo,
         wedgeGeo,
+        shieldGeo,
         rankGeo,
         contactGeo,
         contactEdgeGeo,
@@ -2324,6 +2431,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
         haloRingMesh,
         kiaMesh,
         wedgeMesh,
+        shieldMesh,
         rankMesh,
         contactMesh,
         contactEdgeMesh,

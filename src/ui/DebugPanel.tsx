@@ -1,5 +1,6 @@
 import { useSimStore, type DebugState } from "./store.ts";
 import { COMMON_SLIDERS, POSTURE_KNOBS } from "./tuningDefs.ts";
+import { LlmPanel } from "./LlmPanel.tsx";
 import type { Side } from "@sim/types.ts";
 
 /**
@@ -71,7 +72,7 @@ export function DebugPanel() {
         </div>
         {chk("showPaths", "選択ユニットの移動予定")}
         {chk("showConcealment", "選択ユニット視点の隠蔽率グリッド")}
-        {chk("showShotLines", "発砲線")}
+        {chk("showShotLines", "弾道")}
         {chk("showOrders", "操作中ユニットの移動命令ライン")}
         {chk("showContactRings", "敵接触の不確度円")}
         {chk("showFlot", "中隊長の前線と火力統制線")}
@@ -142,6 +143,8 @@ export function DebugPanel() {
       <button type="button" className="btn" onClick={resetTuning}>
         パラメータを既定へ戻す
       </button>
+
+      <LlmPanel />
 
       {/*
         兵士の色・階級章・拠点などの通常の凡例は画面下の `Legend`(キー L)へ移した

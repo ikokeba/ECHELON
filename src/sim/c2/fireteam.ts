@@ -34,6 +34,7 @@ import {
   WEAPON_RANGE,
   POS_ERROR_GROWTH,
   POS_ERROR_MAX,
+  SHIELD,
   SIM_HZ,
 } from "../constants.ts";
 import { formationSlots } from "../formation.ts";
@@ -46,7 +47,10 @@ import { isCommittedToLitter, isOffField } from "../systems/litter.ts";
 import { exitCqb, runCqb } from "./cqbDrill.ts";
 import { assignFires } from "./fireControl.ts";
 import { decayedConfidence } from "../belief.ts";
+import { shieldStackOffsets, shieldUp, stackPoint } from "../shield.ts";
 import type { Contact, FireteamMode, FireteamState, Soldier, Vec2 } from "../types.ts";
+
+type SoldierOrderAnchor = NonNullable<Soldier["order"]["anchor"]>;
 import type { World } from "../world.ts";
 
 // ── チューニング値(モック由来。squad-12v12 の TEAM_DEFS を参照)。
@@ -129,6 +133,10 @@ function issue(
   kind: Soldier["order"]["kind"],
   target: Vec2 | null,
   look: Vec2,
+  /** `follow` しながら制圧射撃もする(`[v7.0]` 盾の密集隊形) */
+  suppressWhileFollowing = false,
+  /** 隊形の基準の兵士と相対位置(`[v7.1]` 盾の密集隊形) */
+  anchor?: SoldierOrderAnchor,
 ): void {
   // 応急手当に拘束されている隊員へは命令を出さない(仕様 §9: 手当は命令不要の
   // 自律トリガーであり、命令系統の外側で発生する)。ここで上書きすると
@@ -153,6 +161,8 @@ function issue(
     ...(target ? { target: { ...target } } : {}),
     facing: { ...look },
     issuedTick: world.tick,
+    ...(suppressWhileFollowing ? { suppress: true } : {}),
+    ...(anchor ? { anchor: { ...anchor } } : {}),
   };
   // 本当に新しい目的地であればキャッシュ済みの経路を破棄する
   if (changedTarget) {
@@ -520,6 +530,46 @@ function runAdvance(
   }
 }
 
+/**
+ * 盾の密集隊形(`[v7.0]`)。盾持ちが先頭に立って `face` へ盾を向け、残りの隊員は
+ * 盾の陰(`shieldStackSlots`)に詰めて追従する。`dest` が null ならその場で構える。
+ *
+ * バディペアに分けた躍進前進はしない — 盾は1枚しかないので、隊を割ると片方が
+ * 盾の外に出る。隊を割らずに**盾ごと前へ出る**のがこの隊形の戦い方で、躍進の
+ * 「片方が撃って片方が動く」は、盾が動きながら撃たれ役を引き受けることで置き換わる。
+ *
+ * `firing` のとき全員が撃ちながら動く(盾持ちは拳銃、後ろは肩越しの制圧射撃)。
+ */
+function runShieldTeam(
+  world: World,
+  living: Soldier[],
+  bearer: Soldier,
+  dest: Vec2 | null,
+  face: Vec2,
+  firing: boolean,
+): void {
+  const moving = dest !== null && dist(bearer.pos, dest) > DEST_ARRIVE;
+  if (moving) {
+    issue(world, bearer, firing ? "suppress" : "move", dest, face);
+  } else {
+    issue(world, bearer, firing ? "suppress" : "hold", null, face);
+  }
+  // `[v7.1]` 隊員の持ち場は**盾持ちの今の位置と盾の向き**に結びつける(movement.ts が
+  // 毎ティック計算し直す)。盾持ちを中心に隊がまとまって動き、盾が回れば隊も回る。
+  const others = living.filter((u) => u !== bearer);
+  const offsets = shieldStackOffsets(others.length);
+  let straggling = false;
+  others.forEach((u, i) => {
+    const o = offsets[i]!;
+    const slot = stackPoint(bearer.pos, bearer.facing, o.lat, o.back);
+    if (dist(u.pos, slot) > SHIELD.STACK_WAIT_DIST) straggling = true;
+    issue(world, u, "follow", slot, face, firing, { id: bearer.id, lat: o.lat, back: o.back });
+    u.holdFireUntilTick = 0;
+  });
+  // 遅れた隊員がいれば盾持ちは足を緩めて待つ(隊は最後尾の者の速さで動く)
+  if (moving && straggling) bearer.speedMul = SHIELD.STACK_WAIT_SPEED;
+}
+
 /** 兵士の目的地を決める。ばたつき防止の保持時間を尊重する。 */
 function cachedDest(
   world: World,
@@ -539,6 +589,67 @@ function cachedDest(
     }
   }
   return cur ?? null;
+}
+
+/**
+ * 接敵中の盾チーム(`[v7.0]`)。盾を敵へ向けたまま、役割に応じて盾ごと位置を取る。
+ *
+ *   ベース役   : 有効射程の内側で盾を立てて制圧する。盾そのものが遮蔽なので
+ *                壁を探しには行かない(遠すぎるときだけ射程まで詰める)
+ *   機動役     : 分隊長の側面の経由点へ盾ごと回る。側面を取ったら(または指示が
+ *                無ければ)盾を押し立てて敵へ詰め、拳銃の間合い(`SHIELD.CLOSE_DIST`)で突撃
+ *   釘付け     : その場で盾を立てて耐える。散って遮蔽を探すと盾の陰から出るだけ
+ *
+ * 移動中も全員が撃つ(盾持ちは拳銃、後ろは肩越しの制圧)。盾は正面しか守らないので、
+ * 敵の側面攻撃がそのまま盾の対抗手段になる — ここで後ろを向いたりはしない。
+ */
+function runShieldContact(
+  world: World,
+  ft: FireteamState,
+  living: Soldier[],
+  bearer: Soldier,
+  enemy: Vec2,
+  mc: Vec2,
+  engageMax: number,
+): void {
+  const face = dirTo(bearer.pos, enemy);
+  const pinned = living.some(
+    (u) => u.suppressedUntilTick > world.tick || u.evadeUntilTick > world.tick,
+  );
+  const dEnemy = dist(mc, enemy);
+  const toward = (stop: number): Vec2 | null => {
+    if (dEnemy <= stop + 1) return null;
+    const back = dirTo(enemy, mc);
+    return { x: enemy.x + back.x * stop, z: enemy.z + back.z * stop };
+  };
+
+  let dest: Vec2 | null;
+  if (ft.assignedRole === "base") {
+    dest = toward(engageMax * 0.85);
+  } else if (ft.flankGoal && !ft.flankDone) {
+    dest = ft.flankGoal;
+  } else if (pinned) {
+    dest = null;
+  } else {
+    // 突撃の継続(F-10 (a) と同じ考え方): 接敵が続いても釘付けでなければ、任務目標が
+    // 遠いうちは目標へ、そうでなければ盾を押し立てて敵へ詰める。占領を命じられた
+    // 拠点の外にいるなら、役割に関係なく拠点へ(`[v6.9]` F-9: 接敵は占領を免除しない)
+    const onObj = objectiveCoveringPoint(world, ft.objective);
+    const outsideObjective = onObj !== null && dist(mc, onObj.pos) > onObj.radius;
+    const pushToObjective =
+      dist(mc, ft.objective) > CONTACT_DRILL.ASSAULT_THROUGH_DIST &&
+      (outsideObjective ||
+        (ft.assignedRole === null &&
+          world.tick - ft.modeSince > Math.round(CONTACT_DRILL.PUSH_AFTER_SEC * SIM_HZ)));
+    dest = pushToObjective ? ft.objective : toward(SHIELD.CLOSE_DIST);
+  }
+  runShieldTeam(world, living, bearer, dest, face, true);
+
+  // 拳銃の間合いまで詰めたら突撃(命中率上昇、仕様 §6 F-6)。隊全員で
+  if (dEnemy <= Math.max(SHIELD.CLOSE_DIST, CONTACT_DRILL.ASSAULT_RANGE) + 1) {
+    const until = world.tick + Math.round(CONTACT_DRILL.ASSAULT_SEC * SIM_HZ);
+    for (const u of living) u.assaultingUntilTick = until;
+  }
 }
 
 export function fireteamAI(world: World): void {
@@ -653,6 +764,12 @@ export function fireteamAI(world: World): void {
     // 協調一斉射の火力溜め(F-6)は CONTACT の中だけで管理する。他モードでは古い hold を消す。
     if (ft.mode !== "CONTACT") for (const u of living) u.holdFireUntilTick = 0;
 
+    // 盾の密集隊形で動くか(`[v7.0]`)。盾を構えられる盾持ちがいて、隊が「前へ出る」
+    // モードにある間だけ。後退・潰走・室内の突入ドリルは従来の動きに任せる。
+    const bearer = living.find((u) => shieldUp(u)) ?? null;
+    const shieldTeam =
+      bearer !== null && (ft.mode === "ADVANCE" || ft.mode === "SEARCH" || ft.mode === "CONTACT");
+
     if (ft.mode === "ROUT") {
       // 潰走(仕様 §12): 隊形も役割も崩れ、各自が集結地点へ走る。
       // 潰走を拒否した(=操作中の)兵士だけは、この命令の対象から外れる
@@ -692,6 +809,11 @@ export function fireteamAI(world: World): void {
         continue;
       }
       const enemy = primary.pos;
+
+      if (shieldTeam && bearer) {
+        runShieldContact(world, ft, living, bearer, enemy, mc, engageMax);
+        continue;
+      }
 
       // 分隊長からFT単位の役割(base / maneuver)が下りている場合、FT内の2ペアは
       // 分割せず全員でその役割に専念する。分隊長が健在で指示を出せている状況では、
@@ -936,7 +1058,15 @@ export function fireteamAI(world: World): void {
         ? Math.min(CONTACT_DRILL.ASSAULT_THROUGH_DIST, onObj.radius * 0.5)
         : CONTACT_DRILL.ASSAULT_THROUGH_DIST;
       const outsideObjective = onObj !== null && dist(mc, onObj.pos) > onObj.radius;
+      // `[v7.0]` 分隊長から側面の経由点が下りている間は、目標への躍進より側面の確保を
+      // 優先する。以前は接敵から `PUSH_AFTER_SEC`(8秒)で無条件に目標へ向き直っていたため、
+      // 回り込みが始まる前に終わり、敵から見た角度差は分隊戦で平均26°しかなかった。
+      // 側面を取り終えたら(`flankDone`)敵陣地そのものへ突撃する(assault through)。
+      const flanking = ft.flankGoal !== null && !ft.flankDone;
+      const assaultEnemy =
+        ft.flankDone && dist(mc, enemy) > CONTACT_DRILL.ASSAULT_THROUGH_DIST;
       const pushing =
+        !flanking &&
         !pinnedNow &&
         (outsideObjective ||
           world.tick - ft.modeSince >
@@ -951,7 +1081,20 @@ export function fireteamAI(world: World): void {
         dist(mc, ft.objective) > arriveDist;
       for (const u of maneuver) {
         if (reactToContact(u)) continue;
-        const p = pushing
+        const p = assaultEnemy
+          ? // 側面を取った: ベース組の火力の下で敵陣地へ躍進する(ATP 3-21.8 Battle Drill 1)
+            cachedDest(world, ft, u, () =>
+              pickSupportedBoundTarget(
+                world.walls,
+                world.coverIndex,
+                u.pos,
+                dirTo(u.pos, enemy),
+                BOUND_MIN_ADV * pos.boundMinMul,
+                BOUND_MAX_ADV * pos.boundMaxMul * traitMul(ftTraits.boldness, 0.35),
+                baseCentroid,
+              ),
+            )
+          : pushing
           ? // 目標へ向けた躍進。オーバーウォッチ(ベース組)の支援内に留まる(仕様 §6)
             cachedDest(world, ft, u, () =>
               pickSupportedBoundTarget(
@@ -974,9 +1117,14 @@ export function fireteamAI(world: World): void {
                 engageMin,
                 engageMax,
                 ft.objective,
+                ft.flankGoal ?? undefined,
               ),
             );
-        const fallback = { x: u.pos.x + (enemy.x - u.pos.x) * 0.2, z: u.pos.z + (enemy.z - u.pos.z) * 0.2 };
+        // 遮蔽の候補が無ければ、側面の経由点へそのまま(無ければ敵へ少し寄る)
+        const fallback = ft.flankGoal ?? {
+          x: u.pos.x + (enemy.x - u.pos.x) * 0.2,
+          z: u.pos.z + (enemy.z - u.pos.z) * 0.2,
+        };
         issue(world, u, "maneuver", p ?? fallback, dirTo(u.pos, enemy));
 
         // 突撃フェーズ(A): 近接まで詰めたら数秒 ASSAULT 状態(命中率上昇)
@@ -1029,7 +1177,19 @@ export function fireteamAI(world: World): void {
         ft.searchPoint = null;
         ft.memory.clear();
       }
-      runBoundingOverwatch(world, ft, alpha, bravo, dirTo(mc, aim), pos.boundMinMul, pos.boundMaxMul);
+      if (shieldTeam && bearer) {
+        // 盾を最終目撃地点へ向けたまま、盾ごと詰める
+        runShieldTeam(world, living, bearer, aim, dirTo(bearer.pos, aim), false);
+      } else {
+        runBoundingOverwatch(world, ft, alpha, bravo, dirTo(mc, aim), pos.boundMinMul, pos.boundMaxMul);
+      }
+    } else if (shieldTeam && bearer) {
+      // ADVANCE(盾の密集隊形)。持ち場に着いた屋内のFTが窓に散るのは従来どおり
+      if (!postAtWindows(world, ft, living)) {
+        const threat = ftThreat(ft);
+        const face = threat ? dirTo(bearer.pos, threat) : dirTo(mc, ft.objective);
+        runShieldTeam(world, living, bearer, ft.objective, face, false);
+      }
     } else {
       // ADVANCE — 分隊長(ひいては小隊長)が指示した移動技術で任務目標へ向かう(仕様 §6)
       runAdvance(world, ft, alpha, bravo, dirTo(mc, ft.objective), pos.boundMinMul, pos.boundMaxMul);
@@ -1043,6 +1203,8 @@ export function fireteamAI(world: World): void {
     // 他と切り分けている)。突入の最中に反射的に後退すると、扉の前で出たり入ったりして
     // ドリルが永久に完了しなくなる。狭所では前へ抜けるのがドクトリンでもある。
     if (ft.mode === "CQB") continue;
+    // 盾の密集隊形は反射的に散らない — 散れば盾の陰から出るだけになる(`[v7.0]`)
+    if (shieldTeam) continue;
 
     const threatPos = contacts.reduce<Contact | null>(
       (a, c) => (!a || c.confidence > a.confidence ? c : a),

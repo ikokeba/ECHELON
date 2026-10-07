@@ -175,8 +175,11 @@ export type EvacStage = "none" | "requested" | "carrying" | "evacuated" | "colle
  *
  * `[v6.1]` `"mg"` は火器分隊(小隊直轄の機関銃班、M240系×2、仕様 §2)の射手。
  * SAW をさらに強めた持続制圧火器: 制圧の行動抑制が強く、交戦距離が長く、移動射撃が苦手。
+ *
+ * `[v7.0]` `"shield"` は盾持ち(防弾盾+拳銃)。編成オプションで各FTのライフルマンと
+ * 置き換わる。正面からの被弾を大きく減らし、真後ろの味方を盾の陰に入れる(constants `SHIELD`)。
  */
-export type SoldierRole = "leader" | "saw" | "grenadier" | "rifleman" | "mg";
+export type SoldierRole = "leader" | "saw" | "grenadier" | "rifleman" | "mg" | "shield";
 
 /**
  * 本部要員の職(仕様 §2)。ライフル分隊の外側にいる、指揮系統そのものを担う人員。
@@ -212,8 +215,20 @@ export interface SoldierOrder {
   target?: Vec2;
   /** hold/suppress の照準・監視方向(単位ベクトル) */
   facing?: Vec2;
+  /**
+   * `follow` しながら制圧射撃も行う(`[v7.0]` 盾の密集隊形)。盾の後ろの隊員は
+   * 隊形位置へ追従しつつ撃つので、`suppress`(経路探索つきの移動)では表せない。
+   */
+  suppress?: boolean;
   /** この命令が発行されたティック(陳腐化判定・デバッグ用) */
   issuedTick: number;
+  /**
+   * 隊形の基準になる兵士と、その兵士から見た相対位置(`[v7.1]` 盾の密集隊形)。
+   * `follow` の目標を**毎ティック**この兵士の位置と向きから計算し直す。FTリーダーの
+   * 判断周期(0.3秒)ごとの固定点を追うと、動いている盾持ちから数メートル遅れる。
+   *   lat  = 右が正の横ずれ m / back = 後ろが正の距離 m
+   */
+  anchor?: { id: number; lat: number; back: number };
 }
 
 /**
@@ -387,6 +402,13 @@ export interface Soldier {
    * 遠距離だけ数ティックおきに更新してその間はここを使い回す。
    */
   seesFar: number[];
+  /**
+   * 最後に自分を撃ってきた者の位置と、それを覚えている期限(`[v7.1]` 個人の戦闘動作)。
+   * 「撃たれたら撃ってきた方を向く」に使う。見えていない敵の位置を知る手段ではなく、
+   * 向きを変えるきっかけにだけ使う(そこから先は自分の目で見る、仕様 §5)
+   */
+  alertFrom: Vec2 | null;
+  alertUntilTick: number;
 }
 
 export interface SoldierTraits {
@@ -547,6 +569,31 @@ export interface FireteamPlan {
  * 直接この情報を得る — 仕様が生の視界の共有を認めているのはこの階層までで、
  * 小隊長より上は報告のみになる。
  */
+/**
+ * 側面攻撃の段取り(`[v7.0]` 仕様 §6 Fire and Movement / ATP 3-21.8 Battle Drill 1)。
+ *
+ * 分隊長(FT単位)と小隊長(分隊単位)が同じ形で持つ。**一度決めた役割と回り込む側は
+ * 交戦が続く限り変えない** — 以前は 0.3 秒ごとに「敵に近いほうがベース」を引き直して
+ * いたため、機動組が敵へ寄るたびに役割が入れ替わり、側面へ回る動きが毎回振り出しに
+ * 戻っていた(計測: 分隊戦5回で役割の反転270回、小隊戦で1118回)。
+ */
+export interface FlankPlan {
+  /** ベース・オブ・ファイア(制圧)を担う要素。分隊ではFT番号、小隊では squadId */
+  baseKey: number;
+  /** 側面へ回る機動要素 */
+  maneuverKey: number;
+  /** 回り込む側。ベース→敵の軸から見て +1 = 左回り / −1 = 右回り(座標系に依存しない符号) */
+  dir: 1 | -1;
+  /** 段取りを決めたティック(時間切れの判定用) */
+  sinceTick: number;
+  /** 最後に脅威を把握していたティック。見失ってもしばらくは段取りを保つ */
+  lastThreatTick: number;
+  /** 側面を取り終えた(=突撃へ移った) */
+  done: boolean;
+  /** 突撃へ移ったティック。突撃が一段落したら段取りを解いて状況を見直す */
+  doneTick: number | null;
+}
+
 export interface SquadState {
   id: number;
   side: Side;
@@ -595,6 +642,17 @@ export interface SquadState {
   assaultDoorId: number | null;
   /** 掃討済みの扉ID。同じ部屋を何度も攻略し直さないため */
   clearedDoorIds: number[];
+
+  /** 分隊長が決めた側面攻撃の段取り(`[v7.0]`)。FT番号で持つ */
+  flank: FlankPlan | null;
+  /**
+   * 小隊長から「分隊ごと側面へ回れ」と下ろされた経由点(`[v7.0]`)。
+   * 非 null の間は分隊内の火力/機動の分割をやめ、両FTとも機動要素としてここへ向かう
+   * (支援射撃は小隊のベース分隊が持つ)。
+   */
+  flankGoal: Vec2 | null;
+  /** 小隊の側面機動が側面を取り終え、分隊ごと突撃に移った(`[v7.0]`) */
+  flankAssault: boolean;
 }
 
 /**
@@ -643,6 +701,9 @@ export interface PlatoonState {
   commanderId: number | null;
   /** 指揮継承が起きたティック(null = 継承していない)。判断の質低下の起点 */
   degradedSinceTick: number | null;
+
+  /** 小隊長が決めた側面攻撃の段取り(`[v7.0]`)。squadId で持つ */
+  flank: FlankPlan | null;
 }
 
 /**
@@ -804,6 +865,13 @@ export interface FireteamState {
    * null は未割り当て(接敵していない、または分隊長が健在でない)。
    */
   assignedRole: "base" | "maneuver" | null;
+  /**
+   * 機動役のFTが次に向かう側面の経由点(`[v7.0]`)。分隊長が敵を中心とした弧の上に
+   * 少しずつ置き直す。非 null の間、機動組は目標への躍進より側面の確保を優先する。
+   */
+  flankGoal: Vec2 | null;
+  /** 側面を取り終えた。機動組は敵陣地へ突撃する(`[v7.0]`) */
+  flankDone: boolean;
 
   // ── CQB(仕様 §7.3)──
   /** 突入待機命令の対象扉ID(null = CQB中ではない) */
@@ -823,6 +891,51 @@ export interface FireteamState {
    * 上位への波及は麾下FTの崩壊の集積として間接的に表現される。
    */
   routedSinceTick: number | null;
+}
+
+/**
+ * 後援部隊(増援)の設定(`[v7.0]`)。陣営ごとの編成オプション(`ForceSpec.reinforcement`)。
+ *
+ * **数・規模・出現位置は暫定**で、詳細はユーザーと相談して詰める前提の値(既定は「なし」)。
+ * 仕組みとしては「最上位の指揮官が呼ぶ → `delaySec` 後に `entry` へ現れる → 既存の
+ * 指揮系統に組み込まれてAIが動かす」だけで、増援だけが特別な能力を持つことはない。
+ */
+export interface ReinforcementSpec {
+  /** 呼べる回数。0 なら後援なし */
+  calls: number;
+  /** 1回で来る規模。squad = 9名の分隊 / platoon = 3個分隊+小隊本部(29名) */
+  size: "squad" | "platoon";
+  /** 呼んでから戦場に現れるまで s(シム時間) */
+  delaySec: number;
+  /**
+   * どこに現れるか。
+   *   rear = 自軍の後方(中隊の指揮所、無ければ負傷者集合点)
+   *   edge = 自陣側の盤端(前進方向の真後ろの縁)
+   */
+  entry: "rear" | "edge";
+  /**
+   * AIの最上位指揮官が自動で呼ぶ条件: 自軍の戦闘可能者が編成のこの割合を下回ったら。
+   * 0 ならAIは呼ばない(人間・LLM の要請だけ)
+   */
+  autoCallBelow: number;
+}
+
+/** 1回の要請。着くまで `pending` に並ぶ(`[v7.0]`) */
+export interface ReinforcementCall {
+  calledTick: number;
+  arriveTick: number;
+  size: ReinforcementSpec["size"];
+}
+
+/** 陣営ごとの後援部隊の状態(`[v7.0]`) */
+export interface ReinforcementState {
+  /** null なら後援なし */
+  spec: ReinforcementSpec | null;
+  /** 使った回数 */
+  callsUsed: number;
+  pending: ReinforcementCall[];
+  /** 到着した回数(新しい部隊の通し番号にも使う) */
+  arrived: number;
 }
 
 export interface Scenario {
@@ -868,6 +981,8 @@ export interface Scenario {
    * 陣営ごとの負傷者集合点(CCP、仕様 §9)。担架班はここへ負傷者を運ぶ。
    * 未指定なら各陣営の初期位置の重心を使う。
    */
+  /** 後援部隊の設定(`[v7.0]`)。未指定の陣営は後援なし */
+  reinforcement?: Partial<Record<Side, ReinforcementSpec>>;
   ccp?: Record<Side, Vec2>;
   /** 建物(仕様 §7)。屋外と屋内はシームレスな1つのマップとして扱う */
   buildings?: Building[];
@@ -1008,7 +1123,21 @@ export interface ControlMeasure {
  * ここを読んで発砲線・擲弾の着弾円・イベントログを出す(指摘: 撃った線 / 擲弾を可視化)。
  */
 export type FxEvent =
-  | { kind: "shot"; from: Vec2; to: Vec2; side: Side; hit: boolean }
+  /**
+   * 1発の射撃(描画専用)。`[v7.1]` 毎ティックの命中判定をそのまま1発として出すと
+   * 1人が毎秒30発撃っているように見えるので、命中は必ず、外れは武器ごとの
+   * 見た目の発射レート(constants `TRACER`)で間引いて出す。シムの判断には使わない。
+   */
+  | {
+      kind: "shot";
+      from: Vec2;
+      to: Vec2;
+      side: Side;
+      hit: boolean;
+      shooterId: number;
+      targetId: number;
+      weapon: "rifle" | "dm" | "pistol" | "saw" | "mg";
+    }
   | { kind: "grenade"; at: Vec2; side: Side; radius: number; victims: number }
   /** 迫撃砲の着弾(`[v6.9]`)。`radius` は殺傷半径、`suppressRadius` は制圧が及ぶ範囲 */
   | {

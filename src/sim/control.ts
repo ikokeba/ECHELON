@@ -90,5 +90,10 @@ export function aiSuppressed(
   side: Side,
   unitId: number,
 ): boolean {
-  return isControlled(world.control, echelon, side, unitId);
+  if (isControlled(world.control, echelon, side, unitId)) return true;
+  // 外部エージェント(LLM)の座席も、人間の操作と同じ意味でAIを止める(`[v7.0]`)
+  for (const seat of world.agentSeats) {
+    if (isControlled(seat, echelon, side, unitId)) return true;
+  }
+  return false;
 }

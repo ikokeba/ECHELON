@@ -15,7 +15,7 @@
  * 「規模は同じなのに人数が違う」という読みにくい盤面になる)。
  */
 
-import type { Side } from "./types.ts";
+import type { ReinforcementSpec, Side } from "./types.ts";
 
 /** 出せる部隊の規模。上へ行くほど指揮階層が1つずつ増える(仕様 §2)。 */
 export type ForceScale = "squad" | "platoon" | "company";
@@ -37,7 +37,32 @@ export interface ForceSpec {
    * 分隊規模には元から存在しない(下の `weapons` との論理積で決まる)。
    */
   weaponsSquad: boolean;
+  /**
+   * 盾持ち(`[v7.0]`)。各FTのライフルマン1名が防弾盾+拳銃に置き換わり、FTは盾を
+   * 先頭にした密集隊形で動く。頭数は変わらない(枠の置き換え)。
+   * 衛生要員の兼任は擲弾手(または2人目のライフルマン)の枠へ移り、選抜射手は
+   * ブラボー組の擲弾手枠がライフルマンとして引き継ぐ(擲弾手は1名減る)。
+   */
+  shield?: boolean;
+  /**
+   * 後援部隊(`[v7.0]`)。未指定・`calls: 0` なら後援なし。数・規模・出現位置は暫定。
+   * 盤上の初期の駒ではないが、戦闘の初期条件の一部なので編成に持たせる
+   * (初期条件コード `setupCode.ts` にもそのまま畳まれる)。
+   */
+  reinforcement?: ReinforcementSpec;
 }
+
+/**
+ * 後援部隊の既定値(`[v7.1]` 確定: 1回・小隊規模・指揮所付近・90秒・AIは戦力60%割れで要請)。
+ * 回数はパラメータで、UIのスライダーで変えられる。
+ */
+export const DEFAULT_REINFORCEMENT: ReinforcementSpec = {
+  calls: 1,
+  size: "platoon",
+  delaySec: 90,
+  entry: "rear",
+  autoCallBelow: 0.6,
+};
 
 /** 規模ごとの編成の形。ここだけが「何個作るか」を知っている。 */
 export interface ScaleShape {
@@ -113,6 +138,18 @@ export const DEFAULT_FORCE: ForceSpec = {
 
 export function defaultForce(): Record<Side, ForceSpec> {
   return { blue: { ...DEFAULT_FORCE }, red: { ...DEFAULT_FORCE } };
+}
+
+/**
+ * 画面で遊ぶときの既定の編成(`[v7.1]`)。`defaultForce()` に後援部隊(両軍とも)を足したもの。
+ * テスト・ヘッドレス実行の既定(`defaultForce()`)は変えない — 後援の有無で既存の
+ * 検証結果が動かないように。初期条件コードの差分はこちらを基準にとる。
+ */
+export function playForce(): Record<Side, ForceSpec> {
+  return {
+    blue: { ...DEFAULT_FORCE, reinforcement: { ...DEFAULT_REINFORCEMENT } },
+    red: { ...DEFAULT_FORCE, reinforcement: { ...DEFAULT_REINFORCEMENT } },
+  };
 }
 
 /** その編成が盤上に置く人数。UIの表示と、規模から展開線を決めるのに使う。 */

@@ -83,6 +83,8 @@ export const PALETTE = {
   suppress: "#f3e8cf",
   /** 階級章の横棒 */
   rank: "#f0e2c2",
+  /** 盾持ちの盾(`[v7.0]`)。鋼の青灰。陣営色・階級章のどちらとも別物に見せる */
+  shield: "#b9c4cc",
 
   // ── HUD ────────────────────────────────────────────────────────
   /** パネルは1種類だけ。強調は枠線色でのみ作る(UIレビュー 05) */
@@ -137,6 +139,7 @@ export const MAP = {
   blastShock: hexToInt(PALETTE.blastShock),
   blastDust: hexToInt(PALETTE.blastDust),
   rank: hexToInt(PALETTE.rank),
+  shield: hexToInt(PALETTE.shield),
   text: hexToInt(PALETTE.text),
 } as const;
 

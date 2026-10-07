@@ -1546,3 +1546,75 @@ body {
   font-size: 11px;
   line-height: 1.5;
 }
+
+/* ── LLM 接続(`[v7.0]` LlmPanel)── */
+.llm-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 6px;
+  font: inherit;
+}
+.llm-num {
+  width: 3.2em;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 4px;
+  font: inherit;
+}
+.llm-row {
+  display: flex;
+  gap: 6px;
+  margin: 6px 0;
+}
+.llm-note {
+  font-size: 11px;
+  color: var(--text-dim);
+  word-break: break-all;
+}
+.llm-err {
+  color: var(--warn);
+}
+.llm-log {
+  font-size: 11px;
+  color: var(--text-dim);
+  border-left: 2px solid var(--border);
+  padding-left: 6px;
+  margin-top: 4px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+/* ── 後援部隊(`[v7.0]`)── */
+.dep-reinf {
+  border-left: 2px solid var(--border);
+  padding-left: 8px;
+  margin: 4px 0 6px;
+}
+.force-reinf {
+  align-items: center;
+}
+.force-reinf .seg-btn {
+  padding: 1px 8px;
+  margin-left: auto;
+}
+
+/* 後援部隊の到着ゲージ(`[v7.1]`) */
+.reinf-gauge {
+  height: 6px;
+  margin: 4px 0 2px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.reinf-gauge > span {
+  display: block;
+  height: 100%;
+  background: var(--warn);
+  transition: width 0.2s linear;
+}

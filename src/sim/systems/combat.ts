@@ -33,10 +33,15 @@ import {
   WINDOW,
   SUPPRESS_TRIGGER_RATE_PER_SEC,
   SOLDIER_RADIUS,
+  SHIELD,
+  INDIVIDUAL,
+  TRACER_EVERY_TICKS,
+  CLOSE_RANGE_BOOST,
 } from "../constants.ts";
+import { shieldAccMul, shieldUp, turnMulOf } from "../shield.ts";
 import { angleOf, dirFromAngle, turnToward } from "../geometry.ts";
 import { isOffField } from "./litter.ts";
-import { weaponRangeOf } from "../weapons.ts";
+import { weaponKindOf, weaponRangeOf } from "../weapons.ts";
 import type { World } from "../world.ts";
 import type { Soldier, Vec2 } from "../types.ts";
 
@@ -64,10 +69,17 @@ export interface ShotContext {
    */
   range?: number;
   maxRange?: number;
+  /** 射手が盾持ちで、盾を支えながら片手で撃っている(`[v7.1]`)。命中 ×SHIELD.PISTOL_ACC_MUL */
+  shooterOneHanded?: boolean;
   /** 射手が窓に就いている(`[v6.10]` 仕様 §7/§8)。命中 +30% */
   shooterAtWindow?: boolean;
   /** 目標が窓に就いている。撃つ側の命中 −60% */
   targetAtWindow?: boolean;
+  /**
+   * 盾による命中率倍率(`[v7.0]` constants `SHIELD`)。省略時は 1(盾なし)。
+   * 盾持ち本人を正面から撃つ、または盾の陰の隊員を撃つと 1 未満になる。
+   */
+  targetShieldMul?: number;
 }
 
 /**
@@ -80,6 +92,23 @@ export function rangeAccMul(range: number, maxRange: number): number {
   if (over <= 0) return 1;
   const t = Math.min(1, over / (maxRange - RANGE_FALLOFF.POINT_BLANK));
   return Math.max(RANGE_FALLOFF.MIN_MUL, 1 - Math.pow(t, RANGE_FALLOFF.EXPONENT));
+}
+
+/**
+ * 近距離の命中率の上乗せ倍率(`[v7.1]` constants `CLOSE_RANGE_BOOST`)。
+ * 表の最初の距離より近ければ最初の値、最後より遠ければ最後の値、あいだは線形補間。
+ */
+export function closeRangeBoost(range: number): number {
+  const t = CLOSE_RANGE_BOOST;
+  if (range <= t[0]![0]) return t[0]![1];
+  for (let i = 1; i < t.length; i++) {
+    const [r1, m1] = t[i]!;
+    if (range <= r1) {
+      const [r0, m0] = t[i - 1]!;
+      return m0 + ((m1 - m0) * (range - r0)) / (r1 - r0);
+    }
+  }
+  return t[t.length - 1]![1];
 }
 
 export type ShotOutcome = { hit: false } | { hit: true; lethal: boolean };
@@ -107,11 +136,16 @@ export function rollShot(rng: Rng, ctx: ShotContext): ShotOutcome {
   // 距離減衰(`[v6.3]` 仕様 §8)。射程を §10 の本来の値へ戻したことと不可分。
   if (ctx.range !== undefined && ctx.maxRange !== undefined) {
     accMul *= rangeAccMul(ctx.range, ctx.maxRange);
+    // `[v7.1]` 近距離ほど当たる(近接戦は数秒で決着する)
+    accMul *= closeRangeBoost(ctx.range);
   }
   // 窓(`[v6.10]` 仕様 §7/§8)。銃眼から撃つ側の非対称を、他の修正と同じく**乗算**で。
   // 撃つ側と撃たれる側の両方が窓にいる場合、両方の係数が掛かる(窓越しの撃ち合い)。
   if (ctx.shooterAtWindow) accMul *= WINDOW.SHOOTER_ACC_MUL;
+  if (ctx.shooterOneHanded) accMul *= SHIELD.PISTOL_ACC_MUL;
   if (ctx.targetAtWindow) accMul *= WINDOW.TARGET_ACC_MUL;
+  // 盾(`[v7.0]`)。他の修正と同じく乗算で重ねる
+  if (ctx.targetShieldMul !== undefined) accMul *= ctx.targetShieldMul;
   const hitP = ratePerTick(HIT_RATE_PER_SEC * accMul, SIM_DT);
   if (!chance(rng, hitP)) return { hit: false };
   return { hit: true, lethal: chance(rng, KIA_ON_HIT_CHANCE) };
@@ -135,6 +169,14 @@ function friendlyBlocksFire(world: World, shooter: Soldier, target: Soldier): bo
 
   for (const f of world.soldiers) {
     if (f.side !== shooter.side || f.id === shooter.id || f.status === "kia") continue;
+    // `[v7.0]` すぐ前に立つ盾持ちは障害にしない — 盾の後ろの隊員は肩越し・脇から撃つ。
+    // これが無いと、盾の陰に入った隊員が誰も撃てなくなる
+    if (
+      f.role === "shield" &&
+      Math.hypot(f.pos.x - sx, f.pos.z - sz) <= SHIELD.SHOOT_PAST_DIST
+    ) {
+      continue;
+    }
     const t = (f.pos.x - sx) * ux + (f.pos.z - sz) * uz;
     if (t <= 0.4 || t >= len - 0.4) continue;
     const perp = Math.hypot(f.pos.x - sx - ux * t, f.pos.z - sz - uz * t);
@@ -264,8 +306,14 @@ export function combatSystem(world: World): void {
     aimPointsByFt.set(`${ft.side}:${ft.squadId}:${ft.ftIndex}`, pts);
   }
 
+  // 盾を構えている兵士(`[v7.0]`)。陣営ごとに分けておき、撃たれる側のぶんだけ見る
+  const shieldsBySide: Record<Soldier["side"], Soldier[]> = { blue: [], red: [] };
+  for (const s of world.soldiers) if (shieldUp(s)) shieldsBySide[s.side].push(s);
+
   for (const s of world.soldiers) {
-    s.suppressor = s.order.kind === "suppress";
+    // `[v7.0]` 盾の密集隊形の隊員は、隊形位置へ追従しながら制圧射撃もする
+    s.suppressor =
+      s.order.kind === "suppress" || (s.order.kind === "follow" && s.order.suppress === true);
     if (s.status !== "ok") continue;
     // 応急手当の実行中は射撃できない(仕様 §9: 処置中は両者とも無防備)
     if (s.treating !== null && s.aidProgressTicks > 0) continue;
@@ -294,13 +342,18 @@ export function combatSystem(world: World): void {
     // 反射的な照準: 静止中の兵士は発砲前に目標へ正対する。
     // 旋回は geometry.ts の共通実装を使う — ±π の畳み方が対称性に効くため、
     // ここで独自実装を持つと片側だけ有利になる(実際にその不具合を起こした)。
-    if (!moving && angleBetween(s.facing, toTarget) > fireAlignRad) {
-      const na = turnToward(angleOf(s.facing), angleOf(toTarget), maxTurn);
+    // `[v7.1]` 反射射撃(TC 3-22.9 reflexive fire)。至近では照準を詰めきらずに撃つ
+    const alignRad =
+      tlen <= INDIVIDUAL.REFLEX_RANGE ? fireAlignRad * INDIVIDUAL.REFLEX_ALIGN_MUL : fireAlignRad;
+    if (!moving && angleBetween(s.facing, toTarget) > alignRad) {
+      const na = turnToward(angleOf(s.facing), angleOf(toTarget), maxTurn * turnMulOf(s));
       s.facing = dirFromAngle(na);
       continue; // このティックは照準のみで発砲しない
     }
 
-    if (angleBetween(s.facing, toTarget) > fireAlignRad) continue; // 移動中かつ正対していない
+    if (angleBetween(s.facing, toTarget) > alignRad) continue; // 移動中かつ正対していない
+    // 見えていても武器が届かない(`[v7.0]` 盾持ちの拳銃。目は小銃と同じだけ見える)
+    if (tlen > weaponRangeOf(s).detect) continue;
     if (friendlyBlocksFire(world, s, target)) continue;
 
     // 発砲 — 射手が属する陣営のストリームから引く。鏡像の状況では両陣営が
@@ -317,7 +370,9 @@ export function combatSystem(world: World): void {
       maxRange: weaponRangeOf(s).detect,
       // 窓(`[v6.10]` 仕様 §7/§8)。`windowsSystem` がこのティックの位置から確定済み
       shooterAtWindow: s.atWindow,
+      shooterOneHanded: s.role === "shield",
       targetAtWindow: target.atWindow,
+      targetShieldMul: shieldAccMul(s, target, shieldsBySide[target.side]),
     });
 
     // 制圧役は行動抑制(evade)も誘発する。SAW 1.5倍 / MG 2.0倍(仕様 §14 / `[v6.1]` §2)
@@ -380,14 +435,34 @@ export function combatSystem(world: World): void {
     triggersEvade,
     targetWasDowned,
   } of pending) {
-    // 発砲線(`[v6.1]`)。戦闘は移動の後なので pos は確定済み。シムの判断には使わない。
-    world.fx.push({
-      kind: "shot",
-      from: { x: shooter.pos.x, z: shooter.pos.z },
-      to: { x: target.pos.x, z: target.pos.z },
-      side: shooter.side,
-      hit: outcome.hit,
-    });
+    // 発砲(`[v6.1]` / `[v7.1]` 弾道表現)。戦闘は移動の後なので pos は確定済み。
+    // シムの判断には使わない。外れ弾は武器ごとの見た目のレートで間引く(乱数は引かない —
+    // 位相は編成上の通し番号から取るので、鏡像の2人は同じティックに撃って見える)
+    const weapon =
+      shooter.role === "mg"
+        ? "mg"
+        : shooter.role === "saw"
+          ? "saw"
+          : (weaponKindOf(shooter) as "rifle" | "dm" | "pistol");
+    const every = TRACER_EVERY_TICKS[weapon];
+    if (outcome.hit || (world.tick + shooter.ordinal) % every === 0) {
+      world.fx.push({
+        kind: "shot",
+        from: { x: shooter.pos.x, z: shooter.pos.z },
+        to: { x: target.pos.x, z: target.pos.z },
+        side: shooter.side,
+        hit: outcome.hit,
+        shooterId: shooter.id,
+        targetId: target.id,
+        weapon,
+      });
+    }
+    // `[v7.1]` 撃たれた者は撃ってきた方向を覚える(個人の戦闘動作: 撃たれたら撃ってきた方を向く)。
+    // 当たったかどうかに関係なく、弾が飛んできたこと自体で分かる
+    if (target.status === "ok") {
+      target.alertFrom = { x: shooter.pos.x, z: shooter.pos.z };
+      target.alertUntilTick = world.tick + Math.round(INDIVIDUAL.ALERT_SEC * SIM_HZ);
+    }
     if (outcome.hit) {
       // 即死ルール(仕様 §9): 行動不能中の兵士への追加被弾は、安定化・後送状況に
       // 関係なく即時戦死。倒れた味方を無防備に放置するリスクを明確化するための規則。

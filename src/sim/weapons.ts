@@ -16,7 +16,19 @@ export type WeaponKind = keyof typeof WEAPON_RANGE;
 
 /** この兵士が持つ武器の種別。現在の編成はライフルと選抜射手だけを使う。 */
 export function weaponKindOf(s: Soldier): WeaponKind {
+  // `[v7.0]` 盾持ちは片手で盾を構えるので拳銃(仕様 §10 の最短ティア)
+  if (s.role === "shield") return "pistol";
   return s.quals.designatedMarksman ? "dm" : "rifle";
+}
+
+/**
+ * 目で見える距離(`[v7.0]`)。武器の射程とは別物 — 拳銃を持っていても目は同じだけ見える。
+ * 従来は全員が「索敵距離 = 武器の上限」だったので区別が要らなかったが、盾持ちを
+ * 拳銃の25mまでしか見えなくすると、FTの視界の合算(仕様 §5)が不当に痩せる。
+ */
+export function sightRangeOf(s: Soldier): number {
+  if (s.role === "shield") return WEAPON_RANGE.rifle.detect;
+  return weaponRangeOf(s).detect;
 }
 
 /** この兵士の `detect`(索敵・射撃の上限)と `effective`(火力が決定的になる帯)。 */

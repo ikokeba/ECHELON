@@ -11,7 +11,14 @@
  *   - 分隊長自身の位置取り(指揮を執れる位置に留まり、突撃の先頭には立たない)
  */
 
-import { CQB, LITTER, SIM_HZ } from "../constants.ts";
+import { CQB, FLANK, LITTER, SIM_HZ } from "../constants.ts";
+import {
+  chooseFlankSide,
+  flankRadius,
+  flankSeparationDeg,
+  flankWaypoint,
+  spreadAlongArc,
+} from "./flank.ts";
 import { aiSuppressed } from "../control.ts";
 import { bearersNeeded, isCommittedToLitter } from "../systems/litter.ts";
 import { buildingAt, doorById, insideBounds, selectAssaultDoor } from "../cqb.ts";
@@ -60,6 +67,19 @@ function primaryThreat(belief: Map<string, Contact>): Contact | null {
     if (!best || c.confidence > best.confidence) best = c;
   }
   return best;
+}
+
+/** このFTのリーダーを人間が操作しているか(仕様 §4)。操作中のFTへは目標を上書きしない */
+function ftControlled(world: World, ft: World["fireteams"][number]): boolean {
+  const leader = world.soldiers.find(
+    (s) =>
+      s.side === ft.side &&
+      s.squadId === ft.squadId &&
+      s.fireteamId === ft.ftIndex &&
+      s.isFireteamLeader &&
+      s.status === "ok",
+  );
+  return leader !== undefined && aiSuppressed(world, "fireteam", ft.side, leader.id);
 }
 
 /**
@@ -154,15 +174,7 @@ function directFireteams(world: World, sq: SquadState, idx: LivingIndex): void {
 
   for (const [ftIdx, ft] of fireteams.entries()) {
     // 人間が操作しているFTには再割り当てを行わない(仕様 §4、小隊長と同じ理由)
-    const leader = world.soldiers.find(
-      (s) =>
-        s.side === ft.side &&
-        s.squadId === ft.squadId &&
-        s.fireteamId === ft.ftIndex &&
-        s.isFireteamLeader &&
-        s.status === "ok",
-    );
-    if (leader && aiSuppressed(world, "fireteam", ft.side, leader.id)) continue;
+    if (ftControlled(world, ft)) continue;
 
     // 任務目標と移動技術は上から下へそのまま伝播する。
     // 占領中の突撃組だけ、判定円の中の持ち場に差し替える(`[v6.9]`)
@@ -171,33 +183,162 @@ function directFireteams(world: World, sq: SquadState, idx: LivingIndex): void {
     ft.watch = sq.watch ? { ...sq.watch } : null; // 警戒方向(`[v6.16]`)
     // support_by_fire は全FTをベース・オブ・ファイアに固定して踏み込ませない
     ft.assignedRole = mk === "support_by_fire" ? "base" : null;
+    // 側面の経由点は毎周期この下で引き直す(`[v7.0]`)。役割が無くなれば消える
+    ft.flankGoal = null;
+    ft.flankDone = false;
   }
 
   // support_by_fire / screen は側面機動の割り当てをしない(踏み込まない任務)。
   // 火器分隊は小隊AIから常に support_by_fire を受けるのでここで自然に弾かれる。
-  if (mk !== "seize") return;
-  if (!threat) return;
+  if (mk !== "seize") {
+    sq.flank = null;
+    return;
+  }
 
-  // 接敵時: 敵に近い側のFTをベース・オブ・ファイア、もう一方を機動役にする。
-  // 近い側が既に射撃位置についている可能性が高く、遠い側のほうが回り込む余地があるため。
   const alive = fireteams.filter((ft) => (strength.get(ft.ftIndex) ?? 0) > 0);
+  const ftCentroid = (ft: (typeof fireteams)[number]): Vec2 =>
+    centroid(idx.byFt.get(`${ft.side}:${ft.squadId}:${ft.ftIndex}`) ?? []);
+
+  // 小隊長を人間/エージェントが引き継いだら、AI小隊長が最後に残した側面機動の
+  // 指示は無効(もう誰も更新しないので、放置すると古い経由点へ向かい続ける)
+  if (aiSuppressed(world, "platoon", sq.side, sq.platoonId)) {
+    sq.flankGoal = null;
+    sq.flankAssault = false;
+  }
+
+  // ── 小隊の側面機動に指名されている(`[v7.0]`)──
+  // 支援射撃は小隊のベース分隊が持つので、分隊内では火力と機動に分けない。
+  // 両FTを機動要素として弧の上の経由点へ向かわせ、左右に少しずらして並べる。
+  if (sq.flankGoal || sq.flankAssault) {
+    sq.flank = null;
+    alive.forEach((ft, i) => {
+      ft.assignedRole = "maneuver";
+      if (sq.flankAssault) {
+        ft.flankDone = true;
+        return;
+      }
+      const goal = sq.flankGoal!;
+      const k = i - (alive.length - 1) / 2;
+      const ref = threat ? threat.pos : sq.objective;
+      ft.flankGoal = spreadAlongArc(ref, goal, k * FLANK.FT_SPREAD);
+      if (!ftControlled(world, ft)) ft.objective = { ...ft.flankGoal };
+    });
+    return;
+  }
+
+  // 脅威を見失っても、しばらくは段取りを保つ(一瞬の見失いで振り出しに戻さない)
+  if (!threat) {
+    if (sq.flank && world.tick - sq.flank.lastThreatTick > FLANK.RELEASE_SEC * SIM_HZ) {
+      sq.flank = null;
+    }
+    return;
+  }
+
   if (alive.length < 2) {
     // 1個FTしか残っていない分隊では、FT間で火力と機動を分けられない。
     // 役割を割り当てず null のままにし、FT内部の2バディペアで自律的に
     // Fire and Movement をさせる(assignedRole が null のときのFT側の分岐)。
     // ここで "base" を割り当ててしまうと、残存FT全員が制圧に張り付いたまま
     // 誰も前進しなくなり、両軍が睨み合ったまま永久に膠着する。
+    sq.flank = null;
     return;
   }
 
-  const withDist = alive.map((ft) => {
-    const members = idx.byFt.get(`${ft.side}:${ft.squadId}:${ft.ftIndex}`) ?? [];
-    const c = centroid(members);
-    return { ft, d: Math.hypot(c.x - threat.pos.x, c.z - threat.pos.z) };
-  });
-  withDist.sort((a, b) => a.d - b.d);
-  withDist[0]!.ft.assignedRole = "base";
-  for (let i = 1; i < withDist.length; i++) withDist[i]!.ft.assignedRole = "maneuver";
+  // ── 役割の決定は交戦の最初の1回だけ(`[v7.0]`)──
+  // 敵に近い側のFTをベース・オブ・ファイア、もう一方を機動役にする。近い側が既に
+  // 射撃位置についている可能性が高く、遠い側のほうが回り込む余地があるため。
+  // **決めたら変えない。** 毎周期引き直すと、機動組が敵へ寄った瞬間に「近い側」に
+  // なって役割が入れ替わり、回り込みが毎回振り出しに戻る(実測で分隊戦5回270回)。
+  const byIdx = (i: number): (typeof fireteams)[number] | undefined =>
+    alive.find((ft) => ft.ftIndex === i);
+  let plan = sq.flank;
+  if (plan && (!byIdx(plan.baseKey) || !byIdx(plan.maneuverKey))) plan = null;
+  // 突撃が一段落したら組み直す(次の敵には次の側面がある)
+  if (plan?.doneTick != null && world.tick - plan.doneTick > FLANK.SQUAD_ASSAULT_SEC * SIM_HZ) {
+    plan = null;
+  }
+  if (!plan) {
+    const withDist = alive.map((ft) => {
+      const c = ftCentroid(ft);
+      return { ft, d: Math.hypot(c.x - threat.pos.x, c.z - threat.pos.z) };
+    });
+    withDist.sort((a, b) => a.d - b.d || a.ft.ftIndex - b.ft.ftIndex);
+    const baseFt = withDist[0]!.ft;
+    const manFt = withDist[1]!.ft;
+    const baseC = ftCentroid(baseFt);
+    const manC = ftCentroid(manFt);
+    plan = {
+      baseKey: baseFt.ftIndex,
+      maneuverKey: manFt.ftIndex,
+      dir: chooseFlankSide({
+        threat: threat.pos,
+        base: baseC,
+        maneuver: manC,
+        objective: sq.objective,
+        contacts: sq.belief.values(),
+        radius: flankRadius(threat.pos, manC, FLANK.SQUAD_RADIUS),
+        cover: world.coverIndex,
+        wallIndex: world.wallIndex,
+        bounds: world.bounds,
+      }),
+      sinceTick: world.tick,
+      lastThreatTick: world.tick,
+      done: false,
+      doneTick: null,
+    };
+    sq.flank = plan;
+  }
+  plan.lastThreatTick = world.tick;
+
+  const baseFt = byIdx(plan.baseKey)!;
+  const manFt = byIdx(plan.maneuverKey)!;
+  baseFt.assignedRole = "base";
+  manFt.assignedRole = "maneuver";
+  for (const ft of alive) {
+    if (ft !== baseFt && ft !== manFt) ft.assignedRole = "maneuver";
+  }
+
+  // ── 側面の経由点と、取れたかどうか ──
+  const baseC = ftCentroid(baseFt);
+  const manC = ftCentroid(manFt);
+  if (!plan.done) {
+    const sep = flankSeparationDeg(threat.pos, baseC, manC);
+    const timedOut = world.tick - plan.sinceTick > FLANK.SQUAD_TIMEOUT_SEC * SIM_HZ;
+    if (sep >= FLANK.DONE_DEG || timedOut) {
+      plan.done = true;
+      plan.doneTick = world.tick;
+    }
+  }
+  // 拠点を占領・保持している分隊は、**拠点から離れた敵へは**回り込みに出ない(`[v7.0]`)。
+  // 持ち場は拠点であって遠くの敵の側面ではない — 従来どおり近くの遮蔽で側面寄りに
+  // 構えるだけにする。拠点そのものへ寄ってきた敵には回り込んで叩く(局地的な逆襲)。
+  // 遠い敵(弧が描けない距離)も同じ: まず射程の内側へ詰めるのが先
+  const farThreat =
+    Math.hypot(manC.x - threat.pos.x, manC.z - threat.pos.z) > FLANK.SQUAD_ENGAGE_MAX;
+  // 「拠点へ向かっている」だけなら回り込んでよい。止めるのは、いま拠点の上に
+  // 立っているとき — 自軍が保持している拠点か、占領を命じられた拠点のどちらか
+  const sqC = centroid(idx.bySquad.get(`${sq.side}:${sq.squadId}`) ?? []);
+  const near = (o: { pos: Vec2; radius: number }): boolean =>
+    Math.hypot(sqC.x - o.pos.x, sqC.z - o.pos.z) < o.radius + FLANK.HOLD_RADIUS;
+  const standingOn =
+    world.objectives.find((o) => o.owner === sq.side && near(o)) ??
+    (occupy !== null && near(occupy) ? occupy : null);
+  const threatAwayFromObjective =
+    standingOn !== null &&
+    Math.hypot(threat.pos.x - standingOn.pos.x, threat.pos.z - standingOn.pos.z) >
+      FLANK.HOLD_LEASH;
+  if (threatAwayFromObjective || farThreat) return;
+  if (plan.done) {
+    manFt.flankDone = true;
+  } else {
+    manFt.flankGoal = flankWaypoint(
+      threat.pos,
+      baseC,
+      manC,
+      plan.dir,
+      flankRadius(threat.pos, manC, FLANK.SQUAD_RADIUS),
+    );
+  }
 }
 
 /**

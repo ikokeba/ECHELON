@@ -175,6 +175,14 @@ describe("確保済み拠点の保持(仕様 §12 / [v6.1])", () => {
       }
     };
     putSquad("blue", 0, { x: alpha.pos.x, z: alpha.pos.z });
+    // `[v7.1]` 脅威は4名に絞る。近距離の命中率を上げたあと、赤小隊27名を1点に積むと
+    // 55m先からでも分隊が撃ち負けて潰走し、「保持」ではなく「士気崩壊」を測ってしまう
+    let keep = 4;
+    for (const s of w.soldiers) {
+      if (s.side !== "red") continue;
+      if (keep > 0) keep--;
+      else s.status = "kia";
+    }
 
     for (let i = 0; i < Math.round(30 * SIM_HZ); i++) {
       // 赤小隊を毎ティック青分隊2の正面へ貼り直す(脅威源を固定)

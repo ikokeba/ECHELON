@@ -48,15 +48,157 @@ import {
   nextBuildingToClear,
   unfinishedBuildingOf,
 } from "./clearInZone.ts";
+import { FLANK } from "../constants.ts";
+import {
+  chooseFlankSide,
+  enemyFlankAnchor,
+  flankRadius,
+  flankSeparationDeg,
+  flankWaypoint,
+} from "./flank.ts";
 import type {
   Contact,
   Mission,
   MovementTechnique,
   Objective,
   PlatoonState,
+  SquadState,
   Vec2,
 } from "../types.ts";
 import type { World } from "../world.ts";
+
+/** 側面攻撃で分隊に割り当てる役割。機動分隊は `goal`(経由点)が null なら突撃 */
+type PlatoonFlankRole = { role: "base" } | { role: "maneuver"; goal: Vec2 | null };
+
+/**
+ * 小隊の側面攻撃の段取りを決め、分隊ごとの役割を返す(`[v7.0]`)。
+ *
+ * 見るのは**小隊長の belief(無線報告)と自軍の位置だけ**(仕様 §5)。報告は1ホップ
+ * 遅れているので、小隊長の回り込みは分隊長のそれより粗い — それが階層の差。
+ *
+ * 段取り(誰がベースで誰が回るか、どちらへ回るか)は交戦の最初に1回だけ決め、
+ * 脅威を `FLANK.RELEASE_SEC` 見失うか、どちらかの分隊が使えなくなるまで保つ。
+ */
+function planPlatoonFlank(
+  world: World,
+  pl: PlatoonState,
+  ctx: {
+    threat: Contact | null;
+    /** 新しく段取りを組むときに使ってよい分隊(占領・掃討・守備に就いていない) */
+    eligible: SquadState[];
+    /** 組み終えた段取りを続けてよい分隊(守備・占領に就いた分隊は引き剥がさない) */
+    retainable: SquadState[];
+    enabled: boolean;
+    centroidOf: (sq: SquadState) => Vec2 | null;
+  },
+): Map<number, PlatoonFlankRole> {
+  const roles = new Map<number, PlatoonFlankRole>();
+  const { threat, eligible } = ctx;
+  if (!ctx.enabled) {
+    pl.flank = null;
+    return roles;
+  }
+  if (!threat) {
+    if (pl.flank && world.tick - pl.flank.lastThreatTick > FLANK.RELEASE_SEC * SIM_HZ) {
+      pl.flank = null;
+    }
+    return roles;
+  }
+  const centersOf = (list: SquadState[]): Map<number, Vec2> => {
+    const m = new Map<number, Vec2>();
+    for (const sq of list) {
+      const c = ctx.centroidOf(sq);
+      if (c) m.set(sq.squadId, c);
+    }
+    return m;
+  };
+  // **組んだ段取りは、建物掃討の割り当てが変わっても解かない。** 割り当ては分隊の
+  // 位置で毎周期引き直されるので、それに連動させると段取りが数秒ごとに作り直され、
+  // 機動分隊が回り込みの途中で毎回引き返す(計測: 3戦で46回の組み直し)。
+  // 守備・占領だけは例外で、そちらに指名されたら段取りを解く。
+  let plan = pl.flank;
+  const kept = centersOf(ctx.retainable);
+  if (plan && (!kept.has(plan.baseKey) || !kept.has(plan.maneuverKey))) plan = null;
+  if (
+    plan?.doneTick != null &&
+    world.tick - plan.doneTick > FLANK.PLATOON_ASSAULT_SEC * SIM_HZ
+  ) {
+    plan = null;
+  }
+  let centers = kept;
+  if (!plan) {
+    centers = centersOf(eligible);
+    if (centers.size < 2) {
+      pl.flank = null;
+      return roles;
+    }
+    // ベース = 脅威に最も近い分隊(既に射撃位置に就いている可能性が高い)
+    const ranked = [...centers.entries()].sort(
+      (a, b) => dist(a[1], threat.pos) - dist(b[1], threat.pos) || a[0] - b[0],
+    );
+    const [baseKey, baseC] = ranked[0]!;
+    // 回る側を決めてから、その側の90°の点に最も近い分隊を機動にする
+    const others = ranked.slice(1);
+    const nearestOther = others[0]!;
+    const radius = flankRadius(threat.pos, nearestOther[1], FLANK.PLATOON_RADIUS);
+    const dirSide = chooseFlankSide({
+      centerOf: (d) => enemyFlankAnchor(threat.pos, baseC, d, pl.belief.values(), FLANK.LINE_REACH),
+      threat: threat.pos,
+      base: baseC,
+      maneuver: nearestOther[1],
+      objective: pl.objective,
+      contacts: pl.belief.values(),
+      radius,
+      cover: world.coverIndex,
+      wallIndex: world.wallIndex,
+      bounds: world.bounds,
+    });
+    const anchor0 = enemyFlankAnchor(threat.pos, baseC, dirSide, pl.belief.values(), FLANK.LINE_REACH);
+    const target = flankWaypoint(anchor0, baseC, baseC, dirSide, radius);
+    let man = nearestOther;
+    for (const o of others) {
+      if (dist(o[1], target) < dist(man[1], target) - 1e-9) man = o;
+    }
+    plan = {
+      baseKey,
+      maneuverKey: man[0],
+      dir: dirSide,
+      sinceTick: world.tick,
+      lastThreatTick: world.tick,
+      done: false,
+      doneTick: null,
+    };
+    pl.flank = plan;
+  }
+  plan.lastThreatTick = world.tick;
+
+  const baseC = centers.get(plan.baseKey)!;
+  const manC = centers.get(plan.maneuverKey)!;
+  // 回り込みの中心は主脅威ではなく、決めた側の敵戦列の端
+  const anchor = enemyFlankAnchor(threat.pos, baseC, plan.dir, pl.belief.values(), FLANK.LINE_REACH);
+  if (!plan.done) {
+    const sep = flankSeparationDeg(anchor, baseC, manC);
+    const timedOut = world.tick - plan.sinceTick > FLANK.PLATOON_TIMEOUT_SEC * SIM_HZ;
+    if (sep >= FLANK.DONE_DEG || timedOut) {
+      plan.done = true;
+      plan.doneTick = world.tick;
+    }
+  }
+  roles.set(plan.baseKey, { role: "base" });
+  roles.set(plan.maneuverKey, {
+    role: "maneuver",
+    goal: plan.done
+      ? null
+      : flankWaypoint(
+          anchor,
+          baseC,
+          manC,
+          plan.dir,
+          flankRadius(anchor, manC, FLANK.PLATOON_RADIUS),
+        ),
+  });
+  return roles;
+}
 
 /** 小隊長の意思決定周期。分隊長(0.3秒)より遅く、階層が上がるほど判断は粗く遅くなる。 */
 const DECIDE_EVERY_TICKS = Math.round(2.0 * SIM_HZ);
@@ -392,6 +534,27 @@ export function platoonAI(world: World): void {
       }
     }
 
+    // ── 小隊の側面攻撃(`[v7.0]` ATP 3-21.8 Battle Drill 1 の小隊版)──
+    // 敵に近い1個分隊をベース・オブ・ファイアとして制圧に就け、別の1個分隊を
+    // 丸ごと敵の側面へ回す。以前の小隊長は分隊を横一列に並べるだけで、側面機動は
+    // 分隊内のFT単位にしか存在しなかった(計測: 小隊戦で敵から見た角度差 平均9.5°)。
+    const flankRoles = planPlatoonFlank(world, pl, {
+      threat,
+      eligible: livingSquads.filter(
+        (sq) =>
+          !isWeaponsSquad(sq) &&
+          !holders.has(sq.squadId) &&
+          !occupiers.has(sq.squadId) &&
+          !clearAssign.has(sq.squadId),
+      ),
+      // 拠点の守備・占領に指名された分隊は引き剥がさない(拠点の確保が勝敗を決める、§12)
+      retainable: livingSquads.filter(
+        (sq) => !isWeaponsSquad(sq) && !holders.has(sq.squadId) && !occupiers.has(sq.squadId),
+      ),
+      enabled: plMission.kind === "seize" && !consolidating,
+      centroidOf: sqCentroidOf,
+    });
+
     livingSquads.forEach((sq, i) => {
       const lateral = (i - (livingSquads.length - 1) / 2) * frontage;
       let objective: Vec2 = clearAssign.get(sq.squadId) ?? {
@@ -437,13 +600,36 @@ export function platoonAI(world: World): void {
       const occupied = occupiers.get(sq.squadId) ?? null;
       if (occupied) objective = { ...occupied.pos };
 
-      const sqMission: Mission = {
+      let sqMission: Mission = {
         kind: sqKind,
         target: sqKind === "seize" ? { ...objective } : { ...aim },
       };
+      let sqTechnique = technique;
+
+      // 側面攻撃の役割(`[v7.0]`)。ベース分隊は脅威へ射線の通る位置で制圧に就き、
+      // 機動分隊は弧の上の経由点へ(側面を取ったら脅威の位置そのものへ)向かう。
+      const fr = flankRoles.get(sq.squadId) ?? null;
+      let flankGoal: Vec2 | null = null;
+      let flankAssault = false;
+      if (fr && threat) {
+        if (fr.role === "base") {
+          objective = { ...threat.pos };
+          sqMission = { kind: "support_by_fire", target: { ...threat.pos } };
+        } else if (fr.goal) {
+          objective = { ...fr.goal };
+          sqMission = { kind: "seize", target: { ...fr.goal } };
+          flankGoal = { ...fr.goal };
+          // 回り込みは速さが命。躍進前進では弧を回りきる前に時間切れになる
+          sqTechnique = "traveling_overwatch";
+        } else {
+          objective = { ...threat.pos };
+          sqMission = { kind: "seize", target: { ...threat.pos } };
+          flankAssault = true;
+        }
+      }
       pl.squadObjectives.set(sq.squadId, objective);
       pl.squadMissions.set(sq.squadId, sqMission);
-      pl.squadTechniques.set(sq.squadId, technique);
+      pl.squadTechniques.set(sq.squadId, sqTechnique);
 
       // 人間が操作している分隊には再割り当てを行わない(仕様 §4)。
       //
@@ -460,7 +646,9 @@ export function platoonAI(world: World): void {
       // 小隊長の命令を分隊長へ渡す。これが階層間の下向きの情報流。
       sq.objective = objective;
       sq.mission = sqMission;
-      sq.technique = technique;
+      sq.technique = sqTechnique;
+      sq.flankGoal = flankGoal;
+      sq.flankAssault = flankAssault;
     });
   }
 }

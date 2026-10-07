@@ -11,7 +11,8 @@ import { createWorld, sideDoctrine, type World } from "@sim/world.ts";
 import { SCENARIOS, type ScenarioKey } from "@sim/scenario.ts";
 import { resolveView, type ViewResult } from "@sim/viewpoint.ts";
 import { controlledSoldierId, swapTo } from "@sim/control.ts";
-import { orderControlledTo } from "@sim/playerOrders.ts";
+import { orderControlledTo, orderReinforcement } from "@sim/playerOrders.ts";
+import { reinforcementsLeft, topCommandOf } from "@sim/systems/reinforcement.ts";
 import { isOffField } from "@sim/systems/litter.ts";
 import { MORTAR, SIM_DT, SIM_HZ } from "@sim/constants.ts";
 import { isDegraded } from "@sim/c2/succession.ts";
@@ -19,7 +20,11 @@ import { applyDeployment, defaultDeploymentOf } from "@sim/deployment.ts";
 import { beginBattle, beginPlanning, platoonName } from "@sim/c2/planning.ts";
 import { doctrineOf } from "@sim/doctrine.ts";
 import type { PlanRouteView } from "@render/renderer.ts";
-import type { Side } from "@sim/types.ts";
+import { createLlmSession, type LlmSession } from "../llm/session.ts";
+import { createLmStudioAgent } from "../llm/lmstudio.ts";
+import { ruleAgent } from "../llm/agent.ts";
+import { useLlmStore } from "./llmStore.ts";
+import type { FxEvent, Side } from "@sim/types.ts";
 import {
   currentSpeed,
   useSimStore,
@@ -229,6 +234,27 @@ function rosterOf(world: World): RosterCompany[] {
   return out;
 }
 
+/** 後援部隊の表示(`[v7.0]`) */
+function reinforcementHud(world: World, side: Side): HudSnapshot["reinforcement"][Side] {
+  const r = world.reinforcement[side];
+  if (!r.spec) return null;
+  const top = topCommandOf(world, side);
+  const c = world.control;
+  const next = r.pending[0];
+  return {
+    callsLeft: reinforcementsLeft(world, side),
+    calls: r.spec.calls,
+    size: r.spec.size,
+    etaSec: next ? Math.max(0, (next.arriveTick - world.tick) * SIM_DT) : null,
+    progress: next
+      ? Math.min(1, (world.tick - next.calledTick) / Math.max(1, next.arriveTick - next.calledTick))
+      : null,
+    arrived: r.arrived,
+    canCall:
+      top !== null && c !== null && c.side === side && c.echelon === top.echelon && c.unitId === top.unitId,
+  };
+}
+
 function hudOf(world: World, view: ViewResult): HudSnapshot {
   let blueAlive = 0;
   let redAlive = 0;
@@ -296,7 +322,45 @@ function hudOf(world: World, view: ViewResult): HudSnapshot {
       contested: o.contested,
     })),
     victory: world.victory,
+    reinforcement: { blue: reinforcementHud(world, "blue"), red: reinforcementHud(world, "red") },
   };
+}
+
+/**
+ * LLM の座席(`[v7.0]`)を設定どおりに張る・外す。返すのは張ったセッション(無ければ null)。
+ * 設定(`useLlmStore`)が変わったときだけ呼ばれる。
+ */
+function openLlmSession(world: World): LlmSession | null {
+  const { config, setStatus } = useLlmStore.getState();
+  if (!config.enabled) return null;
+  const ids =
+    config.echelon === "company"
+      ? world.companies.filter((c) => c.side === config.side).map((c) => c.companyId)
+      : config.echelon === "platoon"
+        ? world.platoons.filter((p) => p.side === config.side).map((p) => p.platoonId)
+        : world.squads.filter((s) => s.side === config.side).map((s) => s.squadId);
+  const unitId = ids[config.unitIndex];
+  if (unitId === undefined) {
+    setStatus({
+      error: `この盤面の${config.side === "blue" ? "青" : "赤"}には、その座席の部隊が ${ids.length} 個しかない`,
+      busy: false,
+    });
+    return null;
+  }
+  const agent = config.useLlm
+    ? createLmStudioAgent({
+        baseUrl: config.baseUrl,
+        ...(config.model.trim() ? { model: config.model.trim() } : {}),
+      })
+    : ruleAgent();
+  const session = createLlmSession({
+    seat: { side: config.side, echelon: config.echelon, unitId },
+    agent,
+    intervalSec: config.intervalSec,
+  });
+  session.attach(world);
+  setStatus({ agentName: agent.name, error: null, log: [], busy: false });
+  return session;
 }
 
 export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey): () => void {
@@ -329,9 +393,14 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
   let running = true;
   let lastMs = performance.now();
   let lastStepNonce = useSimStore.getState().stepNonce;
+  let lastReinforceNonce = useSimStore.getState().reinforceNonce;
   let hudCountdown = 0;
   let lastControl = useSimStore.getState().control;
   let lastSelected = useSimStore.getState().selectedSoldierId;
+  // LLM の座席(`[v7.0]`)。世界を作り直したら(=このランタイムが起き直したら)張り直す
+  let llm: LlmSession | null = null;
+  let lastLlmConfig: unknown = null;
+  let llmStatusKey = "";
 
   const onResize = () => renderer.resize();
   window.addEventListener("resize", onResize);
@@ -442,6 +511,17 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
       requestSteps(clock, ui.stepNonce - lastStepNonce);
       lastStepNonce = ui.stepNonce;
     }
+    // 後援部隊の要請(`[v7.0]`)。AIの最上位指揮官と同じ関数を通す(仕様 §4)
+    if (ui.reinforceNonce !== lastReinforceNonce) {
+      lastReinforceNonce = ui.reinforceNonce;
+      orderReinforcement(world);
+      useSimStore.getState().pushHud(hudOf(world, resolveView(world, {
+        side: ui.viewSide,
+        echelon: ui.viewEchelon,
+        squadId: ui.viewSquadId,
+        platoonId: ui.viewPlatoonId,
+      })));
+    }
     // ホットスワップ要求をシムへ反映(仕様 §4: 制限なし・即時)
     if (ui.control !== lastControl) {
       swapTo(world, ui.control);
@@ -465,7 +545,32 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
     }
 
     const ticks = world.phase === "planning" ? 0 : drainTicks(clock, elapsed);
-    for (let t = 0; t < ticks; t++) stepWorld(world);
+    // `[v7.1]` 弾道表現のため、このフレームで進んだ全ティックの描画イベントを貯める
+    // (world.fx はティックの頭で空になるので、最後のティックのぶんしか残らない)
+    const frameFx: FxEvent[] = [];
+    for (let t = 0; t < ticks; t++) {
+      stepWorld(world);
+      for (const f of world.fx) frameFx.push(f);
+    }
+
+    // ── LLM の座席(`[v7.0]`)。設定が変わったら張り直し、毎フレーム問い合わせを回す ──
+    const llmConfig = useLlmStore.getState().config;
+    if (llmConfig !== lastLlmConfig) {
+      lastLlmConfig = llmConfig;
+      llm?.detach(world);
+      llm = openLlmSession(world);
+    }
+    if (llm) {
+      llm.poll(world);
+      const last = llm.log.at(-1);
+      const key = `${llm.busy}|${last?.tick}|${last?.appliedTick}|${llm.agent.name}`;
+      if (key !== llmStatusKey) {
+        llmStatusKey = key;
+        useLlmStore
+          .getState()
+          .setStatus({ busy: llm.busy, log: [...llm.log].reverse(), agentName: llm.agent.name });
+      }
+    }
 
     // 描画は「選択した階層が知っていること」だけを見る(仕様 §5)。
     // ここで ground truth を渡してしまうとプレイヤーが全知になり、階層構造が無意味になる。
@@ -493,6 +598,7 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
       // 立案フェーズの接近経路(`[v6.5]`)。戦闘に入ったら消える
       planRoutes: world.phase === "planning" ? ui.planRoutes : null,
       hoveredPlanKey: ui.hoveredPlanKey,
+      fx: frameFx,
     });
 
     if (ticks > 0 && (hudCountdown -= 1) <= 0) {
@@ -528,6 +634,7 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
 
   return () => {
     running = false;
+    llm?.detach(world);
     window.removeEventListener("resize", onResize);
     canvas.removeEventListener("contextmenu", onContextMenu);
     cancelPress();
