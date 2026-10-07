@@ -1,5 +1,6 @@
 import { useSimStore, type DebugState } from "./store.ts";
 import { COMMON_SLIDERS, POSTURE_KNOBS } from "./tuningDefs.ts";
+import { LlmPanel } from "./LlmPanel.tsx";
 import type { Side } from "@sim/types.ts";
 
 /**
@@ -142,6 +143,8 @@ export function DebugPanel() {
       <button type="button" className="btn" onClick={resetTuning}>
         パラメータを既定へ戻す
       </button>
+
+      <LlmPanel />
 
       {/*
         兵士の色・階級章・拠点などの通常の凡例は画面下の `Legend`(キー L)へ移した

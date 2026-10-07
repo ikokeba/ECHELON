@@ -5,6 +5,20 @@ import { fileURLToPath, URL } from "node:url";
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  /**
+   * `[v7.0]` LM Studio(ローカルLLM)への中継。ブラウザから localhost:1234 を直接叩くと
+   * CORS で止まるので、開発サーバの `/lmstudio/*` を LM Studio へ転送する。
+   * 転送先は環境変数 `LMSTUDIO_URL` で変えられる(別のPCで動かしている場合など)。
+   */
+  server: {
+    proxy: {
+      "/lmstudio": {
+        target: process.env.LMSTUDIO_URL ?? "http://localhost:1234",
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/lmstudio/, ""),
+      },
+    },
+  },
   resolve: {
     alias: {
       "@sim": fileURLToPath(new URL("./src/sim", import.meta.url)),

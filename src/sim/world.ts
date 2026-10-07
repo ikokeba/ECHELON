@@ -39,6 +39,8 @@ import type {
   PlatoonState,
   Posture,
   FireMission,
+  ReinforcementSpec,
+  ReinforcementState,
   Report,
   Scenario,
   BattleMode,
@@ -159,6 +161,15 @@ export interface World {
    */
   control: ControlState | null;
   /**
+   * 外部エージェント(LLM など、`[v7.0]` src/llm/)が座っている指揮ノード。
+   * 人間の操作枠(`control`)とは別に持つので、人間が別の部隊を操作していても
+   * エージェントの座席は外れない。座席のノードはAIが止まり、エージェントが
+   * 人間と**同じ命令だけ**を出す(仕様 §4: 置き換えるのであって能力は足さない)。
+   */
+  agentSeats: ControlState[];
+  /** 後援部隊(`[v7.0]` systems/reinforcement.ts)。陣営ごと */
+  reinforcement: Record<Side, ReinforcementState>;
+  /**
    * そのティックの描画用エフェクトイベント(`[v6.1]`)。`stepWorld` 先頭で空にし、
    * `combatSystem` が発砲・擲弾着弾を push する。**シムの結果には影響しない**。
    */
@@ -207,8 +218,14 @@ function cloneSoldier(s: Soldier): Soldier {
   };
 }
 
+/** 後援部隊の設定。回数0は「なし」と同じに扱う */
+function activeReinforcement(scenario: Scenario, side: Side): ReinforcementSpec | null {
+  const r = scenario.reinforcement?.[side];
+  return r && r.calls > 0 ? { ...r } : null;
+}
+
 /** 編成に存在する (陣営, 分隊, FT) の組ごとにコントローラを1つ生成する。 */
-function buildFireteams(scenario: Scenario, soldiers: Soldier[]): FireteamState[] {
+export function buildFireteams(scenario: Scenario, soldiers: Soldier[]): FireteamState[] {
   const seen = new Map<string, FireteamState>();
   let id = 0;
   for (const s of soldiers) {
@@ -241,6 +258,8 @@ function buildFireteams(scenario: Scenario, soldiers: Soldier[]): FireteamState[
       technique: "traveling",
       watch: null,
       assignedRole: null,
+      flankGoal: null,
+      flankDone: false,
       cqbDoorId: null,
       cqbStage: "stack",
       cqbStageSince: 0,
@@ -253,7 +272,7 @@ function buildFireteams(scenario: Scenario, soldiers: Soldier[]): FireteamState[
 }
 
 /** 編成に存在する (陣営, 分隊) の組ごとに分隊長コントローラを生成する。 */
-function buildSquads(scenario: Scenario, soldiers: Soldier[]): SquadState[] {
+export function buildSquads(scenario: Scenario, soldiers: Soldier[]): SquadState[] {
   const seen = new Map<string, SquadState>();
   let id = 0;
   for (const s of soldiers) {
@@ -280,13 +299,16 @@ function buildSquads(scenario: Scenario, soldiers: Soldier[]): SquadState[] {
       degradedSinceTick: null,
       assaultDoorId: null,
       clearedDoorIds: [],
+      flank: null,
+      flankGoal: null,
+      flankAssault: false,
     });
   }
   return [...seen.values()];
 }
 
 /** 編成に存在する (陣営, 小隊) の組ごとに小隊長コントローラを生成する。 */
-function buildPlatoons(scenario: Scenario, soldiers: Soldier[]): PlatoonState[] {
+export function buildPlatoons(scenario: Scenario, soldiers: Soldier[]): PlatoonState[] {
   const seen = new Map<string, PlatoonState>();
   let id = 0;
   for (const s of soldiers) {
@@ -316,6 +338,7 @@ function buildPlatoons(scenario: Scenario, soldiers: Soldier[]): PlatoonState[] 
       lastDecisionTick: 0,
       commanderId: null,
       degradedSinceTick: null,
+      flank: null,
     });
   }
   return [...seen.values()];
@@ -590,6 +613,11 @@ function buildWorld(scenario: Scenario): World {
     majoritySince: { blue: null, red: null },
     victory: null,
     control: null,
+    agentSeats: [],
+    reinforcement: {
+      blue: { spec: activeReinforcement(scenario, "blue"), callsUsed: 0, pending: [], arrived: 0 },
+      red: { spec: activeReinforcement(scenario, "red"), callsUsed: 0, pending: [], arrived: 0 },
+    },
     fx: [],
     tuning: defaultTuning(),
     posture: defaultPosture(),

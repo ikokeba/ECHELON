@@ -44,6 +44,14 @@ const SOLDIER_ITEMS: Item[] = [
   },
   { cls: "lg-line", label: "搬送", title: "運ぶ側と運ばれる側を結ぶ関係の線(仕様 §9)" },
   { cls: "lg-cross", label: "戦死", title: "円をやめた暗い×。形が変わるので引きでも読める" },
+  {
+    cls: "lg-fill",
+    label: "盾",
+    style: { background: "var(--shield)", borderRadius: "1px", width: "12px", height: "4px" },
+    title:
+      "盾持ちの前縁の鋼色の板。向いている方からの弾を止め、真後ろの味方も守る。" +
+      "横・後ろ・擲弾には効かない(編成オプション)",
+  },
 ];
 
 const MARKER_ITEMS: Item[] = [

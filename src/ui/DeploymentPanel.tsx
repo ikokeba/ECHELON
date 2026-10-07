@@ -3,7 +3,13 @@ import { SetupCodePanel } from "./SetupCodePanel.tsx";
 import { isPointSymmetric } from "@sim/deployment.ts";
 import { OBJECTIVE } from "@sim/constants.ts";
 import { DOCTRINES, DOCTRINE_KEYS } from "@sim/doctrine.ts";
-import { FORCE_SCALES, FORCE_SCALE_KEYS, forceSize } from "@sim/force.ts";
+import {
+  DEFAULT_REINFORCEMENT,
+  FORCE_SCALES,
+  FORCE_SCALE_KEYS,
+  forceSize,
+} from "@sim/force.ts";
+import type { ReinforcementSpec } from "@sim/types.ts";
 import type { Side } from "@sim/types.ts";
 
 /**
@@ -159,6 +165,32 @@ export function DeploymentPanel() {
                 </label>
                 <label
                   className="dbg-chk"
+                  title="FTに1名、ライフルマンが防弾盾+拳銃に替わる。盾を先頭にした密集隊形で動き、正面からの被弾を大きく減らす(側面・擲弾には効かない)"
+                >
+                  <input
+                    type="checkbox"
+                    checked={spec.shield === true}
+                    onChange={(e) => setForce(side, { shield: e.target.checked })}
+                  />
+                  <span>盾持ち</span>
+                </label>
+                <label
+                  className="dbg-chk"
+                  title="後援部隊(暫定仕様)。最上位の指揮官が要請すると、時間をおいて後方に分隊/小隊が現れる"
+                >
+                  <input
+                    type="checkbox"
+                    checked={(spec.reinforcement?.calls ?? 0) > 0}
+                    onChange={(e) =>
+                      setForce(side, {
+                        reinforcement: e.target.checked ? { ...DEFAULT_REINFORCEMENT } : undefined,
+                      })
+                    }
+                  />
+                  <span>後援部隊</span>
+                </label>
+                <label
+                  className="dbg-chk"
                   title={
                     shape.weapons
                       ? "小隊直轄の機関銃班7名(仕様 §2)"
@@ -174,6 +206,14 @@ export function DeploymentPanel() {
                   <span className={shape.weapons ? undefined : "dbg-k"}>火器分隊</span>
                 </label>
               </div>
+              {spec.reinforcement && (
+                <ReinforcementEditor
+                  value={spec.reinforcement}
+                  onChange={(patch) =>
+                    setForce(side, { reinforcement: { ...spec.reinforcement!, ...patch } })
+                  }
+                />
+              )}
               <div className="dbg-k">{FORCE_SCALES[spec.scale].detail}</div>
             </div>
           );
@@ -392,6 +432,89 @@ export function DeploymentPanel() {
             「地形由来ではない有利不利が無い」という担保(仕様 §2/§13)は外れます。
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 後援部隊の設定(`[v7.0]`)。**暫定仕様** — 数・規模・出現位置は相談のうえ確定する前提で、
+ * いまは値を自由に変えて試せるようにしてある。
+ */
+function ReinforcementEditor({
+  value,
+  onChange,
+}: {
+  value: ReinforcementSpec;
+  onChange: (patch: Partial<ReinforcementSpec>) => void;
+}) {
+  return (
+    <div className="dep-reinf">
+      <div className="dbg-slider">
+        <span className="dbg-k">回数 {value.calls}</span>
+        <input
+          type="range"
+          min={1}
+          max={5}
+          step={1}
+          value={value.calls}
+          onChange={(e) => onChange({ calls: Number(e.target.value) })}
+        />
+      </div>
+      <div className="dbg-slider">
+        <span className="dbg-k">規模</span>
+        <div className="seg">
+          {(["squad", "platoon"] as const).map((k) => (
+            <button
+              key={k}
+              type="button"
+              className={value.size === k ? "seg-btn seg-on" : "seg-btn"}
+              onClick={() => onChange({ size: k })}
+            >
+              {k === "squad" ? "分隊(9名)" : "小隊(29名)"}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="dbg-slider">
+        <span className="dbg-k">到着まで {value.delaySec}秒</span>
+        <input
+          type="range"
+          min={15}
+          max={300}
+          step={15}
+          value={value.delaySec}
+          onChange={(e) => onChange({ delaySec: Number(e.target.value) })}
+        />
+      </div>
+      <div className="dbg-slider">
+        <span className="dbg-k">出現位置</span>
+        <div className="seg">
+          {(["rear", "edge"] as const).map((k) => (
+            <button
+              key={k}
+              type="button"
+              className={value.entry === k ? "seg-btn seg-on" : "seg-btn"}
+              onClick={() => onChange({ entry: k })}
+              title={k === "rear" ? "中隊の指揮所(無ければ負傷者集合点)" : "自陣側の盤の縁"}
+            >
+              {k === "rear" ? "後方" : "盤端"}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="dbg-slider">
+        <span className="dbg-k">
+          AIの要請 {value.autoCallBelow > 0 ? `戦力${Math.round(value.autoCallBelow * 100)}%割れ` : "しない"}
+        </span>
+        <input
+          type="range"
+          min={0}
+          max={0.9}
+          step={0.05}
+          value={value.autoCallBelow}
+          onChange={(e) => onChange({ autoCallBelow: Number(e.target.value) })}
+        />
       </div>
     </div>
   );

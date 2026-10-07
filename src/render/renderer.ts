@@ -787,6 +787,13 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   wedgeGeo.rotateX(-Math.PI / 2);
   const wedgeMesh = makeInstanced(wedgeGeo, MAX_SOLDIERS);
 
+  // 盾(`[v7.0]`)。盾持ちのトークンの前縁に、向きに合わせて回る短い板を置く。
+  // 明るい鋼色にして陣営色の芯とは別物に見せる — 盾が「どちらを向いているか」が
+  // そのまま「どちらからの弾を止めるか」なので、向きが読めることが要点
+  const shieldGeo = new THREE.PlaneGeometry(TOKEN_R * 2.1, TOKEN_R * 0.42);
+  shieldGeo.rotateX(-Math.PI / 2);
+  const shieldMesh = makeInstanced(shieldGeo, MAX_SOLDIERS, {}, 13);
+
   // 階級章。単位平面を1枚用意し、横棒の長さにスケールする(UIレビュー 診断D)
   const rankGeo = new THREE.PlaneGeometry(1, 1);
   rankGeo.rotateX(-Math.PI / 2);
@@ -1525,6 +1532,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     let haloN = 0;
     let kiaN = 0;
     let wedgeN = 0;
+    let shieldN = 0;
     let litterN = 0;
     for (const s of tokens) {
       const p = prev.pos.get(s.id) ?? cur.pos.get(s.id)!;
@@ -1621,6 +1629,21 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
           wedgeN++;
         }
 
+        // 盾(`[v7.0]`)。構えている間だけ、遠景以外で描く
+        if (lod !== "far" && s.role === "shield" && s.status === "ok" && !s.routed) {
+          dummy.position.set(
+            x + Math.sin(heading) * TOKEN_R * 1.25,
+            0.07,
+            z + Math.cos(heading) * TOKEN_R * 1.25,
+          );
+          dummy.rotation.set(0, heading, 0);
+          dummy.scale.setScalar(1);
+          dummy.updateMatrix();
+          shieldMesh.setMatrixAt(shieldN, dummy.matrix);
+          shieldMesh.setColorAt(shieldN, col.setHex(MAP.shield));
+          shieldN++;
+        }
+
         // ── 担架搬送の関係線(UIレビュー 診断C)。運ぶ側から負傷者へ引く ──
         if (bearer && lod !== "far" && litterN < MAX_SOLDIERS) {
           const cas = s.bearing !== null ? interp(s.bearing) : null;
@@ -1660,8 +1683,9 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     haloRingMesh.count = haloN;
     kiaMesh.count = kiaN;
     wedgeMesh.count = wedgeN;
+    shieldMesh.count = shieldN;
     rankMesh.count = rankN;
-    for (const m of [discMesh, soldierShadowMesh, bodyRingMesh, haloRingMesh, kiaMesh, wedgeMesh, rankMesh]) {
+    for (const m of [discMesh, soldierShadowMesh, bodyRingMesh, haloRingMesh, kiaMesh, wedgeMesh, shieldMesh, rankMesh]) {
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }
@@ -2310,6 +2334,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
         haloRingGeo,
         kiaGeo,
         wedgeGeo,
+        shieldGeo,
         rankGeo,
         contactGeo,
         contactEdgeGeo,
@@ -2324,6 +2349,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
         haloRingMesh,
         kiaMesh,
         wedgeMesh,
+        shieldMesh,
         rankMesh,
         contactMesh,
         contactEdgeMesh,

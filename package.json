@@ -17,7 +17,8 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"test/**/*.ts\"",
     "balance": "vite-node src/balance/run.ts",
     "mockup": "vite-node src/tools/uiMockup.ts",
-    "dev:lan": "vite --host"
+    "dev:lan": "vite --host",
+    "llm": "vite-node src/tools/llmBattle.ts"
   },
   "dependencies": {
     "react": "^18.3.1",

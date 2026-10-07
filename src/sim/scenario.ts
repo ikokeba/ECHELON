@@ -283,14 +283,21 @@ function makeSquad(
   //
   // `[v6.9]` 擲弾手を外した編成では、その枠は**消えるのではなくライフルマンになる**。
   // 頭数を規模だけで決められるようにするため(仕様 §14 の枠組みを崩さずに済む)。
-  const ROLES: Soldier["role"][] = [
+  //
+  // `[v7.0]` 盾持ちを入れた編成では、枠3(ライフルマン)が盾持ちになる。枠3が兼ねていた
+  // 資格は枠2へ移す: 衛生要員は両FTとも枠2、選抜射手はブラボー組の枠2(この枠は
+  // 擲弾手ではなくライフルマンになる — 盾も擲弾も持たない小銃手でないと選抜射手は務まらない)。
+  const shield = spec.shield === true;
+  const qualSlot = shield ? 2 : 3;
+  const rolesOf = (ft: number): Soldier["role"][] => [
     "leader",
     "saw",
-    spec.grenadier ? "grenadier" : "rifleman",
-    "rifleman",
+    spec.grenadier && !(shield && spec.marksman && ft === 1) ? "grenadier" : "rifleman",
+    shield ? "shield" : "rifleman",
   ];
 
   for (let ft = 0; ft < 2; ft++) {
+    const ROLES = rolesOf(ft);
     for (let m = 0; m < 4; m++) {
       const lateral = (ft === 0 ? -1 : 1) * 3 + (m - 1.5) * 1.6;
       const back = (m % 2) * -1.6 - ft * 0.4;
@@ -312,10 +319,10 @@ function makeSquad(
           ordinal: variant * 16 + 1 + ft * 4 + m,
           quals: {
             // 各FTのライフルマン1名が衛生要員を兼任(仕様 §9/§14 `[v6]`)
-            medicalCrossTrained: m === 3,
+            medicalCrossTrained: m === qualSlot,
             // 選抜射手は分隊に1名、ブラボー組(ft=1)のライフルマンが兼任(仕様 §14)。
             // `[v6.9]` 編成から外すと索敵300m・専用射撃諸元・支援配置がまとめて消える
-            designatedMarksman: spec.marksman && ft === 1 && m === 3,
+            designatedMarksman: spec.marksman && ft === 1 && m === qualSlot,
           },
         }),
       );
@@ -738,6 +745,51 @@ function buildPlatoon(
 }
 
 /**
+ * 後援部隊の兵士と計画を作る(`[v7.0]` 戦闘中に systems/reinforcement.ts が呼ぶ)。
+ *
+ * 中身は初期配置と**同じ組み立て**(makeSquad / buildPlatoon)で、編成オプション
+ * (選抜射手・擲弾手・盾持ち)もその陣営のものを引き継ぐ。増援だけが強い・弱いことはない。
+ * 小隊規模は3個ライフル分隊+小隊本部(火器分隊は付かない)。
+ *
+ * 兵士の id はここでは仮(`makeSoldier` の通し番号)で、呼び出し側が世界の
+ * `nextSoldierId` から振り直す。
+ */
+export function makeReinforcementUnit(o: {
+  side: Side;
+  size: "squad" | "platoon";
+  platoonId: number;
+  /** squad なら1個、platoon なら3個 */
+  squadIds: number[];
+  companyId: number;
+  center: Vec2;
+  dir: Vec2;
+  objective: Vec2;
+  /** 個体差の種(traits.ts)。両陣営で同じ値になるよう、到着の通し番号から作る */
+  variant: number;
+  spec: ForceSpec;
+}): { soldiers: Soldier[]; plans: ReturnType<typeof plansFor> } {
+  if (o.size === "platoon") {
+    return buildPlatoon(
+      o.side,
+      o.platoonId,
+      o.squadIds,
+      -1,
+      o.center,
+      o.dir,
+      o.objective,
+      o.companyId,
+      o.variant,
+      { ...o.spec, scale: "company", weaponsSquad: false },
+    );
+  }
+  const squadId = o.squadIds[0]!;
+  return {
+    soldiers: makeSquad(o.side, o.platoonId, squadId, o.center, o.dir, o.companyId, o.variant, o.spec),
+    plans: plansFor(o.side, o.platoonId, [squadId], o.objective, o.dir, o.center, o.companyId),
+  };
+}
+
+/**
  * 1個小隊 vs 1個小隊(各3個分隊 = 27名)。
  *
  * 仕様 §5 の情報階層化が意味を持つ最小規模: 小隊長は3個分隊を無線報告だけで捌く。
@@ -954,6 +1006,11 @@ function companyOnField(
       },
     ],
     ccp: { blue: { ...blueCcp }, red: { ...redCcp } },
+    // 後援部隊(`[v7.0]`)。編成オプションをそのまま世界へ渡す
+    reinforcement: {
+      ...(force.blue.reinforcement ? { blue: { ...force.blue.reinforcement } } : {}),
+      ...(force.red.reinforcement ? { red: { ...force.red.reinforcement } } : {}),
+    },
     // 拠点は盤面が決める(`[v6.11]`)。中央 → 側面の順に呼称を割り当てる。
     // 過半数(3つなら2つ)の維持で勝利(仕様 §12)
     objectives: field.objectives.map((o, i) => ({

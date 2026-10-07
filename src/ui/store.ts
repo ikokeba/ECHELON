@@ -170,6 +170,20 @@ export interface HudSnapshot {
   timeLeftSec: number | null;
   /** 決着。null なら戦闘継続中 */
   victory: VictoryState | null;
+  /** 後援部隊(`[v7.0]`)。後援なしの陣営は null */
+  reinforcement: Record<Side, HudReinforcement | null>;
+}
+
+/** 後援部隊の表示(`[v7.0]`) */
+export interface HudReinforcement {
+  callsLeft: number;
+  calls: number;
+  size: "squad" | "platoon";
+  /** 要請済みで、いちばん早く着くものまでの秒数。要請していなければ null */
+  etaSec: number | null;
+  arrived: number;
+  /** 人間がこの陣営の最上位の指揮官を操作している = 要請ボタンが押せる */
+  canCall: boolean;
 }
 
 /** デバッグ表示のトグル(仕様外・開発用。squad-12v12 モックの「デバッグ表示」に対応)。 */
@@ -354,6 +368,9 @@ interface UiState extends HudSnapshot {
   /** 速度を直接選ぶ(倍率ボタンを横並びにしたので `[v6.6]`)。選ぶとポーズも解ける */
   setSpeedIdx: (i: number) => void;
   requestStep: () => void;
+  /** 後援部隊の要請(`[v7.0]`)。runtime が nonce の変化を見て1回だけ適用する */
+  reinforceNonce: number;
+  requestReinforcement: () => void;
   select: (id: number | null) => void;
   setViewSide: (side: Side) => void;
   setViewEchelon: (e: ViewEchelon) => void;
@@ -455,6 +472,8 @@ export const useSimStore = create<UiState>((set, get) => ({
   attacker: "blue",
   timeLeftSec: null,
   victory: null,
+  reinforcement: { blue: null, red: null },
+  reinforceNonce: 0,
 
   paused: false,
   speedIdx: RUN_SPEEDS.indexOf(1) >= 0 ? RUN_SPEEDS.indexOf(1) : 0,
@@ -508,6 +527,7 @@ export const useSimStore = create<UiState>((set, get) => ({
   cycleSpeed: () => set((s) => ({ speedIdx: (s.speedIdx + 1) % RUN_SPEEDS.length })),
   setSpeedIdx: (i) => set({ speedIdx: Math.max(0, Math.min(RUN_SPEEDS.length - 1, i)), paused: false }),
   requestStep: () => set((s) => ({ stepNonce: s.stepNonce + 1 })),
+  requestReinforcement: () => set((s) => ({ reinforceNonce: s.reinforceNonce + 1 })),
   select: (id) => set({ selectedSoldierId: id }),
   setViewSide: (side) => set({ viewSide: side }),
   setViewEchelon: (e) => set({ viewEchelon: e }),

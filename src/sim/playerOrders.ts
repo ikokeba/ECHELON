@@ -11,12 +11,24 @@
  */
 
 import { PLATOON_FRONTAGE } from "./constants.ts";
-import type { Vec2 } from "./types.ts";
+import type { ControlState } from "./control.ts";
+import type { Mission, Vec2 } from "./types.ts";
 import type { World } from "./world.ts";
+import { callReinforcement, topCommandOf } from "./systems/reinforcement.ts";
+
+/*
+ * `[v7.0]` どの命令も**座席**(`seat`)を引数に取る。既定は人間の操作枠
+ * (`world.control`)で、外部エージェント(LLM、src/llm/)は自分の座席を渡す。
+ * 命令の中身と適用経路は人間と完全に同じ — 座席が違うだけ(仕様 §4)。
+ */
 
 /** 操作中の分隊へ「ここへ移動せよ」と指示する(分隊長として)。 */
-export function orderSquadTo(world: World, target: Vec2): boolean {
-  const c = world.control;
+export function orderSquadTo(
+  world: World,
+  target: Vec2,
+  seat: ControlState | null = world.control,
+): boolean {
+  const c = seat;
   if (!c || c.echelon !== "squad") return false;
   const sq = world.squads.find((s) => s.side === c.side && s.squadId === c.unitId);
   if (!sq) return false;
@@ -31,8 +43,12 @@ export function orderSquadTo(world: World, target: Vec2): boolean {
 }
 
 /** 操作中の小隊へ「ここへ移動せよ」と指示する(小隊長として)。 */
-export function orderPlatoonTo(world: World, target: Vec2): boolean {
-  const c = world.control;
+export function orderPlatoonTo(
+  world: World,
+  target: Vec2,
+  seat: ControlState | null = world.control,
+): boolean {
+  const c = seat;
   if (!c || c.echelon !== "platoon") return false;
   const pl = world.platoons.find((p) => p.side === c.side && p.platoonId === c.unitId);
   if (!pl) return false;
@@ -55,8 +71,12 @@ export function orderPlatoonTo(world: World, target: Vec2): boolean {
  * 個々の兵には一切命令が行かない**。目標軸に直交する方向へ小隊を並べる規則は
  * AI中隊長(`c2/company.ts`)と同一で、人間だからといって細かく動かせるようにはしない。
  */
-export function orderCompanyTo(world: World, target: Vec2): boolean {
-  const c = world.control;
+export function orderCompanyTo(
+  world: World,
+  target: Vec2,
+  seat: ControlState | null = world.control,
+): boolean {
+  const c = seat;
   if (!c || c.echelon !== "company") return false;
   const co = world.companies.find((x) => x.side === c.side && x.companyId === c.unitId);
   if (!co) return false;
@@ -85,8 +105,12 @@ export function orderCompanyTo(world: World, target: Vec2): boolean {
  * 「AIは戦力の残りを見て自制するが、人間は自分の判断で命じられる」点だけで、
  * 実際に担架班が組めるかどうかは同じ litterSystem の条件に従う。
  */
-export function orderCasevac(world: World, patientId?: number): boolean {
-  const c = world.control;
+export function orderCasevac(
+  world: World,
+  patientId?: number,
+  seat: ControlState | null = world.control,
+): boolean {
+  const c = seat;
   if (!c || c.echelon !== "squad") return false;
   const sq = world.squads.find((s) => s.side === c.side && s.squadId === c.unitId);
   if (!sq) return false;
@@ -110,11 +134,86 @@ export function orderCasevac(world: World, patientId?: number): boolean {
 }
 
 /** 操作中の階層に応じて、目的地指示を適切な経路へ振り分ける。 */
-export function orderControlledTo(world: World, target: Vec2): boolean {
-  const c = world.control;
+export function orderControlledTo(
+  world: World,
+  target: Vec2,
+  seat: ControlState | null = world.control,
+): boolean {
+  const c = seat;
   if (!c) return false;
-  if (c.echelon === "company") return orderCompanyTo(world, target);
-  if (c.echelon === "platoon") return orderPlatoonTo(world, target);
-  if (c.echelon === "squad") return orderSquadTo(world, target);
+  if (c.echelon === "company") return orderCompanyTo(world, target, c);
+  if (c.echelon === "platoon") return orderPlatoonTo(world, target, c);
+  if (c.echelon === "squad") return orderSquadTo(world, target, c);
   return false;
+}
+
+/**
+ * 中隊長として、麾下の1個小隊へ任務(WHAT)を下ろす(`[v7.0]`)。
+ *
+ * AI中隊長(`c2/company.ts`)が毎周期やっているのと同じ書き込み — `platoonMissions` と
+ * 小隊の `objective` / `mission`。任務の種別も AI と同じ3種(seize / support_by_fire /
+ * screen)だけで、人間・LLM専用の命令は増やしていない(仕様 §4/§13)。
+ */
+export function assignPlatoonMission(
+  world: World,
+  platoonId: number,
+  mission: Mission,
+  seat: ControlState | null = world.control,
+): boolean {
+  const c = seat;
+  if (!c || c.echelon !== "company") return false;
+  const co = world.companies.find((x) => x.side === c.side && x.companyId === c.unitId);
+  if (!co) return false;
+  const pl = world.platoons.find(
+    (p) => p.side === co.side && p.companyId === co.companyId && p.platoonId === platoonId,
+  );
+  if (!pl) return false;
+  co.platoonObjectives.set(pl.platoonId, { ...mission.target });
+  co.platoonMissions.set(pl.platoonId, { kind: mission.kind, target: { ...mission.target } });
+  pl.objective = { ...mission.target };
+  pl.mission = { kind: mission.kind, target: { ...mission.target } };
+  return true;
+}
+
+/**
+ * 小隊長として、麾下の1個分隊へ任務を下ろす(`[v7.0]`)。AI小隊長(`c2/platoon.ts`)と
+ * 同じ書き込み — `squadObjectives` / `squadMissions` と分隊の `objective` / `mission`。
+ */
+export function assignSquadMission(
+  world: World,
+  squadId: number,
+  mission: Mission,
+  seat: ControlState | null = world.control,
+): boolean {
+  const c = seat;
+  if (!c || c.echelon !== "platoon") return false;
+  const pl = world.platoons.find((p) => p.side === c.side && p.platoonId === c.unitId);
+  if (!pl) return false;
+  const sq = world.squads.find(
+    (s) => s.side === pl.side && s.platoonId === pl.platoonId && s.squadId === squadId,
+  );
+  if (!sq) return false;
+  pl.squadObjectives.set(sq.squadId, { ...mission.target });
+  pl.squadMissions.set(sq.squadId, { kind: mission.kind, target: { ...mission.target } });
+  sq.objective = { ...mission.target };
+  sq.mission = { kind: mission.kind, target: { ...mission.target } };
+  return true;
+}
+
+/**
+ * 後援部隊を要請する(`[v7.0]` systems/reinforcement.ts)。
+ *
+ * 呼べるのは**陣営の最上位の指揮官の座席**だけ(中隊長、中隊が無ければ小隊長)。
+ * AIの最上位指揮官が自動で呼ぶのと同じ関数を通るので、回数の上限・到着までの時間・
+ * 指揮官不在なら呼べない、はすべて人間・LLM にも同じに掛かる(仕様 §4/§13)。
+ */
+export function orderReinforcement(
+  world: World,
+  seat: ControlState | null = world.control,
+): boolean {
+  const c = seat;
+  if (!c) return false;
+  const top = topCommandOf(world, c.side);
+  if (!top || top.echelon !== c.echelon || top.unitId !== c.unitId) return false;
+  return callReinforcement(world, c.side);
 }

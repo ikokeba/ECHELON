@@ -15,7 +15,7 @@
  * 「規模は同じなのに人数が違う」という読みにくい盤面になる)。
  */
 
-import type { Side } from "./types.ts";
+import type { ReinforcementSpec, Side } from "./types.ts";
 
 /** 出せる部隊の規模。上へ行くほど指揮階層が1つずつ増える(仕様 §2)。 */
 export type ForceScale = "squad" | "platoon" | "company";
@@ -37,7 +37,29 @@ export interface ForceSpec {
    * 分隊規模には元から存在しない(下の `weapons` との論理積で決まる)。
    */
   weaponsSquad: boolean;
+  /**
+   * 盾持ち(`[v7.0]`)。各FTのライフルマン1名が防弾盾+拳銃に置き換わり、FTは盾を
+   * 先頭にした密集隊形で動く。頭数は変わらない(枠の置き換え)。
+   * 衛生要員の兼任は擲弾手(または2人目のライフルマン)の枠へ移り、選抜射手は
+   * ブラボー組の擲弾手枠がライフルマンとして引き継ぐ(擲弾手は1名減る)。
+   */
+  shield?: boolean;
+  /**
+   * 後援部隊(`[v7.0]`)。未指定・`calls: 0` なら後援なし。数・規模・出現位置は暫定。
+   * 盤上の初期の駒ではないが、戦闘の初期条件の一部なので編成に持たせる
+   * (初期条件コード `setupCode.ts` にもそのまま畳まれる)。
+   */
+  reinforcement?: ReinforcementSpec;
 }
+
+/** 後援部隊の既定値(UIで「あり」にしたときの出発点)。**暫定値** */
+export const DEFAULT_REINFORCEMENT: ReinforcementSpec = {
+  calls: 1,
+  size: "squad",
+  delaySec: 90,
+  entry: "rear",
+  autoCallBelow: 0.6,
+};
 
 /** 規模ごとの編成の形。ここだけが「何個作るか」を知っている。 */
 export interface ScaleShape {

@@ -145,6 +145,7 @@ function rollTeam(rng: Rng, self: readonly Fighter[], enemy: readonly Fighter[],
 const EMPTY_KILLS = (): Record<SoldierRole, number> => ({
   leader: 0,
   saw: 0,
+  shield: 0,
   grenadier: 0,
   rifleman: 0,
   mg: 0,

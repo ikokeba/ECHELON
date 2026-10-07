@@ -21,7 +21,7 @@ import {
   type WallIndex,
 } from "../wallIndex.ts";
 import { isOffField } from "./litter.ts";
-import { weaponRangeOf } from "../weapons.ts";
+import { sightRangeOf } from "../weapons.ts";
 import type { World } from "../world.ts";
 import type { Soldier, Vec2 } from "../types.ts";
 
@@ -157,7 +157,7 @@ export function perceptionSystem(world: World): void {
     // `[v6.3]` 索敵距離は武器種別(仕様 §10 の4段階)から取る。壁とLOSが頭打ちにする。
     // `world.tuning.detectRange` は**デバッグ用の上限**として掛け合わせる — 既定では
     // 仕様値と一致し、スライダーを絞ったときだけ短くなる。
-    const range = Math.min(weaponRangeOf(s).detect, detectRange);
+    const range = Math.min(sightRangeOf(s), detectRange);
     const nearRange = Math.min(range, SCAN.NEAR_DIST);
     // `[v6.3]` 近距離は毎ティック、遠距離は数ティックおき。位相は `ordinal`(鏡像で
     // 一致する編成上の通し番号)から取るので、点対称でも片側だけ早く見つけない。

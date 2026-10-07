@@ -33,6 +33,8 @@ export function ForcePanel() {
     },
   ];
   const own = rows.find((r) => r.side === viewSide) ?? rows[0]!;
+  // 後援部隊(`[v7.0]`)。要請できるのは最上位の指揮官を操作しているときだけ(仕様 §4)
+  const reinf = s.reinforcement[viewSide];
 
   return (
     <div className="panel">
@@ -56,6 +58,28 @@ export function ForcePanel() {
         <span>搬送中 {own.carrying}</span>
         <span>戦死 {own.kia}</span>
       </div>
+      {reinf && (
+        <div className="force-detail force-reinf" title="後援部隊(暫定仕様)。最上位の指揮官が要請し、時間をおいて後方に現れる">
+          <span>
+            後援 {reinf.callsLeft}/{reinf.calls}回({reinf.size === "squad" ? "分隊" : "小隊"})
+          </span>
+          {reinf.etaSec !== null && <span>到着まで {Math.ceil(reinf.etaSec)}秒</span>}
+          {reinf.arrived > 0 && <span>到着済 {reinf.arrived}</span>}
+          <button
+            type="button"
+            className="seg-btn"
+            disabled={!reinf.canCall || reinf.callsLeft <= 0}
+            onClick={s.requestReinforcement}
+            title={
+              reinf.canCall
+                ? "後援部隊を要請する"
+                : "最上位の指揮官(中隊長、いなければ小隊長)を操作しているときだけ要請できる。AI指揮官は戦力が減ると自分で呼ぶ"
+            }
+          >
+            要請
+          </button>
+        </div>
+      )}
     </div>
   );
 }

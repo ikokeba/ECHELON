@@ -72,7 +72,11 @@ export function runCqb(
   // 突入順はスタック順に固定する(仕様 §7.3 の積み残し課題として明記済み)。
   // 一度決めたら段階をまたいで保持する — 途中で並び替えると流入間隔が壊れる。
   if (ft.cqbEntryOrder.length === 0) {
-    ft.cqbEntryOrder = available.map((u) => u.id);
+    // `[v7.0]` 盾持ちがいれば先頭に立てる(盾を先に入れて、後続はその陰で流入する)。
+    // 安定ソートなので、盾持ち以外の並びは従来どおり
+    ft.cqbEntryOrder = [...available]
+      .sort((a, b) => (b.role === "shield" ? 1 : 0) - (a.role === "shield" ? 1 : 0))
+      .map((u) => u.id);
   }
   const ordered = ft.cqbEntryOrder
     .map((id) => available.find((u) => u.id === id))

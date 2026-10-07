@@ -401,8 +401,15 @@ export function bestFlankPoint(
    * 拠点が建物の中にある場合、突入発動距離(22m)まで永久に到達しなかった。
    */
   objective?: Vec2,
+  /**
+   * 分隊長が置いた側面の経由点(`[v7.0]`)。渡されたら「経由点へ近づけるか」を
+   * 主な評価にする。経由点そのものが弧の上を少しずつ進むので、遮蔽から遮蔽へ
+   * 渡りながら決めた側へ回り込んでいく。
+   */
+  goal?: Vec2,
 ): Vec2 | null {
   const baseAngle = Math.atan2(base.x - enemy.x, base.z - enemy.z);
+  const dGoalNow = goal ? Math.hypot(from.x - goal.x, from.z - goal.z) : 0;
   const dObjNow = objective ? Math.hypot(from.x - objective.x, from.z - objective.z) : 0;
   let best: Vec2 | null = null;
   let bestScore = -Infinity;
@@ -413,6 +420,8 @@ export function bestFlankPoint(
     const dToEnemy = Math.hypot(p.x - enemy.x, p.z - enemy.z);
     if (dToEnemy < engageMin || dToEnemy > engageMax) return;
 
+    // 経由点へ向かうときは、近づけない候補を採らない(遮蔽が良くても後戻りになる)
+    if (goal && dGoalNow - Math.hypot(p.x - goal.x, p.z - goal.z) < 0.5) return;
     const a = Math.atan2(p.x - enemy.x, p.z - enemy.z);
     let sep = Math.abs(a - baseAngle);
     while (sep > Math.PI) sep = Math.PI * 2 - sep;
@@ -424,7 +433,13 @@ export function bestFlankPoint(
       ? dObjNow - Math.hypot(p.x - objective.x, p.z - objective.z)
       : 0;
 
-    const score = sepScore * 3 + p.cover * 1.2 - travel * 0.3 + gain * 0.35;
+    const score = goal
+      ? // 経由点へ詰められるぶん(遠ざかる点は減点)+ 遮蔽。角度差は経由点が持っている
+        (dGoalNow - Math.hypot(p.x - goal.x, p.z - goal.z)) * 0.6 +
+        p.cover * 1.2 -
+        travel * 0.1 +
+        sepScore
+      : sepScore * 3 + p.cover * 1.2 - travel * 0.3 + gain * 0.35;
     if (score > bestScore) {
       bestScore = score;
       best = p;

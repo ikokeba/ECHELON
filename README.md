@@ -23,6 +23,7 @@ and one simulation loop under `src/`. All five echelons run on the same world.
 | `src/render/` | three.js top-down view. Reads the world, never mutates it. |
 | `src/ui/` | React HUD + Zustand store. |
 | `src/balance/` | Headless Monte-Carlo balance harness, running the sim's own combat function. |
+| `src/llm/` | The LLM "seat": observation/command protocol and an LM Studio client. Design: [`docs/LLM連携_設計.md`](docs/LLM連携_設計.md). |
 | `test/` | Vitest specs — determinism, force symmetry, and one file per subsystem. |
 
 ## Toolchain
@@ -34,6 +35,7 @@ Vite + React + TypeScript. `npm install`, then:
 | `npm run dev` | Start the app (opens on a local port) |
 | `npm test` | Run the headless sim tests |
 | `npm run balance` | Print the MOS balance table (`npm run balance 5000` for more battles) |
+| `npm run llm` | Let a local LLM (LM Studio) command one echelon in a headless battle (`-- --mock` for a no-LLM wiring check) |
 | `npm run typecheck` | TypeScript check |
 | `npm run lint` | ESLint |
 | `npm run build` | Typecheck + production build |
@@ -59,6 +61,15 @@ Four scenarios, switchable in the UI: **squad vs squad**, **platoon vs platoon**
 - **§12 in full**: command succession, morale break, objective capture, victory.
 - **Hot-swap** (§4) into any echelon. The player gets exactly the orders the AI can issue —
   no more, no less.
+- **Flanking** (§6, `[v7.0]`). Squad leaders latch base/maneuver roles for the whole
+  engagement and walk the maneuver team around an arc centred on the threat; platoon leaders
+  fix the enemy with one squad and send another around the *end* of the enemy line.
+- **Shield bearers** (§14, `[v7.0]`, force option). One rifleman per fireteam swaps to a ballistic
+  shield and pistol; the team moves in a tight stack behind it.
+- **Reinforcements** (§11, `[v7.0]`, force option, provisional numbers). The top commander calls
+  them; they arrive after a delay and join the existing chain of command.
+- **LLM seat** (§4, `[v7.0]`). A local LLM via LM Studio can take a company/platoon/squad
+  commander's seat. It sees only that commander's belief and issues the same orders a human could.
 
 ## Two invariants the tests hold to
 

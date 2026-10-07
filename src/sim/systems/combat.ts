@@ -33,7 +33,9 @@ import {
   WINDOW,
   SUPPRESS_TRIGGER_RATE_PER_SEC,
   SOLDIER_RADIUS,
+  SHIELD,
 } from "../constants.ts";
+import { shieldAccMul, shieldUp } from "../shield.ts";
 import { angleOf, dirFromAngle, turnToward } from "../geometry.ts";
 import { isOffField } from "./litter.ts";
 import { weaponRangeOf } from "../weapons.ts";
@@ -68,6 +70,11 @@ export interface ShotContext {
   shooterAtWindow?: boolean;
   /** 目標が窓に就いている。撃つ側の命中 −60% */
   targetAtWindow?: boolean;
+  /**
+   * 盾による命中率倍率(`[v7.0]` constants `SHIELD`)。省略時は 1(盾なし)。
+   * 盾持ち本人を正面から撃つ、または盾の陰の隊員を撃つと 1 未満になる。
+   */
+  targetShieldMul?: number;
 }
 
 /**
@@ -112,6 +119,8 @@ export function rollShot(rng: Rng, ctx: ShotContext): ShotOutcome {
   // 撃つ側と撃たれる側の両方が窓にいる場合、両方の係数が掛かる(窓越しの撃ち合い)。
   if (ctx.shooterAtWindow) accMul *= WINDOW.SHOOTER_ACC_MUL;
   if (ctx.targetAtWindow) accMul *= WINDOW.TARGET_ACC_MUL;
+  // 盾(`[v7.0]`)。他の修正と同じく乗算で重ねる
+  if (ctx.targetShieldMul !== undefined) accMul *= ctx.targetShieldMul;
   const hitP = ratePerTick(HIT_RATE_PER_SEC * accMul, SIM_DT);
   if (!chance(rng, hitP)) return { hit: false };
   return { hit: true, lethal: chance(rng, KIA_ON_HIT_CHANCE) };
@@ -135,6 +144,14 @@ function friendlyBlocksFire(world: World, shooter: Soldier, target: Soldier): bo
 
   for (const f of world.soldiers) {
     if (f.side !== shooter.side || f.id === shooter.id || f.status === "kia") continue;
+    // `[v7.0]` すぐ前に立つ盾持ちは障害にしない — 盾の後ろの隊員は肩越し・脇から撃つ。
+    // これが無いと、盾の陰に入った隊員が誰も撃てなくなる
+    if (
+      f.role === "shield" &&
+      Math.hypot(f.pos.x - sx, f.pos.z - sz) <= SHIELD.SHOOT_PAST_DIST
+    ) {
+      continue;
+    }
     const t = (f.pos.x - sx) * ux + (f.pos.z - sz) * uz;
     if (t <= 0.4 || t >= len - 0.4) continue;
     const perp = Math.hypot(f.pos.x - sx - ux * t, f.pos.z - sz - uz * t);
@@ -264,8 +281,14 @@ export function combatSystem(world: World): void {
     aimPointsByFt.set(`${ft.side}:${ft.squadId}:${ft.ftIndex}`, pts);
   }
 
+  // 盾を構えている兵士(`[v7.0]`)。陣営ごとに分けておき、撃たれる側のぶんだけ見る
+  const shieldsBySide: Record<Soldier["side"], Soldier[]> = { blue: [], red: [] };
+  for (const s of world.soldiers) if (shieldUp(s)) shieldsBySide[s.side].push(s);
+
   for (const s of world.soldiers) {
-    s.suppressor = s.order.kind === "suppress";
+    // `[v7.0]` 盾の密集隊形の隊員は、隊形位置へ追従しながら制圧射撃もする
+    s.suppressor =
+      s.order.kind === "suppress" || (s.order.kind === "follow" && s.order.suppress === true);
     if (s.status !== "ok") continue;
     // 応急手当の実行中は射撃できない(仕様 §9: 処置中は両者とも無防備)
     if (s.treating !== null && s.aidProgressTicks > 0) continue;
@@ -301,6 +324,8 @@ export function combatSystem(world: World): void {
     }
 
     if (angleBetween(s.facing, toTarget) > fireAlignRad) continue; // 移動中かつ正対していない
+    // 見えていても武器が届かない(`[v7.0]` 盾持ちの拳銃。目は小銃と同じだけ見える)
+    if (tlen > weaponRangeOf(s).detect) continue;
     if (friendlyBlocksFire(world, s, target)) continue;
 
     // 発砲 — 射手が属する陣営のストリームから引く。鏡像の状況では両陣営が
@@ -318,6 +343,7 @@ export function combatSystem(world: World): void {
       // 窓(`[v6.10]` 仕様 §7/§8)。`windowsSystem` がこのティックの位置から確定済み
       shooterAtWindow: s.atWindow,
       targetAtWindow: target.atWindow,
+      targetShieldMul: shieldAccMul(s, target, shieldsBySide[target.side]),
     });
 
     // 制圧役は行動抑制(evade)も誘発する。SAW 1.5倍 / MG 2.0倍(仕様 §14 / `[v6.1]` §2)

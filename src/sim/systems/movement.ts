@@ -10,7 +10,7 @@
 import { advanceAlongPath } from "../pathfollow.ts";
 import { angleOf, dirFromAngle, turnToward } from "../geometry.ts";
 import { collidesWallIndexed, type WallIndex } from "../wallIndex.ts";
-import { MG, SIM_DT, SIM_HZ, SOLDIER_RADIUS } from "../constants.ts";
+import { MG, SHIELD, SIM_DT, SIM_HZ, SOLDIER_RADIUS } from "../constants.ts";
 import type { World } from "../world.ts";
 import type { Soldier, Vec2 } from "../types.ts";
 
@@ -92,7 +92,9 @@ export function movementSystem(world: World): void {
     // 速度の変調(担架搬送 0.5/0.85倍、室内進入 0.7倍、隊形Tier など)。
     // 変調をかけたシステムが解除の責任を持つ(constants の speedMul を参照)。
     // 機関銃射手は重火器のぶん恒常的に鈍い(`[v6.1]` §2)。
-    const roleMul = s.role === "mg" ? MG.MOVE_SPEED_MUL : 1;
+    // `[v7.0]` 盾持ちは盾の重さで鈍い。密集隊形の隊員はこの速さに合わせて追従する
+    const roleMul =
+      s.role === "mg" ? MG.MOVE_SPEED_MUL : s.role === "shield" ? SHIELD.MOVE_SPEED_MUL : 1;
     const maxStep = baseStep * s.speedMul * roleMul;
 
     // 集合・追従(仕様 §6.5)は経路探索を通さず、隊形位置へ直接近づく。
@@ -141,9 +143,12 @@ export function movementSystem(world: World): void {
       const progressed = Math.hypot(accepted.x - s.pos.x, accepted.z - s.pos.z);
       s.pos = accepted;
       s.pathIdx = step.pathIdx;
-      if (step.dir) {
+      // `[v7.0]` 盾持ちは歩く向きではなく**盾を向けるべき方向**を向いたまま動く
+      // (横歩き・後ずさり)。進行方向を向くと、側面へ回る間ずっと盾が敵を向かない。
+      const lookDir = s.role === "shield" && s.order.facing ? s.order.facing : step.dir;
+      if (lookDir) {
         const cur = angleOf(s.facing);
-        faceAngle(s, turnToward(cur, angleOf(step.dir), maxTurn));
+        faceAngle(s, turnToward(cur, angleOf(lookDir), maxTurn));
       }
       if (step.arrived) {
         s.path = [];
