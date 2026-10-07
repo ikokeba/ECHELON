@@ -35,3 +35,6 @@ pnpm-debug.log*
 # misc
 .cache/
 .tmp/
+
+# ui mockup output
+docs/ui-mockup-company.html

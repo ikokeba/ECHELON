@@ -4,7 +4,7 @@
  * `mos-balance-simulator.jsx` の置き換えだが、**モックのような並行実装ではない**:
  * 命中判定は実シムと同じ `rollShot` をそのまま呼び、係数も constants.ts の
  * 同じ値を使う。実シムとバランス検証がずれることが構造的にありえない形にしてある
- * (docs/design/00 §2「balance harness は実 resolveCombat を回す」)。
+ * (balance harness は実 resolveCombat を回す)。
  *
  * 抽象化しているのは**戦闘以外**だけ:
  *   - 位置・遮蔽・視界を持たない(全員が全員を撃てる)

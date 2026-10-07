@@ -1,6 +1,7 @@
 {
   "name": "echelon",
   "private": true,
+  "license": "MIT",
   "version": "0.0.0",
   "type": "module",
   "description": "Integrated prototype for 見下ろし型・大規模分隊戦術ゲーム(仮) — ECHELON",

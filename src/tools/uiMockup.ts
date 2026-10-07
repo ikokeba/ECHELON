@@ -10,7 +10,7 @@
  * `src/theme.ts` から流し込んだ `:root` の変数。書体だけWebフォントを読むが、
  * 取れなければ system-ui に落ちる(描画は止めない読み込み方にしてある)。
  *
- * 実行: `npm run mockup` → `docs/design/ui-mockup-company.html`
+ * 実行: `npm run mockup` → `docs/ui-mockup-company.html`
  *
  * 反映の手順(デザイナー → 実装):
  *   - 色を変えた → `src/theme.ts` の1箇所だけ(地図もHUDもここを読む)
@@ -32,7 +32,7 @@ import { insideBounds } from "../sim/cqb.ts";
 import { PALETTE, themeCssVars } from "../theme.ts";
 import type { AABB, Side, Soldier, Vec2 } from "../sim/types.ts";
 
-const OUT = "docs/design/ui-mockup-company.html";
+const OUT = "docs/ui-mockup-company.html";
 /** 戦闘画面を切り出す時刻(秒)。遭遇戦が始まり、負傷者と担架班が出ている頃 */
 const BATTLE_SEC = 180;
 

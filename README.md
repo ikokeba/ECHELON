@@ -17,7 +17,6 @@ and one simulation loop under `src/`. All five echelons run on the same world.
 | Path | Contents |
 |---|---|
 | `docs/spec/` | The design spec. `戦場指揮ゲーム_仕様書_v5統合マスター版.md` is the single source of truth — the merge of the former v3 body + v5 addenda. All future spec edits go here. |
-| `docs/design/` | Engineering notes for the integration: tech stack, architecture, decisions, open questions. `00-integration-architecture.md` first. |
 | `docs/はじめかた.md` | How to run it, for someone who doesn't work with code (Japanese). |
 | `prototypes/` | The original standalone React mocks, one per verified design slice. Kept as reference; all have been ported into `src/`. |
 | `src/sim/` | The pure deterministic simulation. No three.js, no React, no DOM, no `Math.random`. |
@@ -81,4 +80,7 @@ battle must end in an exact mutual wipe.
 - The platoon's weapons squad is not in the ToE, so a platoon is 29 rather than ~40 men.
 - Scenarios are TypeScript fixtures, not the JSON the architecture calls for.
 
-Details and rationale in `docs/design/00-integration-architecture.md` §6–§8.
+
+## License
+
+[MIT](LICENSE)
