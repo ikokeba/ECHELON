@@ -36,6 +36,7 @@ import {
   SHIELD,
   INDIVIDUAL,
   TRACER_EVERY_TICKS,
+  CLOSE_RANGE_BOOST,
 } from "../constants.ts";
 import { shieldAccMul, shieldUp, turnMulOf } from "../shield.ts";
 import { angleOf, dirFromAngle, turnToward } from "../geometry.ts";
@@ -93,6 +94,23 @@ export function rangeAccMul(range: number, maxRange: number): number {
   return Math.max(RANGE_FALLOFF.MIN_MUL, 1 - Math.pow(t, RANGE_FALLOFF.EXPONENT));
 }
 
+/**
+ * 近距離の命中率の上乗せ倍率(`[v7.1]` constants `CLOSE_RANGE_BOOST`)。
+ * 表の最初の距離より近ければ最初の値、最後より遠ければ最後の値、あいだは線形補間。
+ */
+export function closeRangeBoost(range: number): number {
+  const t = CLOSE_RANGE_BOOST;
+  if (range <= t[0]![0]) return t[0]![1];
+  for (let i = 1; i < t.length; i++) {
+    const [r1, m1] = t[i]!;
+    if (range <= r1) {
+      const [r0, m0] = t[i - 1]!;
+      return m0 + ((m1 - m0) * (range - r0)) / (r1 - r0);
+    }
+  }
+  return t[t.length - 1]![1];
+}
+
 export type ShotOutcome = { hit: false } | { hit: true; lethal: boolean };
 
 /**
@@ -118,6 +136,8 @@ export function rollShot(rng: Rng, ctx: ShotContext): ShotOutcome {
   // 距離減衰(`[v6.3]` 仕様 §8)。射程を §10 の本来の値へ戻したことと不可分。
   if (ctx.range !== undefined && ctx.maxRange !== undefined) {
     accMul *= rangeAccMul(ctx.range, ctx.maxRange);
+    // `[v7.1]` 近距離ほど当たる(近接戦は数秒で決着する)
+    accMul *= closeRangeBoost(ctx.range);
   }
   // 窓(`[v6.10]` 仕様 §7/§8)。銃眼から撃つ側の非対称を、他の修正と同じく**乗算**で。
   // 撃つ側と撃たれる側の両方が窓にいる場合、両方の係数が掛かる(窓越しの撃ち合い)。
