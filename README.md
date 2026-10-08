@@ -82,7 +82,9 @@ step (in Japanese, for Windows).
 
 The five boards are the Old Quarter (cramped alleys), the Boulevard (a 40 m avenue you have to
 cross), the New Quarter (long staggered blocks), the Trenches (a no-man's-land between two lines)
-and a regular Grid. Battles go up to 91 soldiers per side.
+and a regular Grid. Each side picks its own size — a squad (9), a platoon (36) or a company (112),
+plus any reinforcements — and its own command doctrine. Besides the meeting engagement there is an
+attack/defence mode, where the defender holds every objective until the clock runs out.
 
 ## What is simulated
 
@@ -100,6 +102,8 @@ and a regular Grid. Battles go up to 91 soldiers per side.
   breach, clear and reorganize.
 - **Morale and victory.** Fire teams can break, command succession is handled, and objectives
   decide the battle.
+- **Company assets.** A 60 mm mortar that fires at what the company commander *believes*, not at
+  where the enemy really is, and evacuation vehicles the commander has to share out.
 - **Optional extras.** Shield bearers, reinforcements, and a local LLM (through LM Studio) that
   can take a commander's seat and issue the same orders a human could.
 
@@ -125,7 +129,8 @@ Built with Vite, React, TypeScript, three.js and Zustand.
 | `src/balance/` | A headless Monte-Carlo balance harness that uses the simulation's own combat code. |
 | `src/llm/` | The LLM seat: observation and command protocol, and an LM Studio client. See [`docs/LLM連携_設計.md`](docs/LLM連携_設計.md). |
 | `test/` | Vitest specs: determinism, force symmetry, and one file per subsystem. |
-| `docs/spec/` | The design spec; [`戦場指揮ゲーム_仕様書_v5統合マスター版.md`](docs/spec/戦場指揮ゲーム_仕様書_v5統合マスター版.md) is the single source of truth. Section numbers such as §9 in code comments refer to it. |
+| `docs/ロードマップ.md` | The roadmap: everything not yet built, with priorities. |
+| `docs/spec/` | The design spec; [`戦場指揮ゲーム_仕様書.md`](docs/spec/戦場指揮ゲーム_仕様書.md) is the single source of truth. Section numbers such as §9 in code comments refer to it. |
 | `docs/media/` | The animations used in this README. |
 | `prototypes/` | The original standalone React mocks, kept for reference. |
 
@@ -137,13 +142,11 @@ Two invariants are enforced by the tests:
 - **Determinism.** The same seed gives the same result. All randomness goes through one seeded
   stream per force.
 
-### Known gaps
+### Not yet built
 
-- Per-soldier variance parameters exist but nothing reads them yet — the largest remaining
-  distance from the spec.
-- Weapon range tiers are not modelled; everyone shares one detection range.
-- A platoon has 29 soldiers because its weapons squad is not yet in the table of organization.
-- Scenarios are TypeScript fixtures, not the JSON the architecture calls for.
+Everything that is planned but not built — defensive positions, smoke, drones, armoured vehicles,
+replays and more — is collected, with priorities, in [`docs/ロードマップ.md`](docs/ロードマップ.md)
+(Japanese). The spec holds only what has been decided and built.
 
 ## License
 

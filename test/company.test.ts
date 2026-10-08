@@ -234,7 +234,7 @@ describe("後送要請・補充兵(仕様 §9)", () => {
   });
 });
 
-describe("任務種別(WHAT。`[v6.1]` OQ-3)", () => {
+describe("任務種別(WHAT。`[v6.1]` §3①)", () => {
   it("初期状態は全階層 seize、火器分隊も seize から始まる", () => {
     const w = createWorld(companyClashScenario(1));
     expect(w.platoons.every((p) => p.mission.kind === "seize")).toBe(true);

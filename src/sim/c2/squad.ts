@@ -38,7 +38,7 @@ const TRAIL_DIST = 4;
 const DECIDE_EVERY_TICKS = Math.round(0.3 * SIM_HZ);
 /** 現在の目的地からこの距離以内なら再発行しない m。 */
 const DEST_EPS = 1.2;
-/** support_by_fire: 制圧目標からこれだけ手前に射撃位置を取る m。`[v6.1]` OQ-3 */
+/** support_by_fire: 制圧目標からこれだけ手前に射撃位置を取る m。`[v6.1]` 任務種別(§3①) */
 const SBF_STANDOFF = 35;
 
 function centroid(units: readonly Soldier[]): Vec2 {
@@ -105,7 +105,7 @@ function directFireteams(world: World, sq: SquadState, idx: LivingIndex): void {
 
   const threat = primaryThreat(sq.belief);
 
-  // 任務種別による目標の解釈(`[v6.1]` OQ-3)。
+  // 任務種別による目標の解釈(`[v6.1]` §3①)。
   //   support_by_fire : 制圧目標へ射線の通る「手前の位置」に就く。踏み込まない
   //   screen          : 掩護軸(mission.target)へ薄く展開して監視・遅滞
   //   seize           : sq.objective をそのまま(確保・突撃)
@@ -384,7 +384,7 @@ function decideCasevac(world: World, sq: SquadState): void {
  *   突撃     : 突入FTに扉を指定する(以降の実行は c2/cqbDrill.ts)
  *
  * 分隊長自身が突入するかは状況次第(仕様 §7.2)。現状は入口付近で指揮に専念する。
- * 個体差パラメータ(積極性・大胆さ)による分岐は OQ-6 の解決後に入れる。
+ * 個体差パラメータ(積極性・大胆さ)による分岐は未実装(docs/ロードマップ.md C-4)。
  *
  * @returns 突入を指示したら true(通常の火力/機動の割り当てを上書きする)
  */

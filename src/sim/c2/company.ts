@@ -284,7 +284,7 @@ export function companyAI(world: World): void {
         ? PLATOON_FRONTAGE * CONSOLIDATE_FRONTAGE_MUL
         : PLATOON_FRONTAGE;
 
-    // 攻勢分遣(F-2, `[v6.1]` OQ-3): 兵力が敵の `offensiveRatio` 倍以上あり、まだ確保
+    // 攻勢分遣(F-2, `[v6.1]` 任務種別 §3①): 兵力が敵の `offensiveRatio` 倍以上あり、まだ確保
     // していない拠点があれば、1個小隊をそこへ差し向ける。しきい値はデバッグ調整可。
     const myEff = world.soldiers.filter((s) => s.side === co.side && s.status === "ok").length;
     const enemyEff = world.soldiers.filter((s) => s.side !== co.side && s.status === "ok").length;
@@ -405,7 +405,7 @@ export function companyAI(world: World): void {
       // 下限 PLATOON_HOLD_SPREAD: 拠点が1室でも小隊が点に固まらないだけの床を残す。
       if (held) objective = clampToObjective(objective, held, 0.7, PLATOON_HOLD_SPREAD);
 
-      // 任務種別(OQ-3):
+      // 任務種別(§3①):
       //   攻勢分遣に指名された小隊 → 未確保拠点へ seize
       //   担当区域に脅威も拠点も無い側面の小隊 → screen(掩護・監視)
       //   それ以外 → seize(担当区域の確保 / 保持)

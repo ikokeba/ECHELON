@@ -97,7 +97,7 @@ describe("屋内視界ルール(仕様 §7.6)", () => {
   });
 });
 
-describe("経路探索(design §4.2: 屋外1.0m + 屋内0.3m)", () => {
+describe("経路探索(仕様 §7 `[v6.1]`: 屋外1.0m + 屋内0.3m)", () => {
   it("街路から室内まで1回の探索で経路が出る(仕様 §7.1 シームレス)", () => {
     const w = createWorld(urbanCqbFixture(1));
     const room = w.buildings[0]!.rooms[0]!;

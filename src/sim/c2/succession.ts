@@ -11,7 +11,7 @@
  *
  * 実装: 判断の質低下を「意思決定周期が DEGRADE_FACTOR 倍に鈍り、DEGRADE_SEC[階層]
  * かけて線形に回復する」として表現する。仕様のいう「命令解釈の冗長化・新規戦術判断
- * 不可」を、周期という単一の軸に畳んだもの(数値はOQ-4の決定待ちの暫定値)。
+ * 不可」を、周期という単一の軸に畳んだもの(数値は暫定値。constants.ts の DEGRADE_FACTOR / DEGRADE_SEC)。
  */
 
 import { DEGRADE_FACTOR, DEGRADE_SEC, SIM_HZ } from "../constants.ts";
