@@ -2,164 +2,147 @@
 
 **English** | [日本語](README.ja.md)
 
-> A top-down, large-scale squad-tactics game where you can take over *any* rank in a
-> doctrinally accurate chain of command — and the AI runs everyone else.
-> (Working title: *見下ろし型・大規模分隊戦術ゲーム(仮)*)
+**A top-down squad-tactics game about commanding, not shooting.** Take a seat anywhere in a
+five-tier chain of command — company, platoon, squad, fire team or soldier — and give orders to
+the units below you. Every other unit is run by AI, and nobody, human or AI, sees more of the
+battlefield than their rank would let them.
 
-ECHELON blends the Fire-and-Movement squad logic of *Full Spectrum Warrior*, the simultaneous
-large-scale battles of PS2 *Star Wars: Battlefront*, the any-unit hot-swap of *Battlefield 2:
-Modern Combat*, and the top-down vision/damage model of *Door Kickers* — over a 5-tier chain of
-command (company → platoon → squad → fire team → soldier).
+It runs in your browser. The project is a playable prototype.
 
-**Phase: playable prototype.** The seven prototype mocks have been merged into one game state
-and one simulation loop under `src/`. All five echelons run on the same world, in your browser.
+![A platoon commander's view of a battle in the Old Quarter. Blue squads close in on the central objective while the panels show the chain of command, force strength and capture progress.](docs/media/overview.gif)
 
-![A platoon-level view of a battle in the Old Quarter: BLUE squads converge on the central objective while the HUD shows the echelon tree, force strength and capture progress](docs/media/overview.gif)
+## Highlights
 
-*Watching a battle through the platoon leader's eyes. Every unit is AI-controlled; the panels
-show the chain of command, force strength and objective-capture progress in real time.*
+### Take over any unit
 
-## What makes it different
+Click any company, platoon or squad in the command tree and you are in charge of it. You get the
+same orders the AI would give, and the rest of the force keeps fighting around you. Right-click
+to send your unit somewhere; hand control back whenever you like.
 
-### You are not a soldier — you are a *seat* in the chain of command
+![Taking control of a squad: the banner reads MANUAL, and right-click orders send the squad along a route.](docs/media/hotswap.gif)
 
-Pick any company, platoon or squad and take its seat. The AI immediately keeps running everyone
-else, and you receive **exactly the orders the AI can issue — no more, no less** (spec §4).
-Right-click to give a move order; hand the seat back whenever you like.
+### From the whole battlefield down to a single soldier
 
-![Hot-swapping into 1st Squad: the camera closes in on the squad, the banner switches to MANUAL, and a right-click move order sends the squad along a route](docs/media/hotswap.gif)
+Zoom from the full map in to individual soldiers. Each one is simulated on its own — position,
+suppression, wounds, who is carrying whom — so what you see at the closest zoom is the actual
+state of the battle, not an animation.
 
-*Hot-swap into a squad, then steer it with move orders while the rest of the force keeps fighting.
-The orange diamond is the destination; the line is the route.*
+![The camera zooms from the whole map to a squad under fire; wounded soldiers are marked with rings.](docs/media/firefight.gif)
 
-### Command is lossy — information flows up the chain, not out of thin air
+### Fight over objectives
 
-A soldier sees; a fireteam leader gets the union of his team's vision; a squad leader the union
-of his fireteams'. Above that it is radio only — delayed, decaying, and coarsened one step per
-hop. The company's picture is measurably older and vaguer than the platoon's. Switch the
-viewpoint between company / platoon / squad / "god" and watch the fog of war change.
+An objective is taken by standing in it. A pale disc grows from the centre as the capture
+progresses, and the ring changes to the capturing side's colour when it is complete. If both
+sides are inside, the count stops.
 
-### From the whole board down to a single soldier
+![A blue fire team approaches an objective and enters it. A pale disc fills the ring until the capture is complete.](docs/media/capture.gif)
 
-The camera zooms from the full battlefield to the point of contact. Down there you see
-individual soldiers, fire teams, tracers, and the markers for suppressed and wounded men —
-every one of them simulated, not animated.
+### Wounded soldiers are carried off
 
-![The camera dives from the full board into a firefight: individual soldiers, tracer lines and wounded markers come into view](docs/media/firefight.gif)
+A hit soldier is wounded, gets first aid from a buddy, and is then carried by a litter team to a
+casualty collection point. The bearers cannot fire while they carry, so every casualty also costs
+the squad some fighting strength.
 
-*Pulling in from the whole board to the point of contact. (Front-line overlay hidden for the clip.)*
+![A four-man litter team, shown with cyan rings, carries a wounded soldier away.](docs/media/casevac.gif)
 
-### Objective capture
+### Commanders only see what reports tell them
 
-An objective is taken by standing in it. A pale disc grows outward from the centre while the
-capture progresses, and the ring switches to the capturer's colour when it is complete. If
-both sides are inside, the count stops (contested).
+A soldier sees what is in front of them. A squad leader sees what their fire teams see. Above
+that, everything arrives by radio — late, less certain, and vaguer at every step up. A company
+commander's picture of the battle is measurably older than a platoon leader's. Switch between the
+company, platoon and squad viewpoints and watch the enemy picture change.
 
-![A BLUE fire team enters an objective; a pale-blue disc expands to fill the ring until the capture is complete](docs/media/capture.gif)
+## Play it
 
-*A BLUE fire team approaches, enters a room-sized objective, and the capture disc fills.*
-
-### Casualties are carried, not deleted
-
-Hit → wounded → buddy aid → a litter team of two or four picks the casualty up and carries him
-to the casualty collection point (spec §9). Bearers cannot use their weapons while carrying, and
-the squad is weaker for it.
-
-![A RED litter team carries a wounded soldier across the board; the cyan rings mark the bearers](docs/media/casevac.gif)
-
-*From the hit and buddy aid, to a four-man litter team (cyan rings) carrying the wounded soldier away.*
-
-### Five boards, from alley fights to no-man's-land
-
-Close-quarters streets, a 40 m boulevard you have to cross, staggered new-town blocks, trench
-lines — and a regular grid used as the baseline for balance comparisons. The company-level
-scenario fields up to **91 men a side**.
-
-## Features
-
-All features below run today. Section numbers refer to the design spec.
-
-- **Five echelons** (§2). Platoon and company HQs have bodies, so commanders can be killed and
-  command passes down (§12).
-- **Tiered information** (§5), as described above.
-- **Movement** (§6). Traveling / traveling overwatch / bounding overwatch, chosen from the
-  commander's *picture* rather than from the truth. Formations auto-select Tier 1–4 from the
-  local corridor width.
-- **Combat and CASEVAC** (§8, §9), end to end: hit → KIA/WIA → bleed-out → buddy aid →
-  litter carry → CCP → evacuation asset → replacement with the same MOS.
-- **CQB** (§7). Buildings, doors, a 0.3 m nav grid indoors stitched to the 1.0 m grid outside,
-  and the Battle Drill 6 sequence: stack → breach → clear → reorg.
-- **§12 in full**: command succession, morale break, objective capture, victory.
-- **Hot-swap** (§4) into any echelon, as shown above.
-- **Flanking** (§6, `[v7.0]`). Squad leaders latch base/maneuver roles for the whole
-  engagement and walk the maneuver team around an arc centred on the threat; platoon leaders
-  fix the enemy with one squad and send another around the *end* of the enemy line.
-- **Shield bearers** (§14, `[v7.0]`, force option). One rifleman per fireteam swaps to a ballistic
-  shield and pistol; the team moves in a tight stack behind it.
-- **Reinforcements** (§11, `[v7.0]`, force option, provisional numbers). The top commander calls
-  them; they arrive after a delay and join the existing chain of command.
-- **LLM seat** (§4, `[v7.0]`). A local LLM via LM Studio can take a company/platoon/squad
-  commander's seat. It sees only that commander's belief and issues the same orders a human could.
-
-## Quick start
-
-Requires [Node.js](https://nodejs.org/) (LTS).
+You need [Node.js](https://nodejs.org/) (LTS).
 
 ```sh
 npm install
-npm run dev      # then open http://localhost:5173/
+npm run dev
 ```
 
-The battle starts in a **planning phase** (time is frozen): read the operation order, then press
-the start button. Use the panel on the left to switch **board**, **viewpoint** and **side**, and
-the echelon tree on the right to take over a unit. Non-programmers: see
-[`docs/はじめかた.md`](docs/はじめかた.md) (Japanese, Windows step-by-step).
+Open <http://localhost:5173/>. The battle begins in a planning phase with time stopped: read the
+company commander's plan, then press **Start battle**.
+
+If you do not work with code, [`docs/はじめかた.md`](docs/はじめかた.md) walks through setup step by
+step (in Japanese, for Windows).
+
+### Controls
+
+| To do this | Do this |
+|---|---|
+| Take over a unit | Click it in the command tree on the right |
+| Hand control back | Click **観戦(全AI)** at the top of the tree |
+| Give a move order | Right-click on the map |
+| Select a soldier | Left-click |
+| Pan / zoom the map | Drag / mouse wheel |
+| Pause | `Space` |
+| Legend / debug panel / deployment editor | `L` / `H` / `G` |
+| Change board, viewpoint or side | Panel at the top left |
+
+The five boards are the Old Quarter (cramped alleys), the Boulevard (a 40 m avenue you have to
+cross), the New Quarter (long staggered blocks), the Trenches (a no-man's-land between two lines)
+and a regular Grid. Battles go up to 91 soldiers per side.
+
+## What is simulated
+
+- **Five echelons**, each with real soldiers. Platoon and company headquarters can be killed, and
+  command then passes down the chain.
+- **Information that degrades with rank.** Soldiers see, leaders pool what their teams see, and
+  everything above squad level is radio-only.
+- **Movement doctrine.** Traveling, traveling overwatch and bounding overwatch, chosen from what
+  the commander believes rather than from the truth. Formations adapt to corridor width.
+- **Flanking.** Squads split into a base-of-fire team and a maneuver team that circles the enemy;
+  platoon leaders pin the enemy with one squad and send another around the end of the line.
+- **Casualties end to end:** hit, killed or wounded, bleed-out, buddy aid, litter carry,
+  collection point, evacuation, and a replacement with the same specialty.
+- **Close-quarters battle.** Buildings, doors and a finer navigation grid indoors; squads stack,
+  breach, clear and reorganize.
+- **Morale and victory.** Fire teams can break, command succession is handled, and objectives
+  decide the battle.
+- **Optional extras.** Shield bearers, reinforcements, and a local LLM (through LM Studio) that
+  can take a commander's seat and issue the same orders a human could.
+
+## For developers
+
+Built with Vite, React, TypeScript, three.js and Zustand.
 
 | Command | What it does |
 |---|---|
-| `npm run dev` | Start the app (opens on a local port) |
-| `npm test` | Run the headless sim tests |
-| `npm run balance` | Print the MOS balance table (`npm run balance 5000` for more battles) |
+| `npm run dev` | Start the app |
+| `npm test` | Run the headless simulation tests |
+| `npm run balance` | Print the specialty balance table (`npm run balance 5000` for more battles) |
 | `npm run llm` | Let a local LLM (LM Studio) command one echelon in a headless battle (`-- --mock` for a no-LLM wiring check) |
 | `npm run typecheck` | TypeScript check |
 | `npm run lint` | ESLint |
-| `npm run build` | Typecheck + production build |
-
-Stack: Vite + React + TypeScript, three.js for the top-down view, Zustand for UI state.
-
-## Layout
+| `npm run build` | Typecheck and production build |
 
 | Path | Contents |
 |---|---|
-| `docs/spec/` | The design spec. `戦場指揮ゲーム_仕様書_v5統合マスター版.md` is the single source of truth — the merge of the former v3 body + v5 addenda. All future spec edits go here. |
-| `docs/はじめかた.md` | How to run it, for someone who doesn't work with code (Japanese). |
-| `docs/media/` | The GIFs used in this README. |
-| `prototypes/` | The original standalone React mocks, one per verified design slice. Kept as reference; all have been ported into `src/`. |
-| `src/sim/` | The pure deterministic simulation. No three.js, no React, no DOM, no `Math.random`. |
-| `src/render/` | three.js top-down view. Reads the world, never mutates it. |
-| `src/ui/` | React HUD + Zustand store. |
-| `src/balance/` | Headless Monte-Carlo balance harness, running the sim's own combat function. |
-| `src/llm/` | The LLM "seat": observation/command protocol and an LM Studio client. Design: [`docs/LLM連携_設計.md`](docs/LLM連携_設計.md). |
-| `test/` | Vitest specs — determinism, force symmetry, and one file per subsystem. |
+| `src/sim/` | The simulation: pure and deterministic. No three.js, React, DOM or `Math.random`. |
+| `src/render/` | The three.js top-down view. It reads the world and never changes it. |
+| `src/ui/` | The React interface and Zustand store. |
+| `src/balance/` | A headless Monte-Carlo balance harness that uses the simulation's own combat code. |
+| `src/llm/` | The LLM seat: observation and command protocol, and an LM Studio client. See [`docs/LLM連携_設計.md`](docs/LLM連携_設計.md). |
+| `test/` | Vitest specs: determinism, force symmetry, and one file per subsystem. |
+| `docs/spec/` | The design spec; [`戦場指揮ゲーム_仕様書_v5統合マスター版.md`](docs/spec/戦場指揮ゲーム_仕様書_v5統合マスター版.md) is the single source of truth. Section numbers such as §9 in code comments refer to it. |
+| `docs/media/` | The animations used in this README. |
+| `prototypes/` | The original standalone React mocks, kept for reference. |
 
-## Two invariants the tests hold to
+Two invariants are enforced by the tests:
 
-**Force symmetry (§2/§13)** is checked by *swapping the side labels and asserting the outcome
-inverts exactly* — not by a win-rate statistic. §13's claim is about the code (no
-player-favouring branches), and an exact inversion proves the sim never reads `side`. It also
-separates that from terrain advantage, which a win rate conflates. The same idea appears in
-the balance harness: give both sides the same RNG stream and identical compositions, and the
-battle must end in an exact mutual wipe.
+- **Force symmetry.** Swapping the side labels must invert the outcome exactly. That proves the
+  simulation never reads `side`, so nothing favours the player, and it separates that from a
+  terrain advantage, which a win-rate statistic would blur together.
+- **Determinism.** The same seed gives the same result. All randomness goes through one seeded
+  stream per force.
 
-**Determinism.** Same seed, same result. `Math.random` and `Date.now` are banned inside
-`src/sim/`, all randomness runs through one seeded stream per force.
+### Known gaps
 
-## Known gaps
-
-- Individual-variance parameters (§14) exist on every soldier but **nothing reads them yet** —
-  the largest remaining distance from the spec.
-- Weapon range tiers (§10) are not modelled; everyone shares one detection range.
-- The platoon's weapons squad is not in the ToE, so a platoon is 29 rather than ~40 men.
+- Per-soldier variance parameters exist but nothing reads them yet — the largest remaining
+  distance from the spec.
+- Weapon range tiers are not modelled; everyone shares one detection range.
+- A platoon has 29 soldiers because its weapons squad is not yet in the table of organization.
 - Scenarios are TypeScript fixtures, not the JSON the architecture calls for.
 
 ## License
