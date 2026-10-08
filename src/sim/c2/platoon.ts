@@ -459,7 +459,7 @@ export function platoonAI(world: World): void {
 
     postPlatoonHq(world, pl, anchor, forward);
 
-    // 小隊の任務(WHAT。`[v6.1]` OQ-3)を麾下分隊へ翻訳する。
+    // 小隊の任務(WHAT。`[v6.1]` §3①)を麾下分隊へ翻訳する。
     //   seize          : 3個ライフル分隊が担当区域を確保、火器分隊は support_by_fire で支援
     //   support_by_fire : 全分隊が制圧目標へ射線の通る位置に就く(踏み込まない)
     //   screen         : 全分隊を掩護軸に沿って広く展開(踏み込まない)

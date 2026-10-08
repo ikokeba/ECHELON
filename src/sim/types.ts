@@ -70,7 +70,7 @@ export type CqbStage = "stack" | "breach" | "clear" | "reorg";
 export type MovementTechnique = "traveling" | "traveling_overwatch" | "bounding_overwatch";
 
 /**
- * 任務の種別(WHAT。仕様 §3/§4/OQ-3)。`[v6.1]`
+ * 任務の種別(WHAT。仕様 §3①/§4)。`[v6.1]`
  *
  * 従来は「目的地(点)」しか下ろせなかったため、確保も支援射撃も掩護も同じ「そこへ行け」
  * になっていた。上位AI(および将来は人間)がこの3種のどれかを下ろし、下位はそれに沿って
@@ -111,7 +111,7 @@ export type BattleMode = "meeting" | "assault";
  * 作戦計画の1項目 = 1個小隊に与える任務(`[v6.5]`)。
  *
  * 中隊長が下ろすのは「どこへ行け」ではなく**任務(WHAT)**である、という §3① /
- * OQ-3 の方針をそのまま形にしたもの。目標地点は任務に付随する情報にすぎない。
+ * 任務種別の方針をそのまま形にしたもの。目標地点は任務に付随する情報にすぎない。
  */
 export interface PlanTask {
   platoonId: number;
@@ -607,7 +607,7 @@ export interface SquadState {
   technique: MovementTechnique;
   /** 小隊長から割り当てられた任務目標 */
   objective: Vec2;
-  /** 小隊長から下ろされた任務(WHAT。`[v6.1]` OQ-3)。既定は objective への seize */
+  /** 小隊長から下ろされた任務(WHAT。`[v6.1]` §3①)。既定は objective への seize */
   mission: Mission;
   advanceDir: Vec2;
   rallyPoint: Vec2;
@@ -673,7 +673,7 @@ export interface PlatoonState {
 
   /** 麾下分隊へ割り当てた任務目標 */
   squadObjectives: Map<number, Vec2>;
-  /** 麾下分隊へ下ろした任務(WHAT。`[v6.1]` OQ-3) */
+  /** 麾下分隊へ下ろした任務(WHAT。`[v6.1]` §3①) */
   squadMissions: Map<number, Mission>;
   /** 麾下分隊へ指示した移動技術 */
   squadTechniques: Map<number, MovementTechnique>;
@@ -689,7 +689,7 @@ export interface PlatoonState {
   consolidation: Consolidation | null;
 
   objective: Vec2;
-  /** 中隊長から下ろされた任務(WHAT。`[v6.1]` OQ-3)。既定は objective への seize */
+  /** 中隊長から下ろされた任務(WHAT。`[v6.1]` §3①)。既定は objective への seize */
   mission: Mission;
   advanceDir: Vec2;
   rallyPoint: Vec2;
@@ -732,7 +732,7 @@ export interface CompanyState {
 
   /** 麾下小隊へ割り当てた任務目標 */
   platoonObjectives: Map<number, Vec2>;
-  /** 麾下小隊へ下ろした任務(WHAT。`[v6.1]` OQ-3) */
+  /** 麾下小隊へ下ろした任務(WHAT。`[v6.1]` §3①) */
   platoonMissions: Map<number, Mission>;
   /** 麾下小隊から届いた最新の状況(`[v6.16]`)。前線を引く材料。platoonId → 報告 */
   platoonReports: Map<number, SubordinateReport>;
@@ -1200,7 +1200,7 @@ export interface Tuning {
  * `riskTolerance` は表示・一括操作用のマスター(0..1、0.5 で全係数 identity)。
  * シムが読むのは下の個別値。マスタースライダーを動かすと個別値がまとめて再計算される。
  *
- * OQ-6(個体差パラメータ)の陣営レベル分の先取り。兵士個体の `traits` はまだ不活性。
+ * 陣営レベルの性格。兵士個体の性格(`Soldier.traits`、仕様 §14)は `[v6.2]` から別に効いている(traits.ts)。
  */
 export interface Posture {
   /** マスター 0..1(0.5 = 全 identity)。UI表示と一括操作用 */

@@ -1102,7 +1102,7 @@ export function fireteamAI(world: World): void {
                 world.coverIndex,
                 u.pos,
                 dirTo(u.pos, ft.objective),
-                // `[v6.2]` OQ-6: 大胆なFTほど一度の躍進で長く出る
+                // `[v6.2]` 個体差(§14): 大胆なFTほど一度の躍進で長く出る
                 BOUND_MIN_ADV * pos.boundMinMul,
                 BOUND_MAX_ADV * pos.boundMaxMul * traitMul(ftTraits.boldness, 0.35),
                 baseCentroid,
@@ -1129,7 +1129,7 @@ export function fireteamAI(world: World): void {
 
         // 突撃フェーズ(A): 近接まで詰めたら数秒 ASSAULT 状態(命中率上昇)
         const dToEnemy = dist(u.pos, enemy);
-        // `[v6.2]` OQ-6: 積極的な兵ほど遠めから突撃へ踏み切る
+        // `[v6.2]` 個体差(§14): 積極的な兵ほど遠めから突撃へ踏み切る
         if (dToEnemy <= CONTACT_DRILL.ASSAULT_RANGE * traitMul(u.traits.aggressiveness, 0.35)) {
           u.assaultingUntilTick = world.tick + assaultTicks;
         }

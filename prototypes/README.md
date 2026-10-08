@@ -1,7 +1,7 @@
 # Prototypes
 
 Each file is a **standalone React component** (`export default function …Prototype()`) that
-verifies one slice of the design spec (`docs/spec/戦場指揮ゲーム_仕様書_v5統合マスター版.md`).
+verifies one slice of the design spec (`docs/spec/戦場指揮ゲーム_仕様書.md`).
 They are **not** wired into a shared game loop or state.
 
 > **All seven have now been ported into `src/`.** These files are kept as the record of what

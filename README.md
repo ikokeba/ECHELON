@@ -130,7 +130,7 @@ Built with Vite, React, TypeScript, three.js and Zustand.
 | `src/llm/` | The LLM seat: observation and command protocol, and an LM Studio client. See [`docs/LLM連携_設計.md`](docs/LLM連携_設計.md). |
 | `test/` | Vitest specs: determinism, force symmetry, and one file per subsystem. |
 | `docs/ロードマップ.md` | The roadmap: everything not yet built, with priorities. |
-| `docs/spec/` | The design spec; [`戦場指揮ゲーム_仕様書_v5統合マスター版.md`](docs/spec/戦場指揮ゲーム_仕様書_v5統合マスター版.md) is the single source of truth. Section numbers such as §9 in code comments refer to it. |
+| `docs/spec/` | The design spec; [`戦場指揮ゲーム_仕様書.md`](docs/spec/戦場指揮ゲーム_仕様書.md) is the single source of truth. Section numbers such as §9 in code comments refer to it. |
 | `docs/media/` | The animations used in this README. |
 | `prototypes/` | The original standalone React mocks, kept for reference. |
 

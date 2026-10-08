@@ -10,7 +10,7 @@ export function GameView() {
   const deploymentNonce = useSimStore((s) => s.deploymentNonce);
 
   // シナリオを切り替えたらランタイムごと作り直す。World は不変の初期状態を持たないので、
-  // 途中で差し替えるより丸ごと作り直すほうが安全(design AD-10)。
+  // 途中で差し替えるより丸ごと作り直すほうが安全。
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
