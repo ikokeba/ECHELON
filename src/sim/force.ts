@@ -51,6 +51,11 @@ export interface ForceSpec {
    */
   antiArmor?: boolean;
   /**
+   * 観測ドローン班(`[v7.3]` ロードマップ A-2)。中隊本部の無線手が操縦手を兼ね、中隊に1機。
+   * 中隊本部を持つ編成(中隊規模)だけ。頭数は変わらない
+   */
+  drone?: boolean;
+  /**
    * 後援部隊(`[v7.0]`)。未指定・`calls: 0` なら後援なし。数・規模・出現位置は暫定。
    * 盤上の初期の駒ではないが、戦闘の初期条件の一部なので編成に持たせる
    * (初期条件コード `setupCode.ts` にもそのまま畳まれる)。
@@ -153,8 +158,8 @@ export function defaultForce(): Record<Side, ForceSpec> {
  */
 export function playForce(): Record<Side, ForceSpec> {
   return {
-    blue: { ...DEFAULT_FORCE, antiArmor: true, reinforcement: { ...DEFAULT_REINFORCEMENT } },
-    red: { ...DEFAULT_FORCE, antiArmor: true, reinforcement: { ...DEFAULT_REINFORCEMENT } },
+    blue: { ...DEFAULT_FORCE, antiArmor: true, drone: true, reinforcement: { ...DEFAULT_REINFORCEMENT } },
+    red: { ...DEFAULT_FORCE, antiArmor: true, drone: true, reinforcement: { ...DEFAULT_REINFORCEMENT } },
   };
 }
 

@@ -12,6 +12,7 @@ import { perceptionSystem } from "./systems/perception.ts";
 import { combatSystem } from "./systems/combat.ts";
 import { hearingSystem } from "./systems/hearing.ts";
 import { antiArmorSystem } from "./systems/antiArmor.ts";
+import { droneSystem } from "./systems/drone.ts";
 import { indirectSystem } from "./systems/indirect.ts";
 import { windowsSystem } from "./systems/windows.ts";
 import { casualtiesSystem } from "./systems/casualties.ts";
@@ -49,6 +50,8 @@ export function stepWorld(world: World): void {
   smokeSystem(world);
   // 1. 索敵 — 各兵士がいま自分の目で何を見ているか(仕様 §5)
   perceptionSystem(world);
+  // 1.5 観測ドローン(`[v7.3]` A-2)。見たものは操縦手の記憶へ入り、次の無線で中隊長へ上がる
+  droneSystem(world);
   // 2. 無線 — 報告の到達、各階層 belief の更新と確度減衰、定時報告の送信(仕様 §5)。
   //    C2より先に走らせることで、各階層は「このティック時点で自分が知り得る情報」で判断する。
   radioSystem(world);

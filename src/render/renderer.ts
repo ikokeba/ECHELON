@@ -10,7 +10,7 @@ import * as THREE from "three";
 import type { World } from "@sim/world.ts";
 import type { FxEvent, Side, Soldier, Vec2 } from "@sim/types.ts";
 import type { ViewResult } from "@sim/viewpoint.ts";
-import { DEFENSE, LITTER, MORTAR, SIM_HZ, SOLDIER_RADIUS } from "@sim/constants.ts";
+import { DEFENSE, DRONE, LITTER, MORTAR, SIM_HZ, SOLDIER_RADIUS } from "@sim/constants.ts";
 import { smokeRadius } from "@sim/systems/smoke.ts";
 import { collidesWall, hasLineOfSight } from "@sim/geometry.ts";
 import { coverBonus } from "@sim/cover.ts";
@@ -1304,6 +1304,21 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     return { outer: make(1), core: make(0.62) };
   });
 
+  // 観測ドローンの見えている範囲(`[v7.3]` A-2)。輪の線だけでは盤面に埋もれるので薄い円盤を敷く
+  const MAX_DRONES = 4;
+  const droneDiscs = Array.from({ length: MAX_DRONES }, () => {
+    const g = new THREE.CircleGeometry(DRONE.VIEW_RADIUS, 40);
+    g.rotateX(-Math.PI / 2);
+    const m = new THREE.Mesh(
+      g,
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthTest: false }),
+    );
+    m.renderOrder = 21;
+    m.visible = false;
+    scene.add(m);
+    return m;
+  });
+
   // ── 迫撃砲の着弾(`[v6.9]`)──
   //
   // 擲弾と同じ2層(火球+衝撃波)に、外側の**土煙**を1枚足して3層にしてある。
@@ -2379,6 +2394,29 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
           draw(ring, c, 0.6);
         }
       }
+      // 観測ドローン(`[v7.3]` A-2)。飛んでいる機体と、見えている範囲の輪。自陣営と神視点だけ
+      let dn = 0;
+      for (const d of world.drones) {
+        if (!opts.truth && d.side !== opts.viewSide) continue;
+        if (d.state !== "flying" && d.state !== "returning") continue;
+        const c = SIDE_COLOR[d.side];
+        const disc = dn < MAX_DRONES ? droneDiscs[dn++]! : null;
+        if (disc) {
+          disc.position.set(d.pos.x, 0.06, d.pos.z);
+          (disc.material as THREE.MeshBasicMaterial).color.setHex(c);
+          disc.visible = true;
+        }
+        const ring: Vec2[] = [];
+        for (let k = 0; k <= 20; k++) {
+          const a = (k / 20) * Math.PI * 2;
+          ring.push({ x: d.pos.x + Math.cos(a) * DRONE.VIEW_RADIUS, z: d.pos.z + Math.sin(a) * DRONE.VIEW_RADIUS });
+        }
+        draw(ring, c, 0.6);
+        const r = 2.4;
+        draw([{ x: d.pos.x - r, z: d.pos.z - r }, { x: d.pos.x + r, z: d.pos.z + r }], c, 0.95);
+        draw([{ x: d.pos.x - r, z: d.pos.z + r }, { x: d.pos.x + r, z: d.pos.z - r }], c, 0.95);
+      }
+      for (let k = dn; k < MAX_DRONES; k++) droneDiscs[k]!.visible = false;
       for (let k = n; k < MAX_DEF_LINES; k++) defLines[k]!.visible = false;
     }
 
@@ -2673,6 +2711,10 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       for (const s of smokePool) {
         s.outer.geometry.dispose();
         s.core.geometry.dispose();
+      }
+      for (const d of droneDiscs) {
+        d.geometry.dispose();
+        (d.material as THREE.Material).dispose();
       }
       coneGeo.dispose();
       fovMesh.dispose();

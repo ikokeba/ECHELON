@@ -187,6 +187,17 @@ export function DeploymentPanel() {
                 </label>
                 <label
                   className="dbg-chk"
+                  title="観測ドローン班(`[v7.3]`)。中隊本部の無線手が操縦手を兼ね、中隊に1機。真下の狭い範囲を上から見て、無線で中隊長へ上げる(中隊規模のみ)"
+                >
+                  <input
+                    type="checkbox"
+                    checked={spec.drone === true}
+                    onChange={(e) => setForce(side, { drone: e.target.checked })}
+                  />
+                  <span>ドローン</span>
+                </label>
+                <label
+                  className="dbg-chk"
                   title="後援部隊(暫定仕様)。最上位の指揮官が要請すると、時間をおいて後方に分隊/小隊が現れる"
                 >
                   <input

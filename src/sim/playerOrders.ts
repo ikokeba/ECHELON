@@ -19,6 +19,7 @@ import { callReinforcement, topCommandOf } from "./systems/reinforcement.ts";
 import { requestFireMission, type FireMissionResult } from "./systems/indirect.ts";
 import { throwSmoke, type SmokeResult } from "./systems/smoke.ts";
 import { fireAntiArmor, type AntiArmorResult } from "./systems/antiArmor.ts";
+import { taskDrone, type DroneResult } from "./systems/drone.ts";
 import { commandSoldier } from "./c2/fireteam.ts";
 import type { Soldier } from "./types.ts";
 
@@ -397,6 +398,25 @@ function orderAntiArmorImpl(
   return fireAntiArmor(world, sq, target);
 }
 
+/**
+ * 観測ドローンの飛ばし先を決める(`[v7.3]` ロードマップ A-2)。
+ *
+ * 決められるのは**中隊長の座席**だけ(ドローン班は中隊本部の資源)。AIの中隊長と同じ
+ * `taskDrone` を通るので、電池・届く距離・操縦手が戦えることは同じに掛かる(仕様 §4/§13)。
+ * ドローンが見たものは操縦手の記憶へ入り、無線で遅れて中隊長へ上がる — 画面の像も同じ(仕様 §5)
+ */
+function orderDroneImpl(
+  world: World,
+  target: Vec2,
+  seat: ControlState | null = world.control,
+): DroneResult | null {
+  const c = seat;
+  if (!c || c.echelon !== "company") return null;
+  const co = world.companies.find((x) => x.side === c.side && x.companyId === c.unitId);
+  if (!co) return null;
+  return taskDrone(world, co, target);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // `[v7.2]` 命令の記録(ロードマップ S-4 振り返り・リプレイ)
 //
@@ -499,6 +519,10 @@ export function orderAntiArmor(
   return recorded(world, "orderAntiArmor", seat, [target], () => orderAntiArmorImpl(world, target, seat));
 }
 
+export function orderDrone(world: World, target: Vec2, seat: ControlState | null = world.control): DroneResult | null {
+  return recorded(world, "orderDrone", seat, [target], () => orderDroneImpl(world, target, seat));
+}
+
 /** 記録された命令を同じ引数でもう一度出す(再生用。`world.log` が null なら記録はしない) */
 export function replayOrder(world: World, fn: OrderFn, seat: ControlState | null, args: unknown[]): void {
   const v = (i: number) => args[i] as Vec2;
@@ -544,6 +568,9 @@ export function replayOrder(world: World, fn: OrderFn, seat: ControlState | null
       return;
     case "orderAntiArmor":
       orderAntiArmor(world, v(0), seat);
+      return;
+    case "orderDrone":
+      orderDrone(world, v(0), seat);
       return;
   }
 }

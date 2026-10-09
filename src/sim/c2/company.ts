@@ -37,6 +37,7 @@ import { commandFactor } from "./succession.ts";
 import { assignHolders, clampToObjective } from "./objectiveHold.ts";
 import { activeTaskOf, isDefender } from "./planning.ts";
 import { executePlan, planLeg } from "./planEdit.ts";
+import { aiDrone } from "../systems/drone.ts";
 import { sideDoctrine } from "../world.ts";
 import type { CompanyState, Contact, Mission, Objective, Soldier, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
@@ -484,6 +485,9 @@ export function companyAI(world: World): void {
         claimed.set(pl.platoonId, { ...best.pos });
       }
     });
+
+    // 観測ドローン(`[v7.3]` A-2)。像の古いところを見に行かせる
+    aiDrone(world, co);
 
     // 逆襲(`[v7.3]` ロードマップ A-4)。攻防戦の防御側が、奪われた拠点へ1個小隊を差し向ける
     const counter = decideCounterattack(world, co, living);

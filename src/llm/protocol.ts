@@ -21,7 +21,7 @@
 import type { Echelon, MissionKind, Side, Vec2 } from "../sim/types.ts";
 
 /** プロトコルの版。形を変えたら上げる。エージェント側はこれを見て解釈を切り替えられる */
-export const PROTOCOL_VERSION = "echelon-llm/0.6";
+export const PROTOCOL_VERSION = "echelon-llm/0.7";
 
 /** エージェントが座れる階層。兵士・FTは毎ティックの反射が要るので対象外(設計書 §3) */
 export type AgentEchelon = Extract<Echelon, "company" | "platoon" | "squad">;
@@ -175,6 +175,20 @@ export interface Observation {
    * active = 盤上の煙(双方に見える)。煙は半径 radius の円の中を通る視線を遮る
    */
   /**
+   * 観測ドローン(`[v7.3]` A-2)。中隊長の座席で、中隊がドローンを持つときだけ載る。
+   * state = ready / flying / returning / swapping / lost / spent。ドローンが見たものは
+   * 操縦手から無線で届く(contacts に遅れて入る)。真下 viewRadius m だけ、屋根の下と煙の中は見えない
+   */
+  drone?: {
+    state: string;
+    pos: Vec2;
+    batteriesLeft: number;
+    flightSec: number | null;
+    viewRadius: number;
+    maxRange: number;
+    operator: Vec2 | null;
+  };
+  /**
    * 対戦車・対構造物火器(`[v7.3]` A-3)。分隊長の座席で、分隊に射手がいるときだけ載る。
    * gunner = 射手の位置(撃てなければ null)。射手から minRange〜maxRange m の、射線の通る点だけ撃てる
    */
@@ -249,6 +263,11 @@ export interface SmokeCommand {
  *   op=phase_line : 調整線を points の2点に(空なら消す)
  *   op=fires      : 迫撃砲の射撃計画を fires で置き換える
  */
+/** 観測ドローンを地点の上へ飛ばす(中隊長の座席のみ、`[v7.3]` A-2) */
+export interface DroneCommand {
+  type: "drone";
+  target: Vec2;
+}
 /** 対戦車・対構造物火器を地点へ撃たせる(分隊長の座席のみ、`[v7.3]` A-3) */
 export interface AntiArmorCommand {
   type: "anti_armor";
@@ -273,7 +292,8 @@ export type AgentCommand =
   | FireMissionCommand
   | SmokeCommand
   | PlanCommand
-  | AntiArmorCommand;
+  | AntiArmorCommand
+  | DroneCommand;
 
 export interface AgentResponse {
   commands: AgentCommand[];
@@ -300,7 +320,18 @@ export const RESPONSE_SCHEMA = {
         properties: {
           type: {
             type: "string",
-            enum: ["move", "assign", "casevac", "hold", "reinforce", "fire_mission", "smoke", "plan", "anti_armor"],
+            enum: [
+              "move",
+              "assign",
+              "casevac",
+              "hold",
+              "reinforce",
+              "fire_mission",
+              "smoke",
+              "plan",
+              "anti_armor",
+              "drone",
+            ],
           },
           unit: { type: "integer", description: "assign / plan の対象(subordinates[].unit)" },
           mission: { type: "string", enum: ["seize", "support_by_fire", "screen", "reserve"] },

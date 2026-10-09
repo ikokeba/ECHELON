@@ -8,6 +8,7 @@
 import { appendBuildingNav, buildNavSet, type NavSet } from "./navgrid.ts";
 import { buildCoverIndex, buildCoverPoints, type CoverIndex, type CoverPoint } from "./cover.ts";
 import { successionSystem } from "./c2/succession.ts";
+import { buildDrones } from "./systems/drone.ts";
 import { NO_FLOT } from "./c2/flot.ts";
 import { clamp } from "./geometry.ts";
 import { createRng, type Rng } from "./rng.ts";
@@ -38,6 +39,7 @@ import type {
   DefenseEdit,
   DefensivePosition,
   Door,
+  Drone,
   FlashLogEntry,
   FlashWatch,
   FireteamState,
@@ -191,6 +193,8 @@ export interface World {
    * 戦闘システムが積み、同じティックのうちに聴覚システムが読む
    */
   gunshots: Gunshot[];
+  /** 観測ドローン(`[v7.3]` systems/drone.ts、ロードマップ A-2)。中隊に1機まで */
+  drones: Drone[];
   /** 盤上の煙幕(`[v7.2]` systems/smoke.ts)。視線だけを遮る */
   smokes: Smoke[];
   nextSmokeId: number;
@@ -693,6 +697,7 @@ function buildWorld(scenario: Scenario): World {
     smokes: [],
     nextSmokeId: 1,
     gunshots: [],
+    drones: buildDrones(soldiers),
     log: null,
     logStateKey: "",
     defense: [],
