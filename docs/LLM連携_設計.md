@@ -45,7 +45,7 @@
 | 2 | **能力を足さない**(仕様 §4) | 命令の適用は `sim/playerOrders.ts` の**人間と同じ関数**。出せる命令の種類も AI 指揮官が出しているもの(任務 seize / support_by_fire / screen 等)だけ | 座席がある間は AI に上書きされない / 外すと AI が再開する |
 | 3 | **陣営を名前で渡さない**(仕様 §2/§13) | 観測の中の陣営は `"own"` / `"enemy"`。青に座っても赤に座っても同じ形の盤面に見える | 陣営ラベルを入れ替えた盤面で、反対側の座席に**完全に同じ観測**が届くこと |
 
-## 3. やり取りの形(プロトコル `echelon-llm/0.1`)
+## 3. やり取りの形(プロトコル `echelon-llm/0.2`)
 
 型の定義は `src/llm/protocol.ts`。
 
@@ -53,7 +53,7 @@
 
 ```jsonc
 {
-  "protocol": "echelon-llm/0.1",
+  "protocol": "echelon-llm/0.2",
   "timeSec": 84.0, "tick": 2520,
   "you": {
     "echelon": "company", "unit": 0, "name": "中隊長",
@@ -77,6 +77,9 @@
     { "pos": {"x":12.5,"z":40.1}, "posError": 9.4, "confidence": 0.82, "ageSec": 21.0, "count": 1 }
   ],
   "reinforcement": { "callsLeft": 1, "size": "squad", "delaySec": 90, "pendingEtaSec": [] },  // 要請できる座席のみ
+  "fireSupport": { "roundsLeft": 9, "roundsPerMission": 3, "cooldownSec": 0, "inFlightEtaSec": null,
+    "commandPost": {"x":0,"z":-150}, "minRange": 40, "maxRange": 400, "dangerClose": 45,
+    "timeOfFlightSec": 9 },               // 迫撃砲。中隊長の座席で、火力支援を持つ中隊のみ `[v7.2]`
   "victory": null,
   "commands": [ { "type": "move", "description": "…" }, … ],   // この座席で使える命令の説明
   "lastResult": [ "#0 assign unit 0 seize (-78,-13): 受理" ]   // 前回の命令の処理結果
@@ -103,6 +106,7 @@
 | `assign` | 中隊長 / 小隊長 | 麾下1部隊に任務(seize / support_by_fire / screen)を下ろす | `assignPlatoonMission` / `assignSquadMission` |
 | `casevac` | 分隊長 | 止血済みの負傷者を後送する(仕様 §9) | `orderCasevac` |
 | `reinforce` | 陣営の最上位 | 後援部隊を要請する(回数に上限) | `orderReinforcement` |
+| `fire_mission` | 中隊長 | 迫撃砲の射撃を地点へ要請する(`[v7.2]`)。却下されたら理由が `lastResult` に返る | `orderFireMission` → `requestFireMission`(AIの中隊長と共通) |
 | `hold` | 全階層 | 何もしない(現在の命令を続ける) | — |
 
 - 応答の JSON Schema は `RESPONSE_SCHEMA`。LM Studio の構造化出力
@@ -156,4 +160,5 @@ npm run llm -- --echelon platoon --interval 15 --model qwen2.5-7b-instruct --ver
 
 ## 7. まだやっていないこと(次の候補)
 
-ロードマップ([`docs/ロードマップ.md`](ロードマップ.md))へ移した。LLM まわりは S-5(迫撃砲の要請)と C-23〜C-27(複数の座席、対戦と評価、観測の要約、会話の履歴、ツール呼び出し形式)。
+ロードマップ([`docs/ロードマップ.md`](ロードマップ.md))へ移した。LLM まわりは C-23〜C-27(複数の座席、対戦と評価、観測の要約、会話の履歴、ツール呼び出し形式)。
+迫撃砲の要請(旧 S-5)は `[v7.2]` で実装した(プロトコル `echelon-llm/0.2`)。

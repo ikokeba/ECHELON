@@ -21,6 +21,7 @@ import { decayedConfidence } from "../belief.ts";
 import { isOffField } from "./litter.ts";
 import { sideDoctrine } from "../world.ts";
 import { distToFlot } from "../c2/flot.ts";
+import { aiSuppressed } from "../control.ts";
 import type { CompanyState, Side, Soldier, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
@@ -52,11 +53,14 @@ function hasCommandPost(world: World, co: CompanyState): boolean {
 }
 
 /**
- * 中隊長の belief から射撃目標を選ぶ。
+ * 中隊長の belief から射撃目標を選ぶ(AIの判断)。
  *
  * 選ぶ基準は「確度の高い接触が固まっているところ」。1名を狙うのではなく**一帯を叩く**
  * のが迫撃砲の使い方で、これは同時に「古い像に無駄弾を撃たない」ための足切りにもなる。
  * 走査順は belief の挿入順(決定論的)で、乱数は引かない。
+ *
+ * 射程・危険近接は**ここでは見ない**。それは誰が要請しても掛かる規則なので
+ * `fireMissionBlocker` が持つ(`[v7.2]`)。
  */
 function pickTarget(world: World, co: CompanyState): Vec2 | null {
   const hot: Vec2[] = [];
@@ -85,10 +89,83 @@ function pickTarget(world: World, co: CompanyState): Vec2 | null {
     }
   }
   if (!best || bestN < MORTAR.MIN_CLUSTER) return null;
+  return best;
+}
+
+/**
+ * 射撃要請が通らない理由(`[v7.2]`)。人間・LLM へそのまま返す。
+ *   no_fire_support : ドクトリン上、火力支援を持たない(自律群)
+ *   no_rounds       : 撃ち尽くした
+ *   no_command_post : 中隊本部(中隊長・副中隊長・無線手)が戦えない
+ *   cooldown        : 前の要請から間隔が明けていない
+ *   in_flight       : すでに飛翔中の任務がある
+ *   out_of_range    : 指揮所から 40〜400m の外
+ *   no_flot         : 前線の報告が無く、統制線が引けない
+ *   danger_close    : 前線(または指揮所)から危険近接の内側
+ */
+export type FireMissionBlock =
+  | "no_fire_support"
+  | "no_rounds"
+  | "no_command_post"
+  | "cooldown"
+  | "in_flight"
+  | "out_of_range"
+  | "no_flot"
+  | "danger_close";
+
+/** 理由の日本語(UI・LLM の `lastResult` 用) */
+export const FIRE_MISSION_BLOCK_TEXT: Record<FireMissionBlock, string> = {
+  no_fire_support: "このドクトリンは火力支援を持たない",
+  no_rounds: "迫撃砲弾を撃ち尽くした",
+  no_command_post: "中隊本部が機能していない",
+  cooldown: "前の要請から間隔が明けていない",
+  in_flight: "前の射撃がまだ飛翔中",
+  out_of_range: `射程外(指揮所から ${MORTAR.MIN_RANGE}〜${MORTAR.MAX_RANGE}m)`,
+  no_flot: "前線の報告が無く、統制線が引けない",
+  danger_close: `危険近接(前線から ${MORTAR.DANGER_CLOSE}m 以内)`,
+};
+
+/** 中隊の保有弾数。ドクトリンの `fireSupport` に掛かる */
+export function mortarMagazine(world: World, co: CompanyState): number {
+  return Math.round(MORTAR.ROUNDS_PER_COMPANY * sideDoctrine(world, co.side).fireSupport);
+}
+
+/** 次の要請ができるまでの残りティック(0 なら今すぐ)。ドクトリンの無線遅延で伸びる */
+export function fireMissionCooldownLeft(world: World, co: CompanyState): number {
+  const cd = COOLDOWN_TICKS * sideDoctrine(world, co.side).radioLatencyMul;
+  // 開始(tick 0)も「直前の要請」と同じに数える — 開戦直後の45秒は砲の展開中
+  return Math.max(0, Math.ceil(co.lastFireMissionTick + cd - world.tick));
+}
+
+/**
+ * この中隊がいま `target` へ射撃を要請できるか(`[v7.2]`)。できるなら null。
+ *
+ * **AI・人間・LLM が全員この1つの関数を通る**(ロードマップ P4 / 仕様 §4)。ここにあるのは
+ * 組織と規則の制約 — 弾・指揮所・要請間隔・射程・火力の統制線 — だけで、
+ * 「どこを撃つか」「いま撃つべきか」という判断は呼ぶ側が持つ。
+ */
+export function fireMissionBlocker(
+  world: World,
+  co: CompanyState,
+  target: Vec2,
+): FireMissionBlock | null {
+  const doc = sideDoctrine(world, co.side);
+  // ドクトリンで持ち弾が変わる(仕様 §13)。自律群は火力支援を持たない
+  if (doc.fireSupport <= 0) return "no_fire_support";
+  if (co.mortarRoundsUsed >= mortarMagazine(world, co)) return "no_rounds";
+  if (!hasCommandPost(world, co)) return "no_command_post";
+  // 判断周期・要請間隔ともドクトリンで鈍る。非正規軍は「呼べるが遅い」
+  if (world.tick - co.lastFireMissionTick < COOLDOWN_TICKS * doc.radioLatencyMul) {
+    return "cooldown";
+  }
+  // すでに飛翔中の任務があるなら重ねない
+  if (world.fireMissions.some((m) => m.side === co.side && m.companyId === co.companyId)) {
+    return "in_flight";
+  }
 
   // 射程の窓に入っているか(指揮所から測る)
-  const range = dist(co.cp, best);
-  if (range < MORTAR.MIN_RANGE || range > MORTAR.MAX_RANGE) return null;
+  const range = dist(co.cp, target);
+  if (range < MORTAR.MIN_RANGE || range > MORTAR.MAX_RANGE) return "out_of_range";
 
   // ── 火力の統制線(FSCM、`[v6.16]` 仕様 §5/§8.2)──
   //
@@ -109,12 +186,51 @@ function pickTarget(world: World, co: CompanyState): Vec2 | null {
   // 成分だけで見ていたときは、**側面へ張り出した部隊の頭上が抜けていた** — 前線より
   // 前でありさえすれば、真横に自軍がいても撃ててしまう。折れ線からの距離なら、
   // 線がどう曲がっていても、その近傍はすべて危険近接として弾かれる。
-  if (co.flot.sources === 0) return null;
-  if (distToFlot(co.flot, best) < MORTAR.DANGER_CLOSE) return null;
+  //
+  // `[v7.2]` 人間・LLM の要請もこの線で弾く。画面で自軍が見えていても、射撃の可否を
+  // 決めるのは中隊長の持っている線であって、プレイヤーの目ではない。
+  if (co.flot.sources === 0) return "no_flot";
+  if (distToFlot(co.flot, target) < MORTAR.DANGER_CLOSE) return "danger_close";
   // 指揮所は前線の折れ線に乗らない(部下の報告で引くので)。自分の位置は自分で
   // 知っているから、ここだけは中隊長自身の座標で見てよい(仕様 §5)。
-  if (dist(co.cp, best) < MORTAR.DANGER_CLOSE) return null;
-  return best;
+  if (dist(co.cp, target) < MORTAR.DANGER_CLOSE) return "danger_close";
+  return null;
+}
+
+export type FireMissionResult =
+  | { ok: true; missionId: number; rounds: number }
+  | { ok: false; reason: FireMissionBlock };
+
+/**
+ * 射撃を要請する(`[v7.2]`)。通れば任務を飛ばし、通らなければ理由を返す。
+ *
+ * 照準点は呼んだ側が決める。AIの中隊長は belief の塊(`pickTarget`)、人間とLLMは
+ * 自分の画面・観測に出ている像から選ぶ。どちらも**要請した時点の点で凍結され**、
+ * 飛翔時間のあいだに敵が動けば外れる(仕様 §5)。
+ */
+export function requestFireMission(
+  world: World,
+  co: CompanyState,
+  target: Vec2,
+): FireMissionResult {
+  const block = fireMissionBlocker(world, co, target);
+  if (block) return { ok: false, reason: block };
+  const doc = sideDoctrine(world, co.side);
+  const rounds = Math.min(MORTAR.ROUNDS_PER_MISSION, mortarMagazine(world, co) - co.mortarRoundsUsed);
+  co.mortarRoundsUsed += rounds;
+  co.lastFireMissionTick = world.tick;
+  const id = world.nextFireMissionId++;
+  world.fireMissions.push({
+    id,
+    side: co.side,
+    companyId: co.companyId,
+    target: { x: target.x, z: target.z },
+    requestedTick: world.tick,
+    roundsLeft: rounds,
+    // 飛翔時間もドクトリンの無線遅延を受ける — 要請が上るのに時間が掛かるほど遅い
+    nextImpactTick: world.tick + Math.round(TOF_TICKS * doc.radioLatencyMul),
+  });
+  return { ok: true, missionId: id, rounds };
 }
 
 /** 散布を1発ぶん引く。陣営ごとのストリームなので、鏡像の状況は同じ目を引く。 */
@@ -208,37 +324,18 @@ export function indirectSystem(world: World): void {
     world.fireMissions = live;
   }
 
-  // ── 2. 中隊長の要請 ──
+  // ── 2. 中隊長(AI)の要請 ──
   for (const co of world.companies) {
-    const doc = sideDoctrine(world, co.side);
-    // ドクトリンで持ち弾が変わる(仕様 §13)。自律群は火力支援を持たない
-    if (doc.fireSupport <= 0) continue;
-    const magazine = Math.round(MORTAR.ROUNDS_PER_COMPANY * doc.fireSupport);
-    if (co.mortarRoundsUsed >= magazine) continue;
+    // 人間・LLM が中隊長に座っていれば、撃つかどうかはその人が決める(仕様 §4)
+    if (aiSuppressed(world, "company", co.side, co.companyId)) continue;
     // 射撃計画(`[v6.10]`)。いまの時点で使ってよい弾数まで。
-    // これが無いと間隔が明けるたびに撃ち、前半で撃ち尽くす
+    // これが無いと間隔が明けるたびに撃ち、前半で撃ち尽くす。**これはAIの配分の判断**
+    // であって規則ではないので、人間・LLM には掛けない(撃ち急ぐのも指揮官の裁量)
+    const magazine = mortarMagazine(world, co);
     if (co.mortarRoundsUsed >= releasedRounds(world, magazine)) continue;
-    if (!hasCommandPost(world, co)) continue;
-    // 判断周期・要請間隔ともドクトリンで鈍る。非正規軍は「呼べるが遅い」
-    if (world.tick - co.lastFireMissionTick < COOLDOWN_TICKS * doc.radioLatencyMul) continue;
-    // すでに飛翔中の任務があるなら重ねない
-    if (world.fireMissions.some((m) => m.side === co.side && m.companyId === co.companyId)) continue;
 
     const target = pickTarget(world, co);
     if (!target) continue;
-
-    const rounds = Math.min(MORTAR.ROUNDS_PER_MISSION, magazine - co.mortarRoundsUsed);
-    co.mortarRoundsUsed += rounds;
-    co.lastFireMissionTick = world.tick;
-    world.fireMissions.push({
-      id: world.nextFireMissionId++,
-      side: co.side,
-      companyId: co.companyId,
-      target: { ...target },
-      requestedTick: world.tick,
-      roundsLeft: rounds,
-      // 飛翔時間もドクトリンの無線遅延を受ける — 要請が上るのに時間が掛かるほど遅い
-      nextImpactTick: world.tick + Math.round(TOF_TICKS * doc.radioLatencyMul),
-    });
+    requestFireMission(world, co, target);
   }
 }

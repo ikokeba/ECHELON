@@ -172,6 +172,20 @@ export interface HudSnapshot {
   victory: VictoryState | null;
   /** 後援部隊(`[v7.0]`)。後援なしの陣営は null */
   reinforcement: Record<Side, HudReinforcement | null>;
+  /** 迫撃砲(`[v7.2]`)。中隊が無い・火力支援を持たない陣営は null */
+  fireSupport: Record<Side, HudFireSupport | null>;
+}
+
+/** 迫撃砲の表示(`[v7.2]` ロードマップ S-5) */
+export interface HudFireSupport {
+  roundsLeft: number;
+  roundsTotal: number;
+  /** 次に要請できるまでの秒数(0 なら今すぐ) */
+  cooldownSec: number;
+  /** 飛翔中の任務の次弾までの秒数。無ければ null */
+  etaSec: number | null;
+  /** 人間がこの陣営の中隊長を操作している = 要請ボタンが押せる */
+  canCall: boolean;
 }
 
 /** 後援部隊の表示(`[v7.0]`) */
@@ -345,6 +359,15 @@ interface UiState extends HudSnapshot {
 
   /** 直近に出した移動命令(OrderToast 用)。tick は発行時のシムtick */
   lastOrder: { target: Vec2; tick: number; echelon: Echelon } | null;
+  /**
+   * 迫撃砲の照準待ち(`[v7.2]`)。true の間、盤面の左クリックは選択ではなく射撃要請になる。
+   * 要請を出したら(通っても却下されても)解ける
+   */
+  fireMissionArmed: boolean;
+  armFireMission: (on: boolean) => void;
+  /** 直近の射撃要請の結果(OrderToast 用)。seq は表示の更新キー */
+  lastFireResult: { text: string; ok: boolean; seq: number } | null;
+  setLastFireResult: (r: { text: string; ok: boolean }) => void;
   /** 表示側の思考・状態の要約(ThinkingPanel 用) */
   thinking: ThinkingSnapshot;
   /** デバッグ表示トグル */
@@ -475,6 +498,7 @@ export const useSimStore = create<UiState>((set, get) => ({
   timeLeftSec: null,
   victory: null,
   reinforcement: { blue: null, red: null },
+  fireSupport: { blue: null, red: null },
   reinforceNonce: 0,
 
   paused: false,
@@ -505,6 +529,11 @@ export const useSimStore = create<UiState>((set, get) => ({
   deployOpen: false,
 
   lastOrder: null,
+  fireMissionArmed: false,
+  armFireMission: (on) => set({ fireMissionArmed: on }),
+  lastFireResult: null,
+  setLastFireResult: (r) =>
+    set((s) => ({ lastFireResult: { ...r, seq: (s.lastFireResult?.seq ?? 0) + 1 } })),
   thinking: { fireteams: [], squads: [], selected: null },
   debug: {
     panelOpen: false,

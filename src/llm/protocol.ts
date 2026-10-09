@@ -21,7 +21,7 @@
 import type { Echelon, MissionKind, Side, Vec2 } from "../sim/types.ts";
 
 /** プロトコルの版。形を変えたら上げる。エージェント側はこれを見て解釈を切り替えられる */
-export const PROTOCOL_VERSION = "echelon-llm/0.1";
+export const PROTOCOL_VERSION = "echelon-llm/0.2";
 
 /** エージェントが座れる階層。兵士・FTは毎ティックの反射が要るので対象外(設計書 §3) */
 export type AgentEchelon = Extract<Echelon, "company" | "platoon" | "squad">;
@@ -125,6 +125,23 @@ export interface Observation {
     delaySec: number;
     pendingEtaSec: number[];
   };
+  /**
+   * 迫撃砲(`[v7.2]`)。中隊長の座席で、中隊が火力支援を持つときだけ載る。
+   * roundsLeft = 残弾 / cooldownSec = 次に要請できるまでの秒数(0 なら今すぐ)/
+   * inFlightEtaSec = 飛翔中の任務の初弾までの秒数(無ければ null)。
+   * 射程は指揮所から minRange〜maxRange m、前線から dangerClose m 以内へは撃てない
+   */
+  fireSupport?: {
+    roundsLeft: number;
+    roundsPerMission: number;
+    cooldownSec: number;
+    inFlightEtaSec: number | null;
+    commandPost: Vec2;
+    minRange: number;
+    maxRange: number;
+    dangerClose: number;
+    timeOfFlightSec: number;
+  };
   commands: CommandSpec[];
   /** 前回の応答をどう処理したか。エージェントが自分の誤りを直すための手がかり */
   lastResult: string[];
@@ -156,8 +173,21 @@ export interface HoldCommand {
 export interface ReinforceCommand {
   type: "reinforce";
 }
+/**
+ * 迫撃砲の射撃を要請する(中隊長の座席のみ、`[v7.2]`)。照準点は要請時点で凍結され、
+ * 飛翔時間のあいだに敵が動けば外れる
+ */
+export interface FireMissionCommand {
+  type: "fire_mission";
+  target: Vec2;
+}
 export type AgentCommand =
-  MoveCommand | AssignCommand | CasevacCommand | HoldCommand | ReinforceCommand;
+  | MoveCommand
+  | AssignCommand
+  | CasevacCommand
+  | HoldCommand
+  | ReinforceCommand
+  | FireMissionCommand;
 
 export interface AgentResponse {
   commands: AgentCommand[];
@@ -182,7 +212,7 @@ export const RESPONSE_SCHEMA = {
       items: {
         type: "object",
         properties: {
-          type: { type: "string", enum: ["move", "assign", "casevac", "hold", "reinforce"] },
+          type: { type: "string", enum: ["move", "assign", "casevac", "hold", "reinforce", "fire_mission"] },
           unit: { type: "integer", description: "assign の対象(subordinates[].unit)" },
           mission: { type: "string", enum: ["seize", "support_by_fire", "screen"] },
           target: {

@@ -35,6 +35,8 @@ export function ForcePanel() {
   const own = rows.find((r) => r.side === viewSide) ?? rows[0]!;
   // 後援部隊(`[v7.0]`)。要請できるのは最上位の指揮官を操作しているときだけ(仕様 §4)
   const reinf = s.reinforcement[viewSide];
+  // 迫撃砲(`[v7.2]`)。要請できるのは中隊長を操作しているときだけ(仕様 §4)
+  const fire = s.fireSupport[viewSide];
 
   return (
     <div className="panel">
@@ -77,6 +79,34 @@ export function ForcePanel() {
             }
           >
             要請
+          </button>
+        </div>
+      )}
+      {fire && (
+        <div
+          className="force-detail force-reinf"
+          title="60mm迫撃砲(仕様 §10)。照準点は要請した時点の像で固定され、飛翔時間ののちに落ちる"
+        >
+          <span>
+            迫撃砲 {fire.roundsLeft}/{fire.roundsTotal}発
+          </span>
+          {fire.etaSec !== null ? (
+            <span>弾着まで {fire.etaSec.toFixed(1)}秒</span>
+          ) : (
+            fire.cooldownSec > 0 && <span>次の要請まで {Math.ceil(fire.cooldownSec)}秒</span>
+          )}
+          <button
+            type="button"
+            className={`seg-btn${s.fireMissionArmed ? " seg-on" : ""}`}
+            disabled={!fire.canCall || fire.roundsLeft <= 0}
+            onClick={() => s.armFireMission(!s.fireMissionArmed)}
+            title={
+              fire.canCall
+                ? "押してから盤面をクリックした地点へ射撃を要請する(もう一度押すと取り消し)"
+                : "中隊長を操作しているときだけ要請できる。AIの中隊長は自分で要請する"
+            }
+          >
+            {s.fireMissionArmed ? "照準中…" : "射撃要請"}
           </button>
         </div>
       )}

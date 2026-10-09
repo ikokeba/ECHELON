@@ -10,7 +10,7 @@ import { applyResponse, extractJson, parseResponse } from "../src/llm/commands.t
 import { ruleAgent } from "../src/llm/agent.ts";
 import { createLmStudioAgent } from "../src/llm/lmstudio.ts";
 import { createLlmSession } from "../src/llm/session.ts";
-import { MAX_COMMANDS, type AgentSeat } from "../src/llm/protocol.ts";
+import { MAX_COMMANDS, PROTOCOL_VERSION, type AgentSeat } from "../src/llm/protocol.ts";
 import type { Scenario, Side } from "../src/sim/types.ts";
 
 /**
@@ -238,7 +238,7 @@ describe("LM Studio クライアント(lmstudio.ts)", () => {
       expect(seen[1]!.model).toBe("test-model");
       const messages = seen[1]!.messages as Array<{ role: string; content: string }>;
       expect(messages[0]!.role).toBe("system");
-      expect(messages[1]!.content).toContain('"protocol":"echelon-llm/0.1"');
+      expect(messages[1]!.content).toContain(`"protocol":"${PROTOCOL_VERSION}"`);
     } finally {
       server.close();
     }

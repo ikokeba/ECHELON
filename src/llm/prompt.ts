@@ -27,6 +27,9 @@ export const DEFAULT_SYSTEM_PROMPT = `あなたは見下ろし型の戦術シミ
     seize=地点を確保する / support_by_fire=地点へ射線の通る位置から制圧する(踏み込まない) / screen=地点を軸に薄く展開して監視
 - {"type":"casevac"} … 止血済みの負傷者を後送する(分隊長のみ)
 - {"type":"reinforce"} … 後援部隊を要請する(observation.reinforcement があるときだけ。回数に上限があり、着くまで時間がかかる)
+- {"type":"fire_mission","target":{"x":数値,"z":数値}} … 迫撃砲で地点を撃つ(中隊長のみ。observation.fireSupport があるときだけ)。
+    照準点は要請した時点で固定され、飛翔時間ののちに落ちる。そのあいだに敵は動く。
+    指揮所から minRange〜maxRange m の範囲だけ。味方の前線から dangerClose m 以内は撃てない。cooldownSec が 0 になるまで次は撃てない
 - {"type":"hold"} … 何もしない。現在の命令を続ける
 
 ## 応答の形(JSON のみ。説明文やコードフェンスは付けない)

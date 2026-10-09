@@ -10,10 +10,12 @@
  * 人間がその座席でホットスワップしたときに画面で見られる範囲と同じ、という基準。
  */
 
-import { SIM_HZ } from "../sim/constants.ts";
 import { platoonName } from "../sim/c2/planning.ts";
 import { reinforcementsLeft, topCommandOf } from "../sim/systems/reinforcement.ts";
 import { isOffField } from "../sim/systems/litter.ts";
+import { fireMissionCooldownLeft, mortarMagazine } from "../sim/systems/indirect.ts";
+import { MORTAR, SIM_HZ } from "../sim/constants.ts";
+import { sideDoctrine } from "../sim/world.ts";
 import type { Contact, Side, Vec2 } from "../sim/types.ts";
 import type { World } from "../sim/world.ts";
 import {
@@ -57,13 +59,28 @@ function contactsOf(world: World, belief: Iterable<Contact>): ObsContact[] {
   }));
 }
 
-/** 座席の階層ごとに、出せる命令の説明 */
-export function commandSpecs(seat: AgentSeat, canReinforce = false): CommandSpec[] {
+/**
+ * 座席の階層ごとに、出せる命令の説明。
+ * 後援(`canReinforce`)と迫撃砲(`canFire`、`[v7.2]`)は持っている座席にだけ載せる
+ */
+export function commandSpecs(
+  seat: AgentSeat,
+  canReinforce = false,
+  canFire = false,
+): CommandSpec[] {
   const list = baseSpecs(seat);
-  if (!canReinforce) return list;
+  const extra = [...(canFire ? [FIRE_MISSION_SPEC] : []), ...(canReinforce ? [REINFORCE_SPEC] : [])];
+  if (extra.length === 0) return list;
   // hold の手前に差し込む
-  return [...list.slice(0, -1), REINFORCE_SPEC, list[list.length - 1]!];
+  return [...list.slice(0, -1), ...extra, list[list.length - 1]!];
 }
+
+const FIRE_MISSION_SPEC: CommandSpec = {
+  type: "fire_mission",
+  description:
+    "迫撃砲の射撃を target {x,z} へ要請する(observation.fireSupport を見る)。照準点は要請時点で固定され、" +
+    "飛翔時間のあいだに敵が動けば外れる。射程外・前線の近く(危険近接)・間隔が明けていないときは却下される",
+};
 
 const REINFORCE_SPEC: CommandSpec = {
   type: "reinforce",
@@ -130,6 +147,15 @@ export function buildObservation(
   const r = world.reinforcement[own];
   const canReinforce =
     r.spec !== null && top !== null && top.echelon === seat.echelon && top.unitId === seat.unitId;
+  // 迫撃砲(`[v7.2]`)。中隊長の座席で、火力支援を持つ中隊だけ
+  const fireCo =
+    seat.echelon === "company"
+      ? world.companies.find((c) => c.side === own && c.companyId === seat.unitId)
+      : undefined;
+  const canFire = fireCo !== undefined && sideDoctrine(world, own).fireSupport > 0;
+  const flying = fireCo
+    ? world.fireMissions.find((m) => m.side === own && m.companyId === fireCo.companyId)
+    : undefined;
   const base = {
     protocol: PROTOCOL_VERSION,
     timeSec: r1(world.tick / SIM_HZ),
@@ -139,8 +165,23 @@ export function buildObservation(
       objectives,
     },
     victory: world.victory ? (rel(own, world.victory.winner) as RelSide) : null,
-    commands: commandSpecs(seat, canReinforce),
+    commands: commandSpecs(seat, canReinforce, canFire),
     lastResult,
+    ...(canFire && fireCo
+      ? {
+          fireSupport: {
+            roundsLeft: Math.max(0, mortarMagazine(world, fireCo) - fireCo.mortarRoundsUsed),
+            roundsPerMission: MORTAR.ROUNDS_PER_MISSION,
+            cooldownSec: r1(fireMissionCooldownLeft(world, fireCo) / SIM_HZ),
+            inFlightEtaSec: flying ? r1(Math.max(0, flying.nextImpactTick - world.tick) / SIM_HZ) : null,
+            commandPost: rv(fireCo.cp),
+            minRange: MORTAR.MIN_RANGE,
+            maxRange: MORTAR.MAX_RANGE,
+            dangerClose: MORTAR.DANGER_CLOSE,
+            timeOfFlightSec: r1(MORTAR.TIME_OF_FLIGHT_SEC * sideDoctrine(world, own).radioLatencyMul),
+          },
+        }
+      : {}),
     ...(canReinforce && r.spec
       ? {
           reinforcement: {
