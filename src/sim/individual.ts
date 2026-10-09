@@ -17,6 +17,7 @@
 
 import { INDIVIDUAL } from "./constants.ts";
 import { buildingAt } from "./cqb.ts";
+import { inSector } from "./c2/defense.ts";
 import type { Soldier, Vec2 } from "./types.ts";
 import type { World } from "./world.ts";
 
@@ -25,13 +26,14 @@ export function visibleThreat(world: World, s: Soldier): Soldier | null {
   if (s.sees.length === 0) return null;
   if (s.assignedTarget !== null && s.sees.includes(s.assignedTarget)) {
     const a = world.soldierById.get(s.assignedTarget);
-    if (a && a.status === "ok") return a;
+    if (a && a.status === "ok" && inSector(s, a.pos)) return a;
   }
   let best: Soldier | null = null;
   let bestD = Infinity;
   for (const id of s.sees) {
     const t = world.soldierById.get(id);
     if (!t || t.status !== "ok") continue;
+    if (!inSector(s, t.pos)) continue; // `[v7.2]` 機関銃陣地の射界(S-1)
     const d = (t.pos.x - s.pos.x) ** 2 + (t.pos.z - s.pos.z) ** 2;
     if (d < bestD) {
       bestD = d;

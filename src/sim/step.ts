@@ -23,6 +23,7 @@ import { successionSystem } from "./c2/succession.ts";
 import { radioSystem } from "./radio.ts";
 import { reinforcementSystem } from "./systems/reinforcement.ts";
 import { smokeSystem } from "./systems/smoke.ts";
+import { defenseSystem } from "./c2/defense.ts";
 import type { World } from "./world.ts";
 
 export function stepWorld(world: World): void {
@@ -54,6 +55,8 @@ export function stepWorld(world: World): void {
   platoonAI(world);
   squadAI(world);
   fireteamAI(world);
+  // 4.5 防衛陣地(`[v7.2]` S-1)。機関銃の班を陣地に据える。FTの命令のあとに上書きする
+  defenseSystem(world);
   // 5. 経路要求 — 移動系の命令をウェイポイント列へ変換する
   pathingSystem(world);
   // 6. 移動 — 経路と命令の向きを消費する

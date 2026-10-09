@@ -1618,3 +1618,19 @@ body {
   background: var(--warn);
   transition: width 0.2s linear;
 }
+
+/* `[v7.2]` 防衛陣地の一覧(立案パネル、ロードマップ S-1) */
+.plan-defense {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.plan-defense .dbg-k {
+  flex-basis: 100%;
+}
+.plan-def-btn {
+  flex: 0 1 auto;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+}

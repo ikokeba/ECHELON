@@ -10,7 +10,7 @@ import * as THREE from "three";
 import type { World } from "@sim/world.ts";
 import type { FxEvent, Side, Soldier, Vec2 } from "@sim/types.ts";
 import type { ViewResult } from "@sim/viewpoint.ts";
-import { LITTER, MORTAR, SIM_HZ, SOLDIER_RADIUS } from "@sim/constants.ts";
+import { DEFENSE, LITTER, MORTAR, SIM_HZ, SOLDIER_RADIUS } from "@sim/constants.ts";
 import { smokeRadius } from "@sim/systems/smoke.ts";
 import { collidesWall, hasLineOfSight } from "@sim/geometry.ts";
 import { coverBonus } from "@sim/cover.ts";
@@ -1254,6 +1254,24 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     return { fill, ring };
   });
 
+  // ── 防衛陣地(`[v7.2]` ロードマップ S-1)──
+  // 線だけで描く: 機関銃 = 射界の扇と最終阻止射撃線、射撃壕 = 正面の弧つきの小さな四角、
+  // 予備陣地 = 円。**自陣営と神視点にだけ出す** — 攻撃側は撃たれるまで陣地の位置を知らない(P1)
+  const MAX_DEF_LINES = 96;
+  const defLines = Array.from({ length: MAX_DEF_LINES }, () => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(24 * 3), 3));
+    const l = new THREE.Line(
+      g,
+      new THREE.LineBasicMaterial({ transparent: true, opacity: 0.85, depthTest: false }),
+    );
+    l.renderOrder = 22;
+    l.frustumCulled = false;
+    l.visible = false;
+    scene.add(l);
+    return l;
+  });
+
   // ── 煙幕(`[v7.2]` ロードマップ S-2)──
   // 灰色の円を2枚重ねる(芯と外縁)。煙は双方に見える出来事なので霧には掛けない。
   // 兵士より上に描いて、中にいる者が見えにくくなる — シムでも視線が通らない
@@ -1552,6 +1570,10 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       prev = cur;
       cur = snapshot(world);
       lastTick = world.tick;
+    } else if (world.phase === "planning") {
+      // 立案中は時間が止まったまま駒が動く(集結地の占領・`[v7.2]` 防衛陣地への配置と
+      // その置き直し)。ティックが進まないので、毎フレーム撮り直さないと古い位置が残る
+      prev = cur = snapshot(world);
     }
     const a = prev === cur ? 1 : alpha;
 
@@ -2236,6 +2258,54 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       slot.ring.visible = true;
     }
 
+    // ── 防衛陣地(`[v7.2]` S-1)──
+    {
+      let n = 0;
+      const draw = (pts: Vec2[], color: number, op: number): void => {
+        if (n >= MAX_DEF_LINES) return;
+        const l = defLines[n++]!;
+        (l.material as THREE.LineBasicMaterial).color.setHex(color);
+        (l.material as THREE.LineBasicMaterial).opacity = op;
+        setPolyline(l, pts, 0.14);
+      };
+      const rot = (v: Vec2, a: number): Vec2 => ({
+        x: v.x * Math.cos(a) - v.z * Math.sin(a),
+        z: v.x * Math.sin(a) + v.z * Math.cos(a),
+      });
+      for (const p of world.defense) {
+        if (!opts.truth && p.side !== opts.viewSide) continue;
+        const c = SIDE_COLOR[p.side];
+        if (p.kind === "mg") {
+          const R = 22;
+          const arc: Vec2[] = [{ ...p.pos }];
+          for (let k = 0; k <= 8; k++) {
+            const d = rot(p.facing, -DEFENSE.MG_SECTOR_HALF_RAD + (k / 8) * 2 * DEFENSE.MG_SECTOR_HALF_RAD);
+            arc.push({ x: p.pos.x + d.x * R, z: p.pos.z + d.z * R });
+          }
+          arc.push({ ...p.pos });
+          draw(arc, c, 0.55);
+          // 最終阻止射撃線(FPL)
+          draw([{ ...p.pos }, { x: p.pos.x + p.facing.x * 40, z: p.pos.z + p.facing.z * 40 }], c, 0.95);
+        } else if (p.kind === "fighting") {
+          const r = { x: -p.facing.z, z: p.facing.x };
+          const h = 1.1;
+          const q = (a: number, b: number): Vec2 => ({
+            x: p.pos.x + r.x * a + p.facing.x * b,
+            z: p.pos.z + r.z * a + p.facing.z * b,
+          });
+          draw([q(-h, -h), q(h, -h), q(h, h), q(-h, h), q(-h, -h)], c, 0.9);
+        } else {
+          const ring: Vec2[] = [];
+          for (let k = 0; k <= 16; k++) {
+            const a = (k / 16) * Math.PI * 2;
+            ring.push({ x: p.pos.x + Math.cos(a) * 3, z: p.pos.z + Math.sin(a) * 3 });
+          }
+          draw(ring, c, 0.6);
+        }
+      }
+      for (let k = n; k < MAX_DEF_LINES; k++) defLines[k]!.visible = false;
+    }
+
     // ── 煙幕(`[v7.2]`)──
     for (let j = 0; j < MAX_SMOKES; j++) {
       const slot = smokePool[j]!;
@@ -2519,6 +2589,10 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       for (const b of blastPool) {
         b.fill.geometry.dispose();
         b.ring.geometry.dispose();
+      }
+      for (const l of defLines) {
+        l.geometry.dispose();
+        (l.material as THREE.Material).dispose();
       }
       for (const s of smokePool) {
         s.outer.geometry.dispose();

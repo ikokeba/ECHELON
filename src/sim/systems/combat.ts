@@ -42,6 +42,7 @@ import { shieldAccMul, shieldUp, turnMulOf } from "../shield.ts";
 import { angleOf, dirFromAngle, turnToward } from "../geometry.ts";
 import { isOffField } from "./litter.ts";
 import { weaponKindOf, weaponRangeOf } from "../weapons.ts";
+import { inSector } from "../c2/defense.ts";
 import type { World } from "../world.ts";
 import type { Soldier, Vec2 } from "../types.ts";
 
@@ -198,7 +199,15 @@ function nearestVisibleTarget(world: World, shooter: Soldier): Soldier | null {
   // 指定が古くなっている(戦死・後送・見失った)場合だけ各自の判断へ落ちる。
   if (shooter.assignedTarget !== null) {
     const a = world.soldierById.get(shooter.assignedTarget);
-    if (a && a.status === "ok" && !isOffField(a) && shooter.sees.includes(a.id)) return a;
+    if (
+      a &&
+      a.status === "ok" &&
+      !isOffField(a) &&
+      shooter.sees.includes(a.id) &&
+      inSector(shooter, a.pos)
+    ) {
+      return a;
+    }
   }
   let best: Soldier | null = null;
   let bestD = Infinity;
@@ -207,6 +216,8 @@ function nearestVisibleTarget(world: World, shooter: Soldier): Soldier | null {
   for (const id of shooter.sees) {
     const t = world.soldierById.get(id);
     if (!t || t.status === "kia" || isOffField(t)) continue;
+    // `[v7.2]` 機関銃陣地に就いている射手は射界の外を撃たない(S-1)
+    if (!inSector(shooter, t.pos)) continue;
     const d = Math.hypot(t.pos.x - shooter.pos.x, t.pos.z - shooter.pos.z);
     if (t.status === "ok") {
       if (d < bestD) {

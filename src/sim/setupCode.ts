@@ -146,6 +146,10 @@ export function quantizeDeployment(d: DeploymentPlan): DeploymentPlan {
     ...(d.mode !== undefined ? { mode: d.mode } : {}),
     ...(d.attacker !== undefined ? { attacker: d.attacker } : {}),
     ...(d.timeLimitSec !== undefined ? { timeLimitSec: Math.round(d.timeLimitSec) } : {}),
+    // `[v7.2]` 置き直した防衛陣地(S-1)
+    ...(d.defense && d.defense.length > 0
+      ? { defense: d.defense.map((e) => ({ side: e.side, idx: e.idx, pos: qVec(e.pos) })) }
+      : {}),
   };
 }
 

@@ -24,7 +24,7 @@
 
 import { clamp } from "./geometry.ts";
 import { OBJECTIVE } from "./constants.ts";
-import type { BattleMode, Bounds, Scenario, Side, Vec2 } from "./types.ts";
+import type { BattleMode, Bounds, DefenseEdit, Scenario, Side, Vec2 } from "./types.ts";
 
 /** 拠点1つぶんの配置指定。 */
 export interface ObjectivePlacement {
@@ -52,6 +52,11 @@ export interface DeploymentPlan {
   attacker?: Side;
   /** 攻防戦の制限時間(秒) */
   timeLimitSec?: number;
+  /**
+   * 立案時に人間が置き直した防衛陣地(`[v7.2]` S-1)。初期条件の一部(ロードマップ P3)。
+   * 配置エディタで盤面を変えると AI 案の並びが変わるので、そのときは捨てる
+   */
+  defense?: DefenseEdit[];
 }
 
 /** 展開点を盤内に収めるための余白 m。ナビグリッドの縁に食い込ませない。 */
@@ -163,6 +168,9 @@ export function applyDeployment(sc: Scenario, plan: DeploymentPlan): Scenario {
     mode: plan.mode ?? sc.mode ?? "meeting",
     attacker: plan.attacker ?? sc.attacker ?? "blue",
     timeLimitSec: plan.timeLimitSec ?? sc.timeLimitSec ?? OBJECTIVE.ASSAULT_TIME_LIMIT_SEC,
+    ...(plan.defense && plan.defense.length > 0
+      ? { defenseEdits: plan.defense.map((e) => ({ ...e, pos: { ...e.pos } })) }
+      : {}),
     soldiers: sc.soldiers.map((s) => ({
       ...s,
       pos: { ...s.pos },

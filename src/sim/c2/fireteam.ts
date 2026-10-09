@@ -45,6 +45,7 @@ import { bestWindowPost, manWindows } from "../systems/windows.ts";
 import { isCommittedToAid } from "../systems/casualties.ts";
 import { isCommittedToLitter, isOffField } from "../systems/litter.ts";
 import { exitCqb, runCqb } from "./cqbDrill.ts";
+import { mannesDefensivePost } from "./defense.ts";
 import { assignFires } from "./fireControl.ts";
 import { decayedConfidence } from "../belief.ts";
 import { shieldStackOffsets, shieldUp, stackPoint } from "../shield.ts";
@@ -127,7 +128,8 @@ function offsetPerp(i: number, n: number, spacing: number, dir: Vec2): Vec2 {
   return { x: perp.x * k * spacing, z: perp.z * k * spacing };
 }
 
-function issue(
+/** 兵士1名へ命令を出す。`[v7.2]` 防衛陣地(c2/defense.ts)も同じ経路で出すので export する */
+export function issue(
   world: World,
   u: Soldier,
   kind: Soldier["order"]["kind"],
@@ -755,6 +757,11 @@ export function fireteamAI(world: World): void {
         ft.searchPoint = freshest ? { ...freshest.pos } : ft.objective;
       }
     }
+
+    // `[v7.2]` 機関銃陣地に就く班は、陣地のほうで命令を出す(c2/defense.ts)。モードの判定と
+    // 潰走・後退はここで済ませたので、それ以外の命令はFTからは出さない — 両方から出すと
+    // 毎周期目的地が入れ替わり、経路が捨てられ続けて陣地へ辿り着けない
+    if (mannesDefensivePost(world, ft)) continue;
 
     // FT内のバディペア(モック: i<2 が alpha、それ以外が bravo)
     const alpha = living.filter((_, i) => i < Math.ceil(living.length / 2));

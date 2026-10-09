@@ -29,6 +29,7 @@
 
 import { COVER_SEEK, PLANNING } from "../constants.ts";
 import { assembleForBattle } from "./assembly.ts";
+import { setupDefense } from "./defense.ts";
 import { findPathSet } from "../navgrid.ts";
 import { bestOverwatchPoint } from "../cover.ts";
 import { insideBounds } from "../cqb.ts";
@@ -367,6 +368,9 @@ export function beginPlanning(world: World): void {
     co.plan = planOperation(world, co);
     applyPlan(world, co);
   }
+  // `[v7.2]` 攻防戦の防御側は陣地を置く(ロードマップ S-1)。作戦のあと — 陣地は
+  // 「どの小隊がどの拠点を守るか」が決まってから、その拠点のまわりに置くので
+  setupDefense(world);
 }
 
 /** 立案フェーズを抜けて戦闘を始める。作戦は破棄せず、以後の任務割り当ての土台になる。 */

@@ -34,6 +34,8 @@ import type {
   Building,
   CompanyState,
   ControlMeasure,
+  DefenseEdit,
+  DefensivePosition,
   Door,
   FireteamState,
   FxEvent,
@@ -149,6 +151,13 @@ export interface World {
    */
   fireMissions: FireMission[];
   nextFireMissionId: number;
+  /**
+   * 防衛陣地(`[v7.2]` c2/defense.ts、ロードマップ S-1)。攻防戦の立案で防御側が置く。
+   * 攻撃側のAIはこれを読まない(ロードマップ P1)
+   */
+  defense: DefensivePosition[];
+  /** 立案時に人間が置き直した陣地(シナリオ由来。立案のたびにAI案へ重ねる) */
+  defenseEdits: DefenseEdit[];
   /** 盤上の煙幕(`[v7.2]` systems/smoke.ts)。視線だけを遮る */
   smokes: Smoke[];
   nextSmokeId: number;
@@ -603,6 +612,8 @@ function buildWorld(scenario: Scenario): World {
     nextFireMissionId: 1,
     smokes: [],
     nextSmokeId: 1,
+    defense: [],
+    defenseEdits: (scenario.defenseEdits ?? []).map((e) => ({ ...e, pos: { ...e.pos } })),
     controlMeasures: (scenario.controlMeasures ?? []).map((cm) => ({
       ...cm,
       points: cm.points.map((p) => ({ ...p })),
