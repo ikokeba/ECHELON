@@ -15,6 +15,7 @@ import type { ControlState } from "./control.ts";
 import type { Mission, Vec2 } from "./types.ts";
 import type { World } from "./world.ts";
 import { callReinforcement, topCommandOf } from "./systems/reinforcement.ts";
+import { requestFireMission, type FireMissionResult } from "./systems/indirect.ts";
 
 /*
  * `[v7.0]` どの命令も**座席**(`seat`)を引数に取る。既定は人間の操作枠
@@ -216,4 +217,27 @@ export function orderReinforcement(
   const top = topCommandOf(world, c.side);
   if (!top || top.echelon !== c.echelon || top.unitId !== c.unitId) return false;
   return callReinforcement(world, c.side);
+}
+
+/**
+ * 迫撃砲の射撃を要請する(`[v7.2]` ロードマップ S-5)。
+ *
+ * 要請できるのは**中隊長の座席**だけ(迫撃砲は中隊のC2資源、仕様 §10/§11)。
+ * 通る関数はAIの中隊長と同じ `requestFireMission` なので、弾数・指揮所・要請間隔・
+ * 射程・火力の統制線(危険近接)はすべて同じに掛かる(仕様 §4/§13)。
+ *
+ * AIとの違いは**どこを撃つかを自分で選ぶ**ことだけ。照準点は要請した時点で凍結され、
+ * 飛翔時間のあいだに敵が動けば外れる — 人間の画面に出ている像もまた中隊長の像で
+ * あって、敵の現在位置ではない(仕様 §5)。
+ */
+export function orderFireMission(
+  world: World,
+  target: Vec2,
+  seat: ControlState | null = world.control,
+): FireMissionResult | null {
+  const c = seat;
+  if (!c || c.echelon !== "company") return null;
+  const co = world.companies.find((x) => x.side === c.side && x.companyId === c.unitId);
+  if (!co) return null;
+  return requestFireMission(world, co, target);
 }

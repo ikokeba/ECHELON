@@ -11,7 +11,12 @@ import { createWorld, sideDoctrine, type World } from "@sim/world.ts";
 import { SCENARIOS, type ScenarioKey } from "@sim/scenario.ts";
 import { resolveView, type ViewResult } from "@sim/viewpoint.ts";
 import { controlledSoldierId, swapTo } from "@sim/control.ts";
-import { orderControlledTo, orderReinforcement } from "@sim/playerOrders.ts";
+import { orderControlledTo, orderFireMission, orderReinforcement } from "@sim/playerOrders.ts";
+import {
+  FIRE_MISSION_BLOCK_TEXT,
+  fireMissionCooldownLeft,
+  mortarMagazine,
+} from "@sim/systems/indirect.ts";
 import { reinforcementsLeft, topCommandOf } from "@sim/systems/reinforcement.ts";
 import { isOffField } from "@sim/systems/litter.ts";
 import { MORTAR, SIM_DT, SIM_HZ } from "@sim/constants.ts";
@@ -255,6 +260,23 @@ function reinforcementHud(world: World, side: Side): HudSnapshot["reinforcement"
   };
 }
 
+/** 迫撃砲の表示(`[v7.2]`)。中隊が無い・火力支援を持たない陣営は null */
+function fireSupportHud(world: World, side: Side): HudSnapshot["fireSupport"][Side] {
+  const co = world.companies.find((c) => c.side === side);
+  if (!co || sideDoctrine(world, side).fireSupport <= 0) return null;
+  const total = mortarMagazine(world, co);
+  const flying = world.fireMissions.find((m) => m.side === side && m.companyId === co.companyId);
+  const c = world.control;
+  return {
+    roundsLeft: Math.max(0, total - co.mortarRoundsUsed),
+    roundsTotal: total,
+    cooldownSec: fireMissionCooldownLeft(world, co) * SIM_DT,
+    etaSec: flying ? Math.max(0, (flying.nextImpactTick - world.tick) * SIM_DT) : null,
+    canCall:
+      c !== null && c.side === side && c.echelon === "company" && c.unitId === co.companyId,
+  };
+}
+
 function hudOf(world: World, view: ViewResult): HudSnapshot {
   let blueAlive = 0;
   let redAlive = 0;
@@ -323,6 +345,7 @@ function hudOf(world: World, view: ViewResult): HudSnapshot {
     })),
     victory: world.victory,
     reinforcement: { blue: reinforcementHud(world, "blue"), red: reinforcementHud(world, "red") },
+    fireSupport: { blue: fireSupportHud(world, "blue"), red: fireSupportHud(world, "red") },
   };
 }
 
@@ -483,6 +506,26 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
       ui.placeAt(p);
       return;
     }
+    // 迫撃砲の照準待ち(`[v7.2]`)。AIの中隊長と同じ関数を通す(仕様 §4)
+    if (ui.fireMissionArmed) {
+      ui.armFireMission(false);
+      const r = orderFireMission(world, p);
+      const at = `(${p.x.toFixed(0)}, ${p.z.toFixed(0)})`;
+      ui.setLastFireResult(
+        !r
+          ? { ok: false, text: "迫撃砲を要請できるのは中隊長だけ" }
+          : r.ok
+            ? { ok: true, text: `迫撃砲 ${r.rounds}発を要請 ${at}` }
+            : { ok: false, text: `要請は通らなかった — ${FIRE_MISSION_BLOCK_TEXT[r.reason]}` },
+      );
+      useSimStore.getState().pushHud(hudOf(world, resolveView(world, {
+        side: ui.viewSide,
+        echelon: ui.viewEchelon,
+        squadId: ui.viewSquadId,
+        platoonId: ui.viewPlatoonId,
+      })));
+      return;
+    }
     const truth = ui.viewEchelon === "truth";
     let best: number | null = null;
     let bestD = 6 * 6; // 6m 以内で最も近い1名
@@ -526,6 +569,8 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
     if (ui.control !== lastControl) {
       swapTo(world, ui.control);
       lastControl = ui.control;
+      // 中隊長の座席を離れたら迫撃砲の照準待ちも解く(`[v7.2]`)
+      if (ui.fireMissionArmed) ui.armFireMission(false);
     }
     // デバッグスライダーの値をシムへ反映(既定値なら現行挙動と一致)
     syncTuning(world);

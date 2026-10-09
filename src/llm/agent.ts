@@ -32,7 +32,8 @@ function dist(a: { x: number; z: number }, b: { x: number; z: number }): number 
  * ネットワーク無しで確かめるためのもの(テストと `npm run llm -- --mock`)。
  *
  * 判断: まだ自分のものでない拠点のうち最寄りへ向かう。中隊・小隊なら、麾下を
- * 1つずつ別の拠点へ割り振る(残りは最初の拠点への支援射撃)。
+ * 1つずつ別の拠点へ割り振る(残りは最初の拠点への支援射撃)。中隊長で迫撃砲が
+ * 撃てるなら、確度の高い接触へ要請する。
  */
 export function ruleAgent(): Agent {
   return {
@@ -72,6 +73,12 @@ export function ruleAgent(): Agent {
             });
           }
         }
+      }
+      // 迫撃砲(`[v7.2]`)。撃てる状態なら、いちばん確かな接触へ1回
+      const fs = obs.fireSupport;
+      if (fs && fs.roundsLeft > 0 && fs.cooldownSec === 0 && fs.inFlightEtaSec === null) {
+        const c = obs.contacts.find((k) => k.confidence >= 0.6);
+        if (c) resp.commands.push({ type: "fire_mission", target: c.pos });
       }
       const raw = JSON.stringify(resp);
       return { raw, payload: resp, latencyMs: 0 };

@@ -13,8 +13,10 @@ import {
   assignSquadMission,
   orderCasevac,
   orderControlledTo,
+  orderFireMission,
   orderReinforcement,
 } from "../sim/playerOrders.ts";
+import { FIRE_MISSION_BLOCK_TEXT } from "../sim/systems/indirect.ts";
 import type { MissionKind, Vec2 } from "../sim/types.ts";
 import type { World } from "../sim/world.ts";
 import { MAX_COMMANDS, type AgentCommand, type AgentResponse, type AgentSeat } from "./protocol.ts";
@@ -104,6 +106,12 @@ export function parseResponse(raw: unknown): ParsedResponse {
       case "reinforce":
         commands.push({ type: "reinforce" });
         return;
+      case "fire_mission": {
+        const target = vecOf(c.target);
+        if (!target) errors.push(`commands[${i}] fire_mission: target {x,z} が無い`);
+        else commands.push({ type: "fire_mission", target });
+        return;
+      }
       default:
         errors.push(`commands[${i}]: 不明な type ${JSON.stringify(c.type)}`);
     }
@@ -177,6 +185,23 @@ export function applyResponse(world: World, seat: AgentSeat, resp: AgentResponse
           ok
             ? `#${i} reinforce: 後援部隊を要請した`
             : `#${i} reinforce: 要請できない(最上位の指揮官ではない / 回数切れ / 後援なし)`,
+        );
+        return;
+      }
+      case "fire_mission": {
+        if (seat.echelon !== "company") {
+          out.push(`#${i} fire_mission: 中隊長だけが出せる`);
+          return;
+        }
+        const t = clampToBounds(world, c.target);
+        const r = orderFireMission(world, t, seat);
+        const at = `(${t.x.toFixed(0)},${t.z.toFixed(0)})`;
+        out.push(
+          !r
+            ? `#${i} fire_mission: 却下`
+            : r.ok
+              ? `#${i} fire_mission ${at}: 受理(${r.rounds}発)`
+              : `#${i} fire_mission ${at}: 却下 — ${FIRE_MISSION_BLOCK_TEXT[r.reason]}`,
         );
         return;
       }
