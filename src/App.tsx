@@ -34,6 +34,10 @@ export function App() {
         const s = useSimStore.getState();
         s.setDebug({ panelOpen: !s.debug.panelOpen });
       }
+      // `[v7.2]` 振り返り(AAR、S-4)
+      if ((e.code === "KeyR" || e.key === "r") && onBody) {
+        useSimStore.getState().toggleAar();
+      }
       if ((e.code === "KeyG" || e.key === "g") && onBody) {
         useSimStore.getState().toggleDeploy();
       }

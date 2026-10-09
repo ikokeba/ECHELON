@@ -18,6 +18,8 @@ import {
   orderSmoke,
 } from "@sim/playerOrders.ts";
 import { SMOKE_BLOCK_TEXT, smokeCooldownLeft, smokeThrower } from "@sim/systems/smoke.ts";
+import { applyReplay, replayCursor, startRecording, type ReplayCursor } from "@sim/replay.ts";
+import { aarDue, captureAarFrame, type AarFrame } from "@sim/aar.ts";
 import {
   DEFENSE_SPOT_TEXT,
   defenseIndexOf,
@@ -40,7 +42,7 @@ import { createLlmSession, type LlmSession } from "../llm/session.ts";
 import { createLmStudioAgent } from "../llm/lmstudio.ts";
 import { ruleAgent } from "../llm/agent.ts";
 import { useLlmStore } from "./llmStore.ts";
-import type { FxEvent, Side } from "@sim/types.ts";
+import type { Bounds, FxEvent, Side } from "@sim/types.ts";
 import {
   currentSpeed,
   useSimStore,
@@ -425,6 +427,20 @@ function openLlmSession(world: World): LlmSession | null {
   return session;
 }
 
+/**
+ * 振り返り(AAR、`[v7.2]` S-4)のフレーム。ランタイムが戦闘中に取り溜め、AAR パネルが読む。
+ * 量が多いのでストア(React の状態)には載せない — パネルは開いたときにここを読む
+ */
+let aarFrames: AarFrame[] = [];
+export function getAarFrames(): readonly AarFrame[] {
+  return aarFrames;
+}
+/** AAR の地図に描く盤面(盤の範囲と建物の外周)。世界を作るたびに入れ替わる */
+let aarMap: { bounds: Bounds; buildings: Bounds[] } | null = null;
+export function getAarMap(): { bounds: Bounds; buildings: Bounds[] } | null {
+  return aarMap;
+}
+
 export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey): () => void {
   // `[v6.4]` 配置プランを適用してから世界を作る。未設定なら既定のシナリオそのまま。
   // 既定値を編集の出発点としてストアへ返し、パネルがそこから触れるようにする。
@@ -444,10 +460,29 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
   // 計画を立て、プレイヤーがそれを読んで「戦闘開始」を押すまで時間は流れない
   // (仕様 §3① / §11 — 米陸軍の指揮活動手順 TLP に対応)。
   beginPlanning(world);
+
+  // ── 振り返り・リプレイ(`[v7.2]` S-4)──
+  // 記録は常に取る(命令と設定の変化だけなので軽い)。「最初から再生」が押されて作り直した
+  // ときは、同じ初期条件の世界へ記録を流し込みながら進め、記録の終わりで操作を返す。
+  // 再生しながらも記録するので、返したあとに遊び続けても記録は途切れない。
+  startRecording(world);
+  aarFrames = [];
+  aarMap = { bounds: { ...world.bounds }, buildings: world.buildings.map((b) => ({ ...b.bounds })) };
+  const st0 = useSimStore.getState();
+  const replaySrc =
+    st0.replay && st0.replay.key === `${st0.scenarioKey}|${st0.deploymentNonce}|${st0.seed}`
+      ? st0.replay
+      : null;
+  if (st0.replay && !replaySrc) st0.endReplay();
+  const replay: ReplayCursor | null = replaySrc ? replayCursor(replaySrc.log) : null;
+  const replayEnd = replaySrc ? replaySrc.endTick : 0;
+  if (replay) beginBattle(world);
   {
     const ui0 = useSimStore.getState();
     const pv = planViewsOf(world, ui0.viewSide, ui0.viewEchelon === "truth");
     ui0.enterPlanning(pv.plans, pv.routes);
+    // 再生は立案を飛ばして戦闘から始める(立案は初期条件コードに入っている)
+    if (replay) ui0.startBattle();
   }
   /** 立案表示の再構築キー(視点を変えたときだけ組み直す) */
   let planViewKey = "";
@@ -456,6 +491,7 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
   let lastMs = performance.now();
   let lastStepNonce = useSimStore.getState().stepNonce;
   let lastReinforceNonce = useSimStore.getState().reinforceNonce;
+  let lastReplayRequest = useSimStore.getState().replayRequestNonce;
   let hudCountdown = 0;
   let lastControl = useSimStore.getState().control;
   let lastSelected = useSimStore.getState().selectedSoldierId;
@@ -472,7 +508,11 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
    * ポーズ中でも発行でき、解除後にタイムラグなく実行される(仕様 §6)。
    * 発行できたら OrderToast 用に記録する(指摘: 移動命令が出せているか分からない)。
    */
+  /** 再生中か(`[v7.2]` S-4)。再生中は盤面からの命令を受けない(記録が命令を出す) */
+  const inReplay = (): boolean => replay !== null && world.tick < replayEnd;
+
   const issueMoveOrder = (clientX: number, clientY: number): void => {
+    if (inReplay()) return;
     const c = world.control;
     if (!c) return;
     const p = renderer.screenToWorld(clientX, clientY);
@@ -544,6 +584,10 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
     if (ui.setupTool) {
       ui.placeAt(p);
       return;
+    }
+    if (inReplay()) {
+      ui.setDefenseMove(null);
+      ui.arm(null);
     }
     // 防衛陣地の置き直し(`[v7.2]` S-1)。AIの陣地選びと同じ規則を通す
     if (ui.defenseMoveId !== null) {
@@ -628,7 +672,7 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
     // 後援部隊の要請(`[v7.0]`)。AIの最上位指揮官と同じ関数を通す(仕様 §4)
     if (ui.reinforceNonce !== lastReinforceNonce) {
       lastReinforceNonce = ui.reinforceNonce;
-      orderReinforcement(world);
+      if (!inReplay()) orderReinforcement(world);
       useSimStore.getState().pushHud(hudOf(world, resolveView(world, {
         side: ui.viewSide,
         echelon: ui.viewEchelon,
@@ -636,15 +680,28 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
         platoonId: ui.viewPlatoonId,
       })));
     }
-    // ホットスワップ要求をシムへ反映(仕様 §4: 制限なし・即時)
-    if (ui.control !== lastControl) {
+    // 再生の求め(`[v7.2]` S-4)。いまの記録と時刻を渡して作り直してもらう
+    if (ui.replayRequestNonce !== lastReplayRequest) {
+      lastReplayRequest = ui.replayRequestNonce;
+      if (world.log && world.tick > 0) ui.beginReplay([...world.log], world.tick);
+    }
+    const replaying = replay !== null && world.tick < replayEnd;
+    if (replay && !replaying && ui.replaying) {
+      // 記録の終わりに着いた。止めて操作を返す(ここから先はふつうの戦闘)
+      ui.endReplay();
+      if (!ui.paused) ui.togglePause();
+      lastControl = world.control;
+      ui.requestSwap(world.control);
+    }
+    // ホットスワップ要求をシムへ反映(仕様 §4: 制限なし・即時)。再生中は記録の座席に従う
+    if (!replaying && ui.control !== lastControl) {
       swapTo(world, ui.control);
       lastControl = ui.control;
       // 中隊長の座席を離れたら迫撃砲の照準待ちも解く(`[v7.2]`)
       if (ui.armed) ui.arm(null);
     }
-    // デバッグスライダーの値をシムへ反映(既定値なら現行挙動と一致)
-    syncTuning(world);
+    // デバッグスライダーの値をシムへ反映(既定値なら現行挙動と一致)。再生中は記録の値に従う
+    if (!replaying) syncTuning(world);
 
     // ── 作戦立案フェーズ(`[v6.5]`)──
     if (ui.phase === "battle" && world.phase === "planning") beginBattle(world);
@@ -665,12 +722,16 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
     // (world.fx はティックの頭で空になるので、最後のティックのぶんしか残らない)
     const frameFx: FxEvent[] = [];
     for (let t = 0; t < ticks; t++) {
+      if (replay && world.tick >= replayEnd) break;
+      if (replay) applyReplay(world, replay);
       stepWorld(world);
       for (const f of world.fx) frameFx.push(f);
+      if (aarDue(world)) aarFrames.push(captureAarFrame(world));
     }
 
     // ── LLM の座席(`[v7.0]`)。設定が変わったら張り直し、毎フレーム問い合わせを回す ──
-    const llmConfig = useLlmStore.getState().config;
+    // 再生中は LLM を呼ばない(LLM の命令は記録に入っている)
+    const llmConfig = replaying ? null : useLlmStore.getState().config;
     if (llmConfig !== lastLlmConfig) {
       lastLlmConfig = llmConfig;
       llm?.detach(world);

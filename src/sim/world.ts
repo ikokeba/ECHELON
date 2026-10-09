@@ -15,6 +15,7 @@ import { buildWallIndex, type WallIndex } from "./wallIndex.ts";
 import { defaultPosture, defaultTuning } from "./tuning.ts";
 import { defaultDoctrine, type Doctrine } from "./doctrine.ts";
 import type { ControlState } from "./control.ts";
+import type { ReplayEntry } from "./replay.ts";
 import {
   CASEVAC_ASSETS_PER_COMPANY,
   CP_BOUNDS_MARGIN,
@@ -158,6 +159,13 @@ export interface World {
   defense: DefensivePosition[];
   /** 立案時に人間が置き直した陣地(シナリオ由来。立案のたびにAI案へ重ねる) */
   defenseEdits: DefenseEdit[];
+  /**
+   * 命令の記録(`[v7.2]` replay.ts、ロードマップ S-4)。null なら記録しない(既定)。
+   * 初期条件コード + この記録で同じ戦闘を最初から再生できる
+   */
+  log: ReplayEntry[] | null;
+  /** 最後に記録した設定の要約(変わったときだけ記録するため) */
+  logStateKey: string;
   /** 盤上の煙幕(`[v7.2]` systems/smoke.ts)。視線だけを遮る */
   smokes: Smoke[];
   nextSmokeId: number;
@@ -612,6 +620,8 @@ function buildWorld(scenario: Scenario): World {
     nextFireMissionId: 1,
     smokes: [],
     nextSmokeId: 1,
+    log: null,
+    logStateKey: "",
     defense: [],
     defenseEdits: (scenario.defenseEdits ?? []).map((e) => ({ ...e, pos: { ...e.pos } })),
     controlMeasures: (scenario.controlMeasures ?? []).map((cm) => ({

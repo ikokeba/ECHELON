@@ -37,6 +37,7 @@ import type {
 } from "@sim/types.ts";
 import type { ControlState } from "@sim/control.ts";
 import type { DefenseEdit } from "@sim/types.ts";
+import type { ReplayEntry } from "@sim/replay.ts";
 import { postureFromRisk } from "@sim/tuning.ts";
 import { DOCTRINES, type DoctrineKey } from "@sim/doctrine.ts";
 import { playForce, type ForceSpec } from "@sim/force.ts";
@@ -393,6 +394,22 @@ interface UiState extends HudSnapshot {
    */
   armed: ArmedOrder | null;
   arm: (kind: ArmedOrder | null) => void;
+  /**
+   * 振り返り・リプレイ(`[v7.2]` S-4)。`replay` がある間に世界を作り直すと、その記録を
+   * 流し込みながら同じ戦闘を最初から再生する。`replaying` は記録の終わりまで true
+   */
+  replay: { log: ReplayEntry[]; endTick: number; key: string } | null;
+  replaying: boolean;
+  /** 世界の作り直しの合図(GameView が見る) */
+  replayNonce: number;
+  /** 「最初から再生」の求め。ランタイムが今の記録を `beginReplay` で渡す */
+  replayRequestNonce: number;
+  requestReplay: () => void;
+  beginReplay: (log: ReplayEntry[], endTick: number) => void;
+  endReplay: () => void;
+  /** AAR パネル(信じていた位置と実際の位置)を開いているか */
+  aarOpen: boolean;
+  toggleAar: () => void;
   /** 立案中に置き直そうとしている防衛陣地の id(`[v7.2]` S-1)。null なら置き直していない */
   defenseMoveId: number | null;
   setDefenseMove: (id: number | null) => void;
@@ -568,6 +585,25 @@ export const useSimStore = create<UiState>((set, get) => ({
   lastOrder: null,
   armed: null,
   arm: (kind) => set({ armed: kind }),
+  replay: null,
+  replaying: false,
+  replayNonce: 0,
+  replayRequestNonce: 0,
+  requestReplay: () => set((s) => ({ replayRequestNonce: s.replayRequestNonce + 1 })),
+  beginReplay: (log, endTick) =>
+    set((s) => ({
+      // 同じ初期条件で作り直すときだけ再生する(盤面・配置を変えた作り直しでは捨てる)
+      replay: { log, endTick, key: `${s.scenarioKey}|${s.deploymentNonce}|${s.seed}` },
+      replaying: true,
+      replayNonce: s.replayNonce + 1,
+      paused: false,
+      control: null,
+      selectedSoldierId: null,
+    })),
+  // 記録は捨てる。以後の作り直し(配置の変更など)は新しい戦闘になる
+  endReplay: () => set({ replay: null, replaying: false }),
+  aarOpen: false,
+  toggleAar: () => set((s) => ({ aarOpen: !s.aarOpen })),
   defenseMoveId: null,
   setDefenseMove: (id) => set({ defenseMoveId: id }),
   recordDefenseEdit: (e) =>
