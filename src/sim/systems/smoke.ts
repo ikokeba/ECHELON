@@ -138,7 +138,9 @@ function primaryThreat(belief: Map<string, Contact>): Contact | null {
  *
  * 焚くのは次のすべてが揃ったとき。材料は分隊長の belief と自分の分隊の状態だけ:
  *   1. 確度の高い敵の接触が、撃ち合いには遠く・小銃の届く距離にいる
- *   2. 分隊の過半数が移動中(止まって撃ち合っているなら煙はむしろ邪魔)
+ *   2. 分隊の過半数が移動中で、どのFTもまだ撃ち合い(CONTACT)に入っていない。
+ *      撃ち合いの最中に焚くと自分の射線も切れ、至近の敵どうしが煙の中で見えなくなる
+ *      (最初はこの条件が無く、25m以内で射線の通る敵味方の組の8割が煙の中だった)
  *   3. その敵の位置から分隊の重心まで、壁に遮られない射線が通っている(=見られている)
  *   4. その射線をまだ煙が遮っていない
  * 焚く地点は、分隊の重心から敵の方へ STANDOFF だけ出たところ。投げられる距離へ収める。
@@ -156,6 +158,9 @@ export function decideSmoke(world: World, sq: SquadState): boolean {
   if (men.length === 0) return false;
   const moving = men.filter((s) => s.pathIdx < s.path.length).length;
   if (moving * 2 < men.length) return false;
+  if (world.fireteams.some((f) => f.side === sq.side && f.squadId === sq.squadId && f.mode === "CONTACT")) {
+    return false;
+  }
 
   let cx = 0;
   let cz = 0;

@@ -6,6 +6,7 @@ import { DEFAULT_FORCE } from "../src/sim/force.ts";
 import { combatLook, standoffBlocks } from "../src/sim/individual.ts";
 import { INDIVIDUAL, TRACER_EVERY_TICKS } from "../src/sim/constants.ts";
 import { hasLineOfSightIndexed } from "../src/sim/wallIndex.ts";
+import { smokeBlocks } from "../src/sim/systems/smoke.ts";
 
 /**
  * 兵士個人の戦闘動作(`[v7.1]` individual.ts)。
@@ -69,6 +70,8 @@ describe("個人の戦闘動作", () => {
             if (b.side !== "red") continue;
             if (Math.hypot(a.pos.x - b.pos.x, a.pos.z - b.pos.z) > 25) continue;
             if (!hasLineOfSightIndexed(w.wallIndex, a.pos.x, a.pos.z, b.pos.x, b.pos.z)) continue;
+            // `[v7.2]` 煙の中の組は「見えるのに見ていない」ではない(煙は視線を遮る、S-2)
+            if (smokeBlocks(w, a.eye.x, a.eye.z, b.eye.x, b.eye.z)) continue;
             pairs++;
             if (!a.sees.includes(b.id) && !b.sees.includes(a.id)) unseen++;
           }
