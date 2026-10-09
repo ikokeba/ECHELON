@@ -74,6 +74,10 @@ step (in Japanese, for Windows).
 | Take over a unit | Click it in the command tree on the right |
 | Hand control back | Click **観戦(全AI)** at the top of the tree |
 | Give a move order | Right-click on the map |
+| Call a mortar mission (company commander) | **射撃要請** at the top right, then click the target |
+| Throw smoke (squad leader) | **発煙** at the top right, then click the spot |
+| Move a defensive position (defending company commander, while planning) | Pick it in the planning panel, then click the map |
+| After-action review / replay from the start | `R` or **AAR** in the clock bar |
 | Select a soldier | Left-click |
 | Pan / zoom the map | Drag / mouse wheel |
 | Pause | `Space` |
@@ -84,7 +88,9 @@ The five boards are the Old Quarter (cramped alleys), the Boulevard (a 40 m aven
 cross), the New Quarter (long staggered blocks), the Trenches (a no-man's-land between two lines)
 and a regular Grid. Each side picks its own size — a squad (9), a platoon (36) or a company (112),
 plus any reinforcements — and its own command doctrine. Besides the meeting engagement there is an
-attack/defence mode, where the defender holds every objective until the clock runs out.
+attack/defence mode, where the defender holds every objective until the clock runs out. The defender
+starts that mode dug in, with machine-gun positions, fighting positions, alternate positions and
+barbed wire.
 
 ## What is simulated
 
@@ -99,11 +105,20 @@ attack/defence mode, where the defender holds every objective until the clock ru
 - **Casualties end to end:** hit, killed or wounded, bleed-out, buddy aid, litter carry,
   collection point, evacuation, and a replacement with the same specialty.
 - **Close-quarters battle.** Buildings, doors and a finer navigation grid indoors; squads stack,
-  breach, clear and reorganize.
+  breach, throw a flashbang, clear and reorganize.
+- **Smoke.** Clouds that block sight and nothing else. Squad leaders throw one to cross open ground
+  they are being watched over.
+- **Defensive planning.** In attack/defence the defending company commander sites positions from
+  terrain alone, without knowing where the attacker is. Machine guns fire only inside their sector,
+  fighting positions give the same cover as windows, and wire stops people but not sight.
 - **Morale and victory.** Fire teams can break, command succession is handled, and objectives
   decide the battle.
 - **Company assets.** A 60 mm mortar that fires at what the company commander *believes*, not at
-  where the enemy really is, and evacuation vehicles the commander has to share out.
+  where the enemy really is (the AI, a human and an LLM all request it under the same rules), and
+  evacuation vehicles the commander has to share out.
+- **After-action review and replay.** Only orders are recorded; the setup code plus that log replays
+  the same battle from the start. The review screen sets each commander's belief about the enemy
+  against where the enemy really was, moment by moment.
 - **Optional extras.** Shield bearers, reinforcements, and a local LLM (through LM Studio) that
   can take a commander's seat and issue the same orders a human could.
 
@@ -144,8 +159,8 @@ Two invariants are enforced by the tests:
 
 ### Not yet built
 
-Everything that is planned but not built — defensive positions, smoke, drones, armoured vehicles,
-replays and more — is collected, with priorities, in [`docs/ロードマップ.md`](docs/ロードマップ.md)
+Everything that is planned but not built — defensive tactics, editing the operation plan, drones,
+armoured vehicles and more — is collected, with priorities, in [`docs/ロードマップ.md`](docs/ロードマップ.md)
 (Japanese). The spec holds only what has been decided and built.
 
 ## License
