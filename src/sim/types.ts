@@ -60,11 +60,13 @@ export type FireteamMode = "ADVANCE" | "CONTACT" | "SEARCH" | "FALLBACK" | "CQB"
 /**
  * 突入待機命令の3段階(仕様 §7.3)。`CQB` モードの内部進行。
  *   stack   : 指定扉から1.5m以内に集合、壁沿いに縦列で待機
+ *   bang    : `[v7.2]` 扉を開けてフラッシュバンを投げ込み、炸裂を待つ(仕様 §8.4)。
+ *             持っていなければこの段は飛ばす
  *   breach  : ドクトリン準拠の順序で室内へ進入開始(単一ファイル、0.6秒間隔)
  *   clear   : 先頭2名が近傍コーナーを制圧、後続が危険地帯を索敵
  *   reorg   : 再編成(次の部屋/建物への行動判断は分隊長、仕様 §7.2)
  */
-export type CqbStage = "stack" | "breach" | "clear" | "reorg";
+export type CqbStage = "stack" | "bang" | "breach" | "clear" | "reorg";
 
 /** 分隊長/小隊長が選択する屋外の移動技術(仕様 §6)。 */
 export type MovementTechnique = "traveling" | "traveling_overwatch" | "bounding_overwatch";
@@ -884,6 +886,11 @@ export interface FireteamState {
   cqbCorner: Map<number, Vec2>;
   /** 突入順(スタック順)。単一ファイルでの流入間隔に使う */
   cqbEntryOrder: number[];
+  /**
+   * フラッシュバンの残数(`[v7.2]` 仕様 §8.4、ロードマップ S-3)。FTの装備で、突入のたびに
+   * 1発使う。尽きたら投げずに入る — 部屋の多い建物では後半の部屋ほど素で入ることになる
+   */
+  flashbangs: number;
 
   /**
    * 潰走を開始したティック(null = 潰走していない)。仕様 §12 の補助条件。
@@ -1139,6 +1146,8 @@ export type FxEvent =
       weapon: "rifle" | "dm" | "pistol" | "saw" | "mg";
     }
   | { kind: "grenade"; at: Vec2; side: Side; radius: number; victims: number }
+  /** フラッシュバンの炸裂(`[v7.2]`)。`radius` は部屋を覆う半径(描画用)、`stunned` は制圧した人数 */
+  | { kind: "flashbang"; at: Vec2; side: Side; radius: number; stunned: number }
   /** 迫撃砲の着弾(`[v6.9]`)。`radius` は殺傷半径、`suppressRadius` は制圧が及ぶ範囲 */
   | {
       kind: "mortar";

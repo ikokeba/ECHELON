@@ -21,6 +21,7 @@ import {
   CP_TRAIL_DIST,
   CQB,
   DOOR_THICKNESS,
+  FLASHBANG,
   OBJECTIVE,
   SIM_HZ,
   NAV_MARGIN_OUTDOOR,
@@ -265,6 +266,7 @@ export function buildFireteams(scenario: Scenario, soldiers: Soldier[]): Firetea
       cqbStageSince: 0,
       cqbCorner: new Map(),
       cqbEntryOrder: [],
+      flashbangs: FLASHBANG.PER_FIRETEAM,
       routedSinceTick: null,
     });
   }

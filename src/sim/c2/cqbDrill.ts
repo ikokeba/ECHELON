@@ -15,16 +15,44 @@
  * 同時に指揮する立場に専念する。
  */
 
-import { CQB, ENTRY_SPEED_MUL, SIM_HZ } from "../constants.ts";
+import { CQB, ENTRY_SPEED_MUL, FLASHBANG, SIM_HZ } from "../constants.ts";
 import { cornerAssignments, doorById, insideBounds, nudgeInside, roomOfDoor } from "../cqb.ts";
 import { refreshBlockers, type World } from "../world.ts";
 import { stackPositions } from "../cqb.ts";
 import { isCommittedToAid } from "../systems/casualties.ts";
-import { isCommittedToLitter } from "../systems/litter.ts";
-import type { FireteamState, Soldier, Vec2 } from "../types.ts";
+import { isCommittedToLitter, isOffField } from "../systems/litter.ts";
+import type { FireteamState, Room, Soldier, Vec2 } from "../types.ts";
 
 const ENTRY_STAGGER_TICKS = Math.round(CQB.ENTRY_STAGGER_SEC * SIM_HZ);
 const STAGE_TIMEOUT_TICKS = Math.round(CQB.STAGE_TIMEOUT_SEC * SIM_HZ);
+const FUSE_TICKS = Math.round(FLASHBANG.FUSE_SEC * SIM_HZ);
+const STUN_TICKS = Math.round(FLASHBANG.STUN_SEC * SIM_HZ);
+
+/**
+ * フラッシュバンの炸裂(`[v7.2]` 仕様 §8.4)。室内にいる全員を制圧する。
+ *
+ * 新しい仕組みは作らない — 仕様 §8.6 の**屋内の制圧は部屋単位の一括判定**なので、
+ * その部屋にいる者すべての `suppressedUntilTick` を押すだけ。陣営は見ない(閃光は
+ * 敵味方を区別しない)。投げた側は扉の外で待っているので、ふつうは巻き込まれない。
+ */
+export function detonateFlashbang(world: World, ft: FireteamState, room: Room): number {
+  let stunned = 0;
+  for (const s of world.soldiers) {
+    if (s.status !== "ok" || isOffField(s)) continue;
+    if (!insideBounds(room.bounds, s.pos)) continue;
+    s.suppressedUntilTick = Math.max(s.suppressedUntilTick, world.tick + STUN_TICKS);
+    stunned++;
+  }
+  const b = room.bounds;
+  world.fx.push({
+    kind: "flashbang",
+    at: { x: (b.minX + b.maxX) / 2, z: (b.minZ + b.maxZ) / 2 },
+    side: ft.side,
+    radius: Math.hypot(b.maxX - b.minX, b.maxZ - b.minZ) / 2,
+    stunned,
+  });
+  return stunned;
+}
 
 function dist(a: Vec2, b: Vec2): number {
   return Math.hypot(a.x - b.x, a.z - b.z);
@@ -111,6 +139,23 @@ export function runCqb(
           const c = corners[i % corners.length]!;
           ft.cqbCorner.set(u.id, nudgeInside(world.walls, c.pos, room));
         });
+        // `[v7.2]` 持っていれば扉を開けた瞬間に投げ込み、炸裂を待ってから流入する
+        // (仕様 §8.4)。尽きていれば従来どおりすぐ入る
+        if (ft.flashbangs > 0) {
+          ft.flashbangs -= 1;
+          setStage(ft, "bang", world.tick);
+        } else {
+          setStage(ft, "breach", world.tick);
+        }
+      }
+      return;
+    }
+
+    case "bang": {
+      // 炸裂までスタック位置で待つ。扉は開いているので、ここで撃ち合いになることはある
+      team.forEach((u) => issue(u, "hold", null, door.normal));
+      if (world.tick - ft.cqbStageSince >= FUSE_TICKS) {
+        detonateFlashbang(world, ft, room);
         setStage(ft, "breach", world.tick);
       }
       return;
