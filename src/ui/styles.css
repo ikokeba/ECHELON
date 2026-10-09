@@ -1634,3 +1634,88 @@ body {
   padding: 3px 8px;
   border: 1px solid var(--border);
 }
+
+/* `[v7.2]` 振り返り(AAR、ロードマップ S-4) */
+.aar-panel {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  z-index: 6;
+  pointer-events: auto;
+  gap: 8px;
+}
+.aar-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.aar-btn {
+  flex: 0 0 auto;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+}
+.aar-side {
+  flex: 0 0 140px;
+}
+.aar-select {
+  flex: 1 1 140px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 4px;
+  font-family: inherit;
+}
+.aar-map {
+  width: 100%;
+  height: auto;
+  max-height: 56vh;
+  display: block;
+}
+.aar-ground {
+  fill: var(--surface);
+}
+.aar-bldg {
+  fill: var(--border);
+  opacity: 0.55;
+}
+.aar-belief {
+  fill: none;
+  stroke: var(--warn);
+  stroke-width: 0.8;
+  stroke-dasharray: 2 1.5;
+}
+.aar-belief-dot {
+  fill: var(--warn);
+}
+.aar-miss {
+  stroke: var(--warn);
+  stroke-width: 0.5;
+  opacity: 0.7;
+}
+.aar-truth {
+  stroke: var(--text);
+  stroke-width: 0.3;
+}
+.aar-slider {
+  width: 100%;
+}
+.aar-legend {
+  justify-content: space-between;
+  color: var(--muted);
+}
+.aar-stats {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.aar-hint {
+  color: var(--muted);
+}

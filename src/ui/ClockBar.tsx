@@ -21,6 +21,8 @@ export function ClockBar() {
   const togglePause = useSimStore((s) => s.togglePause);
   const setSpeedIdx = useSimStore((s) => s.setSpeedIdx);
   const requestStep = useSimStore((s) => s.requestStep);
+  const toggleAar = useSimStore((s) => s.toggleAar);
+  const replaying = useSimStore((s) => s.replaying);
 
   return (
     <div className="panel clockbar">
@@ -61,6 +63,11 @@ export function ClockBar() {
           >
             ⏭
           </button>
+          {/* `[v7.2]` 振り返り(AAR)と再生(S-4) */}
+          <button type="button" className="tc-btn" onClick={toggleAar} title="振り返り (R)">
+            AAR
+          </button>
+          {replaying && <span className="tc-planning">再生中 — 記録の終わりで止まり、操作を返します</span>}
         </div>
       )}
     </div>

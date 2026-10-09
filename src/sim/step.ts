@@ -24,6 +24,7 @@ import { radioSystem } from "./radio.ts";
 import { reinforcementSystem } from "./systems/reinforcement.ts";
 import { smokeSystem } from "./systems/smoke.ts";
 import { defenseSystem } from "./c2/defense.ts";
+import { recordState } from "./replay.ts";
 import type { World } from "./world.ts";
 
 export function stepWorld(world: World): void {
@@ -32,6 +33,8 @@ export function stepWorld(world: World): void {
   // 呼び分けを間違えても盤面が動き出すことはない(既定は `battle` なので
   // テストとバランスハーネスには影響しない)。
   if (world.phase === "planning") return;
+  // 命令の記録(`[v7.2]` S-4)。外から変えられる設定が変わっていれば、このティックの頭で残す
+  recordState(world);
   // 0. 前ティックの描画用エフェクトを捨てる(`[v6.1]`)。ここに溜まるのはこのティックに
   //    起きた発砲・擲弾着弾だけで、シムの判断には一切使わない。
   world.fx.length = 0;

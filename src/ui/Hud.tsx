@@ -11,6 +11,7 @@ import { DebugPanel } from "./DebugPanel.tsx";
 import { DeploymentPanel } from "./DeploymentPanel.tsx";
 import { PlanPanel } from "./PlanPanel.tsx";
 import { Legend } from "./Legend.tsx";
+import { AarPanel } from "./AarPanel.tsx";
 
 /**
  * HUDの骨格(`[v6.6]` — UIレビュー 02「3列 + 2レール」)。
@@ -68,6 +69,7 @@ export function Hud() {
 
       <DebugPanel />
       <DeploymentPanel />
+      <AarPanel />
     </div>
   );
 }

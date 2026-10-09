@@ -14,6 +14,7 @@ import { PLATOON_FRONTAGE } from "./constants.ts";
 import type { ControlState } from "./control.ts";
 import type { Mission, Vec2 } from "./types.ts";
 import type { World } from "./world.ts";
+import type { OrderFn } from "./replay.ts";
 import { callReinforcement, topCommandOf } from "./systems/reinforcement.ts";
 import { requestFireMission, type FireMissionResult } from "./systems/indirect.ts";
 import { throwSmoke, type SmokeResult } from "./systems/smoke.ts";
@@ -25,7 +26,7 @@ import { throwSmoke, type SmokeResult } from "./systems/smoke.ts";
  */
 
 /** 操作中の分隊へ「ここへ移動せよ」と指示する(分隊長として)。 */
-export function orderSquadTo(
+function orderSquadToImpl(
   world: World,
   target: Vec2,
   seat: ControlState | null = world.control,
@@ -45,7 +46,7 @@ export function orderSquadTo(
 }
 
 /** 操作中の小隊へ「ここへ移動せよ」と指示する(小隊長として)。 */
-export function orderPlatoonTo(
+function orderPlatoonToImpl(
   world: World,
   target: Vec2,
   seat: ControlState | null = world.control,
@@ -73,7 +74,7 @@ export function orderPlatoonTo(
  * 個々の兵には一切命令が行かない**。目標軸に直交する方向へ小隊を並べる規則は
  * AI中隊長(`c2/company.ts`)と同一で、人間だからといって細かく動かせるようにはしない。
  */
-export function orderCompanyTo(
+function orderCompanyToImpl(
   world: World,
   target: Vec2,
   seat: ControlState | null = world.control,
@@ -107,7 +108,7 @@ export function orderCompanyTo(
  * 「AIは戦力の残りを見て自制するが、人間は自分の判断で命じられる」点だけで、
  * 実際に担架班が組めるかどうかは同じ litterSystem の条件に従う。
  */
-export function orderCasevac(
+function orderCasevacImpl(
   world: World,
   patientId?: number,
   seat: ControlState | null = world.control,
@@ -136,7 +137,7 @@ export function orderCasevac(
 }
 
 /** 操作中の階層に応じて、目的地指示を適切な経路へ振り分ける。 */
-export function orderControlledTo(
+function orderControlledToImpl(
   world: World,
   target: Vec2,
   seat: ControlState | null = world.control,
@@ -156,7 +157,7 @@ export function orderControlledTo(
  * 小隊の `objective` / `mission`。任務の種別も AI と同じ3種(seize / support_by_fire /
  * screen)だけで、人間・LLM専用の命令は増やしていない(仕様 §4/§13)。
  */
-export function assignPlatoonMission(
+function assignPlatoonMissionImpl(
   world: World,
   platoonId: number,
   mission: Mission,
@@ -181,7 +182,7 @@ export function assignPlatoonMission(
  * 小隊長として、麾下の1個分隊へ任務を下ろす(`[v7.0]`)。AI小隊長(`c2/platoon.ts`)と
  * 同じ書き込み — `squadObjectives` / `squadMissions` と分隊の `objective` / `mission`。
  */
-export function assignSquadMission(
+function assignSquadMissionImpl(
   world: World,
   squadId: number,
   mission: Mission,
@@ -209,7 +210,7 @@ export function assignSquadMission(
  * AIの最上位指揮官が自動で呼ぶのと同じ関数を通るので、回数の上限・到着までの時間・
  * 指揮官不在なら呼べない、はすべて人間・LLM にも同じに掛かる(仕様 §4/§13)。
  */
-export function orderReinforcement(
+function orderReinforcementImpl(
   world: World,
   seat: ControlState | null = world.control,
 ): boolean {
@@ -231,7 +232,7 @@ export function orderReinforcement(
  * 飛翔時間のあいだに敵が動けば外れる — 人間の画面に出ている像もまた中隊長の像で
  * あって、敵の現在位置ではない(仕様 §5)。
  */
-export function orderFireMission(
+function orderFireMissionImpl(
   world: World,
   target: Vec2,
   seat: ControlState | null = world.control,
@@ -250,7 +251,7 @@ export function orderFireMission(
  * 通るので、残数・間隔・投げられる距離は同じに掛かる(仕様 §4/§13)。違いは「どこへ・いつ」を
  * 自分で選ぶことだけ。
  */
-export function orderSmoke(
+function orderSmokeImpl(
   world: World,
   target: Vec2,
   seat: ControlState | null = world.control,
@@ -260,4 +261,126 @@ export function orderSmoke(
   const sq = world.squads.find((s) => s.side === c.side && s.squadId === c.unitId);
   if (!sq) return null;
   return throwSmoke(world, sq, target);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `[v7.2]` 命令の記録(ロードマップ S-4 振り返り・リプレイ)
+//
+// 上の命令はすべてここの薄い包みを通して公開する。`world.log` が有効なら、実際に
+// 呼ばれた命令を「どのティックに・どの座席から・どの引数で」記録する。シムは決定論的
+// (ロードマップ P3)なので、初期条件コード + この記録だけで同じ戦闘を最初から再生できる。
+// 包みの中で別の命令を呼ぶ(orderControlledTo → orderCompanyTo)ときは、外側の1件
+// だけを記録する — 再生で外側を呼べば内側も同じに呼ばれる。
+// ─────────────────────────────────────────────────────────────────────────────
+
+let depth = 0;
+
+function recorded<T>(world: World, fn: OrderFn, seat: ControlState | null, args: unknown[], run: () => T): T {
+  if (world.log && depth === 0) {
+    world.log.push({
+      tick: world.tick,
+      kind: "order",
+      fn,
+      seat: seat ? { ...seat } : null,
+      args: JSON.parse(JSON.stringify(args)) as unknown[],
+    });
+  }
+  depth++;
+  try {
+    return run();
+  } finally {
+    depth--;
+  }
+}
+
+export function orderSquadTo(world: World, target: Vec2, seat: ControlState | null = world.control): boolean {
+  return recorded(world, "orderSquadTo", seat, [target], () => orderSquadToImpl(world, target, seat));
+}
+export function orderPlatoonTo(world: World, target: Vec2, seat: ControlState | null = world.control): boolean {
+  return recorded(world, "orderPlatoonTo", seat, [target], () => orderPlatoonToImpl(world, target, seat));
+}
+export function orderCompanyTo(world: World, target: Vec2, seat: ControlState | null = world.control): boolean {
+  return recorded(world, "orderCompanyTo", seat, [target], () => orderCompanyToImpl(world, target, seat));
+}
+export function orderCasevac(
+  world: World,
+  patientId?: number,
+  seat: ControlState | null = world.control,
+): boolean {
+  return recorded(world, "orderCasevac", seat, [patientId ?? null], () =>
+    orderCasevacImpl(world, patientId, seat),
+  );
+}
+export function orderControlledTo(world: World, target: Vec2, seat: ControlState | null = world.control): boolean {
+  return recorded(world, "orderControlledTo", seat, [target], () => orderControlledToImpl(world, target, seat));
+}
+export function assignPlatoonMission(
+  world: World,
+  platoonId: number,
+  mission: Mission,
+  seat: ControlState | null = world.control,
+): boolean {
+  return recorded(world, "assignPlatoonMission", seat, [platoonId, mission], () =>
+    assignPlatoonMissionImpl(world, platoonId, mission, seat),
+  );
+}
+export function assignSquadMission(
+  world: World,
+  squadId: number,
+  mission: Mission,
+  seat: ControlState | null = world.control,
+): boolean {
+  return recorded(world, "assignSquadMission", seat, [squadId, mission], () =>
+    assignSquadMissionImpl(world, squadId, mission, seat),
+  );
+}
+export function orderReinforcement(world: World, seat: ControlState | null = world.control): boolean {
+  return recorded(world, "orderReinforcement", seat, [], () => orderReinforcementImpl(world, seat));
+}
+export function orderFireMission(
+  world: World,
+  target: Vec2,
+  seat: ControlState | null = world.control,
+): FireMissionResult | null {
+  return recorded(world, "orderFireMission", seat, [target], () => orderFireMissionImpl(world, target, seat));
+}
+export function orderSmoke(world: World, target: Vec2, seat: ControlState | null = world.control): SmokeResult | null {
+  return recorded(world, "orderSmoke", seat, [target], () => orderSmokeImpl(world, target, seat));
+}
+
+/** 記録された命令を同じ引数でもう一度出す(再生用。`world.log` が null なら記録はしない) */
+export function replayOrder(world: World, fn: OrderFn, seat: ControlState | null, args: unknown[]): void {
+  const v = (i: number) => args[i] as Vec2;
+  switch (fn) {
+    case "orderSquadTo":
+      orderSquadTo(world, v(0), seat);
+      return;
+    case "orderPlatoonTo":
+      orderPlatoonTo(world, v(0), seat);
+      return;
+    case "orderCompanyTo":
+      orderCompanyTo(world, v(0), seat);
+      return;
+    case "orderCasevac":
+      orderCasevac(world, (args[0] as number | null) ?? undefined, seat);
+      return;
+    case "orderControlledTo":
+      orderControlledTo(world, v(0), seat);
+      return;
+    case "assignPlatoonMission":
+      assignPlatoonMission(world, args[0] as number, args[1] as Mission, seat);
+      return;
+    case "assignSquadMission":
+      assignSquadMission(world, args[0] as number, args[1] as Mission, seat);
+      return;
+    case "orderReinforcement":
+      orderReinforcement(world, seat);
+      return;
+    case "orderFireMission":
+      orderFireMission(world, v(0), seat);
+      return;
+    case "orderSmoke":
+      orderSmoke(world, v(0), seat);
+      return;
+  }
 }
