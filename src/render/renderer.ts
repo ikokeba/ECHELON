@@ -10,7 +10,7 @@ import * as THREE from "three";
 import type { World } from "@sim/world.ts";
 import type { FxEvent, Side, Soldier, Vec2 } from "@sim/types.ts";
 import type { ViewResult } from "@sim/viewpoint.ts";
-import { DEFENSE, LITTER, MORTAR, SIM_HZ, SOLDIER_RADIUS } from "@sim/constants.ts";
+import { ANTI_ARMOR, DEFENSE, DRONE, LITTER, MORTAR, SIM_HZ, SOLDIER_RADIUS } from "@sim/constants.ts";
 import { smokeRadius } from "@sim/systems/smoke.ts";
 import { collidesWall, hasLineOfSight } from "@sim/geometry.ts";
 import { coverBonus } from "@sim/cover.ts";
@@ -471,6 +471,10 @@ export interface Renderer {
   resize(): void;
   /** 画面ピクセル下のワールド座標(将来の選択・命令発行用) */
   screenToWorld(clientX: number, clientY: number): { x: number; z: number };
+  /** ワールド座標の画面ピクセル位置(`[v7.3]` 開発用の撮影スクリプトが使う) */
+  worldToScreen(p: Vec2): { x: number; y: number };
+  /** カメラを置く(中心と、画面の高さに収めるワールドの長さ m)。`[v7.3]` 開発用 */
+  setCamera(center: Vec2, span: number): void;
   dispose(): void;
 }
 
@@ -1304,6 +1308,21 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     return { outer: make(1), core: make(0.62) };
   });
 
+  // 観測ドローンの見えている範囲(`[v7.3]` A-2)。輪の線だけでは盤面に埋もれるので薄い円盤を敷く
+  const MAX_DRONES = 4;
+  const droneDiscs = Array.from({ length: MAX_DRONES }, () => {
+    const g = new THREE.CircleGeometry(DRONE.VIEW_RADIUS, 40);
+    g.rotateX(-Math.PI / 2);
+    const m = new THREE.Mesh(
+      g,
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthTest: false }),
+    );
+    m.renderOrder = 21;
+    m.visible = false;
+    scene.add(m);
+    return m;
+  });
+
   // ── 迫撃砲の着弾(`[v6.9]`)──
   //
   // 擲弾と同じ2層(火球+衝撃波)に、外側の**土煙**を1枚足して3層にしてある。
@@ -2112,7 +2131,9 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
               }),
             );
           }
-          const mortar = f.kind === "mortar";
+          // 対戦車火器の着弾は迫撃砲と同じ「別格の出来事」の描き方にする(破片と制圧の輪)。
+          // 擲弾と同じ小さな円では、陣地が吹き飛ぶ出来事に見えない
+          const mortar = f.kind === "mortar" || f.kind === "rocket";
           blasts.push({
             x: f.at.x,
             z: f.at.z,
@@ -2120,7 +2141,8 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
             side: f.side,
             life: mortar ? MORTAR_BLAST_LIFE : BLAST_LIFE,
             mortar,
-            suppressRadius: f.kind === "mortar" ? f.suppressRadius : f.radius,
+            suppressRadius:
+              f.kind === "mortar" ? f.suppressRadius : f.kind === "rocket" ? ANTI_ARMOR.SUPPRESS_RADIUS : f.radius,
             flash: f.kind === "flashbang",
           });
           // 迫撃砲だけ破片を飛ばす。擲弾にも付けると盤面が線だらけになり、
@@ -2379,6 +2401,29 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
           draw(ring, c, 0.6);
         }
       }
+      // 観測ドローン(`[v7.3]` A-2)。飛んでいる機体と、見えている範囲の輪。自陣営と神視点だけ
+      let dn = 0;
+      for (const d of world.drones) {
+        if (!opts.truth && d.side !== opts.viewSide) continue;
+        if (d.state !== "flying" && d.state !== "returning") continue;
+        const c = SIDE_COLOR[d.side];
+        const disc = dn < MAX_DRONES ? droneDiscs[dn++]! : null;
+        if (disc) {
+          disc.position.set(d.pos.x, 0.06, d.pos.z);
+          (disc.material as THREE.MeshBasicMaterial).color.setHex(c);
+          disc.visible = true;
+        }
+        const ring: Vec2[] = [];
+        for (let k = 0; k <= 20; k++) {
+          const a = (k / 20) * Math.PI * 2;
+          ring.push({ x: d.pos.x + Math.cos(a) * DRONE.VIEW_RADIUS, z: d.pos.z + Math.sin(a) * DRONE.VIEW_RADIUS });
+        }
+        draw(ring, c, 0.6);
+        const r = 2.4;
+        draw([{ x: d.pos.x - r, z: d.pos.z - r }, { x: d.pos.x + r, z: d.pos.z + r }], c, 0.95);
+        draw([{ x: d.pos.x - r, z: d.pos.z + r }, { x: d.pos.x + r, z: d.pos.z - r }], c, 0.95);
+      }
+      for (let k = dn; k < MAX_DRONES; k++) droneDiscs[k]!.visible = false;
       for (let k = n; k < MAX_DEF_LINES; k++) defLines[k]!.visible = false;
     }
 
@@ -2586,6 +2631,21 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     render,
     resize,
     screenToWorld,
+    worldToScreen(p: Vec2) {
+      const rect = canvas.getBoundingClientRect();
+      const halfH = viewSpan / 2;
+      const halfW = halfH * (rect.width / Math.max(1, rect.height));
+      return {
+        x: rect.left + ((p.x - target.x) / halfW + 1) * 0.5 * rect.width,
+        y: rect.top + ((p.z - target.z) / halfH + 1) * 0.5 * rect.height,
+      };
+    },
+    setCamera(center: Vec2, span: number) {
+      target.x = center.x;
+      target.z = center.z;
+      viewSpan = THREE.MathUtils.clamp(span, 12, 220);
+      updateCamera();
+    },
     dispose() {
       canvas.removeEventListener("pointerdown", onDown);
       canvas.removeEventListener("pointermove", onMove);
@@ -2673,6 +2733,10 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       for (const s of smokePool) {
         s.outer.geometry.dispose();
         s.core.geometry.dispose();
+      }
+      for (const d of droneDiscs) {
+        d.geometry.dispose();
+        (d.material as THREE.Material).dispose();
       }
       coneGeo.dispose();
       fovMesh.dispose();

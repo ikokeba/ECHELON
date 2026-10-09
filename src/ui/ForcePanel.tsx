@@ -41,6 +41,8 @@ export function ForcePanel() {
   const smoke = s.smoke;
   // 対戦車・対構造物火器(`[v7.3]` A-3)。分隊長を操作していて射手がいるときだけ
   const at = s.antiArmor;
+  // 観測ドローン(`[v7.3]` A-2)。中隊長を操作しているときだけ
+  const drone = s.drone;
 
   return (
     <div className="panel">
@@ -134,6 +136,26 @@ export function ForcePanel() {
             title="押してから盤面をクリックした地点へ焚く(分隊長から30m以内。もう一度押すと取り消し)"
           >
             {s.armed === "smoke" ? "地点を選択…" : "発煙"}
+          </button>
+        </div>
+      )}
+      {drone && (
+        <div
+          className="force-detail force-reinf"
+          title="観測ドローン(`[v7.3]`)。真下の狭い範囲を上から見る。見たものは操縦手から無線で中隊長へ上がる(遅れて粗い)"
+        >
+          <span>
+            ドローン {drone.state}・電池 {drone.batteriesLeft}
+          </span>
+          {drone.flightSec !== null && <span>残り {Math.ceil(drone.flightSec)}秒</span>}
+          <button
+            type="button"
+            className={`seg-btn${s.armed === "drone" ? " seg-on" : ""}`}
+            disabled={!drone.canTask}
+            onClick={() => s.arm(s.armed === "drone" ? null : "drone")}
+            title="押してから盤面をクリックした地点の上へ飛ばす(操縦手から450m以内。もう一度押すと取り消し)"
+          >
+            {s.armed === "drone" ? "飛ばし先を選択…" : "ドローン"}
           </button>
         </div>
       )}

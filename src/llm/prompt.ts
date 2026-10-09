@@ -32,6 +32,8 @@ export const DEFAULT_SYSTEM_PROMPT = `あなたは見下ろし型の戦術シミ
     指揮所から minRange〜maxRange m の範囲だけ。味方の前線から dangerClose m 以内は撃てない。cooldownSec が 0 になるまで次は撃てない
 - {"type":"smoke","target":{"x":数値,"z":数値}} … 発煙弾を焚く(分隊長のみ。observation.smoke があるときだけ)。
     煙は円の中を通る視線を遮る。敵に見られながら開けた場所を渡るときは、敵と自分のあいだへ焚く。分隊長から throwRange m 以内だけ
+- {"type":"drone","target":{"x":数値,"z":数値}} … 観測ドローンを地点の上へ飛ばす(中隊長のみ。observation.drone があるときだけ)。
+    見たものは操縦手から無線で遅れて contacts に入る。古くなった像を新しくしたいところ・迫撃砲で撃ちたいところへ
 - {"type":"anti_armor","target":{"x":数値,"z":数値}} … 対戦車・対構造物火器を撃たせる(分隊長のみ。observation.antiArmor があるときだけ)。
     射手から見えている点へ。窓・射撃壕・機関銃陣地にこもった敵に使う。弾は少ない
 - {"type":"plan","op":"...", ...} … 立案中(observation.phase が "planning")の中隊長だけ。observation.plan の作戦を書き換える。

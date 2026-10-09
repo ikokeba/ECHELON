@@ -17,7 +17,9 @@ import {
   orderReinforcement,
   orderSmoke,
   orderAntiArmor,
+  orderDrone,
 } from "../sim/playerOrders.ts";
+import { DRONE_BLOCK_TEXT } from "../sim/systems/drone.ts";
 import { ANTI_ARMOR_BLOCK_TEXT } from "../sim/systems/antiArmor.ts";
 import { SMOKE_BLOCK_TEXT } from "../sim/systems/smoke.ts";
 import { FIRE_MISSION_BLOCK_TEXT } from "../sim/systems/indirect.ts";
@@ -198,6 +200,12 @@ export function parseResponse(raw: unknown): ParsedResponse {
         else commands.push({ type: "fire_mission", target });
         return;
       }
+      case "drone": {
+        const target = vecOf(c.target);
+        if (!target) errors.push(`commands[${i}] drone: target {x,z} が無い`);
+        else commands.push({ type: "drone", target });
+        return;
+      }
       case "anti_armor": {
         const target = vecOf(c.target);
         if (!target) errors.push(`commands[${i}] anti_armor: target {x,z} が無い`);
@@ -317,6 +325,23 @@ export function applyResponse(world: World, seat: AgentSeat, resp: AgentResponse
             : r.ok
               ? `#${i} smoke ${at}: 受理`
               : `#${i} smoke ${at}: 却下 — ${SMOKE_BLOCK_TEXT[r.reason]}`,
+        );
+        return;
+      }
+      case "drone": {
+        if (seat.echelon !== "company") {
+          out.push(`#${i} drone: 中隊長だけが出せる`);
+          return;
+        }
+        const t = clampToBounds(world, c.target);
+        const r = orderDrone(world, t, seat);
+        const at = `(${t.x.toFixed(0)},${t.z.toFixed(0)})`;
+        out.push(
+          !r
+            ? `#${i} drone: 却下`
+            : r.ok
+              ? `#${i} drone ${at}: 受理`
+              : `#${i} drone ${at}: 却下 — ${DRONE_BLOCK_TEXT[r.reason]}`,
         );
         return;
       }

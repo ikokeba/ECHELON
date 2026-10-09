@@ -160,7 +160,11 @@ export function radioSystem(world: World): void {
         continue;
       }
       if (r.flash) logFlash(world, r);
-      if (r.fromEchelon === "squad") {
+      if (r.fromEchelon === "soldier") {
+        // 観測ドローンの操縦手 → 中隊長(`[v7.3]` A-2)。接触だけを統合する(部下の状況ではない)
+        const co = world.companies.find((c) => c.side === r.side && c.companyId === r.toUnitId);
+        if (co) for (const c of r.contacts) mergeContact(co.belief, c);
+      } else if (r.fromEchelon === "squad") {
         const pl = world.platoons.find((p) => p.side === r.side && p.platoonId === r.toUnitId);
         if (pl) {
           for (const c of r.contacts) mergeContact(pl.belief, c);
@@ -195,6 +199,9 @@ export function radioSystem(world: World): void {
   }
   for (const co of world.companies) {
     decayBelief(co.belief, world.tick);
+  }
+  for (const d of world.drones) {
+    decayBelief(d.belief, world.tick);
   }
 
   // ── 4. 定時報告の生成: 分隊長 → 小隊長 ──
@@ -283,6 +290,39 @@ export function radioSystem(world: World): void {
         posCentroid: centroidOf(effective.map((s) => s.pos)),
         posLead: leadOf(effective.map((s) => s.pos), pl.advanceDir),
       },
+    });
+  }
+
+  // ── 6. 観測ドローンの操縦手 → 中隊長(`[v7.3]` A-2) ──
+  droneReports(world);
+}
+
+/**
+ * 観測ドローンの操縦手 → 中隊長の報告(`[v7.3]` ロードマップ A-2)。分隊長 → 小隊長と同じ作法:
+ * 5秒ごとの定時と、新しく確かな接触を見たときの臨時報告。遅延・粒度の低下・減衰も同じに掛かる
+ */
+function droneReports(world: World): void {
+  for (const d of world.drones) {
+    const op = world.soldierById.get(d.operatorId);
+    if (!op || op.status !== "ok" || d.belief.size === 0) continue;
+    const doc = sideDoctrine(world, d.side);
+    const flash = flashReasons(world, d.flashWatch, {
+      contact: hasFirmContact(d.belief),
+      commanderId: d.flashWatch.commanderId,
+      routed: 0,
+    });
+    if (!flash && world.tick - d.lastReportTick < REPORT_INTERVAL_TICKS * doc.reportIntervalMul) continue;
+    d.lastReportTick = world.tick;
+    world.reports.push({
+      fromEchelon: "soldier",
+      fromUnitId: op.id,
+      toUnitId: d.companyId,
+      side: d.side,
+      sentTick: world.tick,
+      deliverTick: world.tick + Math.round(RADIO_LATENCY_TICKS * doc.radioLatencyMul),
+      contacts: selectContactsForReport(d.belief),
+      ...(flash ? { flash } : {}),
+      ownStatus: { effective: 1, total: 1, posCentroid: { ...op.pos }, posLead: { ...op.pos } },
     });
   }
 }

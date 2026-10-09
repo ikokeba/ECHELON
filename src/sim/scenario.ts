@@ -149,6 +149,7 @@ export function makeSoldier(seed: SoldierSeed): Soldier {
       medicalCrossTrained: seed.quals?.medicalCrossTrained ?? false,
       designatedMarksman: seed.quals?.designatedMarksman ?? false,
       ...(seed.quals?.antiArmor ? { antiArmor: true } : {}),
+      ...(seed.quals?.droneOperator ? { droneOperator: true } : {}),
     },
     assignedAider: null,
     treating: null,
@@ -219,6 +220,8 @@ function makeCompanyHq(
   cp: Vec2,
   ccp: Vec2,
   dir: Vec2,
+  /** `[v7.3]` 観測ドローン班(A-2)。無線手が操縦手を兼ねる */
+  drone = false,
 ): Soldier[] {
   const right = { x: -dir.z, z: dir.x };
   const atCp = (["co", "xo", "coRto"] as const).map((hqRole, i) =>
@@ -231,6 +234,7 @@ function makeCompanyHq(
       pos: { x: cp.x + right.x * (i - 1) * 1.8, z: cp.z + right.z * (i - 1) * 1.8 },
       facing: dir,
       hqRole,
+      ...(drone && hqRole === "coRto" ? { quals: { droneOperator: true } } : {}),
     }),
   );
   const firstSergeant = makeSoldier({
@@ -975,10 +979,10 @@ function companyOnField(
 
   // 中隊本部は中隊規模のときだけ。小隊/分隊規模では最上位が小隊長/分隊長になる(仕様 §2)
   if (FORCE_SCALES[force.blue.scale].companyHq) {
-    soldiers.push(...makeCompanyHq("blue", 0, blueCp, blueCcp, { x: 0, z: 1 }));
+    soldiers.push(...makeCompanyHq("blue", 0, blueCp, blueCcp, { x: 0, z: 1 }, force.blue.drone === true));
   }
   if (FORCE_SCALES[force.red.scale].companyHq) {
-    soldiers.push(...makeCompanyHq("red", 1, redCp, redCcp, { x: 0, z: -1 }));
+    soldiers.push(...makeCompanyHq("red", 1, redCp, redCcp, { x: 0, z: -1 }, force.red.drone === true));
   }
 
   return {
@@ -1285,10 +1289,10 @@ export function urbanAssaultScenario(
   const blueCcp = { x: -6, z: -(spawnZ + 20) };
   const redCcp = { x: 8, z: spawnZ + 20 };
   if (FORCE_SCALES[f.blue.scale].companyHq) {
-    soldiers.push(...makeCompanyHq("blue", 0, blueCp, blueCcp, { x: 0, z: 1 }));
+    soldiers.push(...makeCompanyHq("blue", 0, blueCp, blueCcp, { x: 0, z: 1 }, f.blue.drone === true));
   }
   if (FORCE_SCALES[f.red.scale].companyHq) {
-    soldiers.push(...makeCompanyHq("red", 1, redCp, redCcp, { x: 0, z: -1 }));
+    soldiers.push(...makeCompanyHq("red", 1, redCp, redCcp, { x: 0, z: -1 }, f.red.drone === true));
   }
 
   return {

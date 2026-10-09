@@ -15,7 +15,7 @@ import { platoonName } from "../sim/c2/planning.ts";
 import { reinforcementsLeft, topCommandOf } from "../sim/systems/reinforcement.ts";
 import { isOffField } from "../sim/systems/litter.ts";
 import { fireMissionCooldownLeft, mortarMagazine } from "../sim/systems/indirect.ts";
-import { ANTI_ARMOR, MORTAR, SIM_HZ, SMOKE } from "../sim/constants.ts";
+import { ANTI_ARMOR, DRONE, MORTAR, SIM_HZ, SMOKE } from "../sim/constants.ts";
 import { smokeCooldownLeft, smokeThrower } from "../sim/systems/smoke.ts";
 import { sideDoctrine } from "../sim/world.ts";
 import type { Contact, Side, Vec2 } from "../sim/types.ts";
@@ -71,11 +71,16 @@ export function commandSpecs(
   canReinforce = false,
   canFire = false,
   canPlan = false,
+  canDrone = false,
 ): CommandSpec[] {
   // 立案中の中隊長は作戦の書き換えだけ(`[v7.3]` A-1)。時間が止まっているので他の命令は意味が無い
   if (canPlan) return [PLAN_SPEC, { type: "hold", description: "書き換えずに AI の作戦のまま戦闘を始める" }];
   const list = baseSpecs(seat);
-  const extra = [...(canFire ? [FIRE_MISSION_SPEC] : []), ...(canReinforce ? [REINFORCE_SPEC] : [])];
+  const extra = [
+    ...(canFire ? [FIRE_MISSION_SPEC] : []),
+    ...(canDrone ? [DRONE_SPEC] : []),
+    ...(canReinforce ? [REINFORCE_SPEC] : []),
+  ];
   if (extra.length === 0) return list;
   // hold の手前に差し込む
   return [...list.slice(0, -1), ...extra, list[list.length - 1]!];
@@ -95,6 +100,13 @@ const PLAN_SPEC: CommandSpec = {
     "(seize / support_by_fire / screen / reserve)と objective(拠点 id)に / op=main: objective を主攻に / " +
     "op=route: unit の経由点 points / op=start: unit の発進を atSec 秒後に / op=phase_line: 調整線 points(2点、空で消す)/ " +
     "op=fires: 迫撃砲の射撃計画 fires [{target,atSec}](atSec は 45 秒以上・45 秒以上あける)",
+};
+
+const DRONE_SPEC: CommandSpec = {
+  type: "drone",
+  description:
+    "観測ドローンを target {x,z} の上へ飛ばす(observation.drone を見る)。真下の狭い範囲だけを上から見て、" +
+    "見たものは操縦手から無線で遅れて contacts に入る。電池が尽きる前に自分で戻る。操縦手から maxRange m 以内",
 };
 
 const REINFORCE_SPEC: CommandSpec = {
@@ -184,6 +196,8 @@ export function buildObservation(
     ? world.fireMissions.find((m) => m.side === own && m.companyId === fireCo.companyId)
     : undefined;
   const planCo = seat.echelon === "company" ? fireCo : undefined;
+  // 観測ドローン(`[v7.3]` A-2)。中隊長の座席で、中隊がドローンを持つときだけ
+  const drone = planCo ? (world.drones.find((d) => d.side === own && d.companyId === planCo.companyId) ?? null) : null;
   const plan = planCo?.plan;
   const base = {
     protocol: PROTOCOL_VERSION,
@@ -213,7 +227,30 @@ export function buildObservation(
       objectives,
     },
     victory: world.victory ? (rel(own, world.victory.winner) as RelSide) : null,
-    commands: commandSpecs(seat, canReinforce, canFire, world.phase === "planning" && plan !== undefined),
+    commands: commandSpecs(
+      seat,
+      canReinforce,
+      canFire,
+      world.phase === "planning" && plan !== undefined,
+      drone !== null,
+    ),
+    ...(drone
+      ? {
+          drone: {
+            state: drone.state,
+            pos: rv(drone.pos),
+            batteriesLeft: drone.batteriesLeft,
+            flightSec:
+              drone.state === "flying" || drone.state === "returning" ? r1(drone.flightTicksLeft / SIM_HZ) : null,
+            viewRadius: DRONE.VIEW_RADIUS,
+            maxRange: DRONE.MAX_RANGE,
+            operator: (() => {
+              const op = world.soldierById.get(drone.operatorId);
+              return op && op.status === "ok" ? rv(op.pos) : null;
+            })(),
+          },
+        }
+      : {}),
     lastResult,
     ...(canFire && fireCo
       ? {

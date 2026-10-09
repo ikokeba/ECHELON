@@ -37,6 +37,8 @@ import type { World } from "../world.ts";
 function priorityOf(t: Soldier): number {
   if (t.role === "mg") return 3;
   if (t.quals.designatedMarksman) return 3;
+  // `[v7.3]` 観測ドローンの操縦手も選抜射手と同じく優先目標(A-2、ロードマップ §6.1)
+  if (t.quals.droneOperator) return 3;
   if (t.role === "saw") return 2;
   if (t.isSquadLeader || t.isFireteamLeader || t.hqRole !== null) return 1;
   return 0;

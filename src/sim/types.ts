@@ -264,6 +264,8 @@ export interface SoldierQualifications {
   designatedMarksman: boolean;
   /** `[v7.3]` 対戦車・対構造物火器の射手(ロードマップ A-3)。弾は `Soldier.atRounds` */
   antiArmor?: boolean;
+  /** `[v7.3]` 観測ドローンの操縦手(ロードマップ A-2)。中隊本部の無線手が兼ねる */
+  droneOperator?: boolean;
 }
 
 export interface SoldierOrder {
@@ -1312,6 +1314,42 @@ export interface Gunshot {
   range: number;
   /** 足音(`HEARING.FOOTSTEP`)。壁越しでも聞こえる距離が縮まない */
   footstep?: boolean;
+}
+
+/**
+ * 観測ドローン1機(`[v7.3]` ロードマップ A-2)。中隊に1機、操縦手(兵士)が飛ばす。
+ *
+ * **見る主体であって、全体像を配る装置ではない**(ロードマップ §6.1)。見たものは `belief`
+ * (= 操縦手の記憶)に入るだけで、そこから先は分隊長と同じく無線報告で中隊長へ上がる
+ * (遅延・粒度の低下・確度の減衰つき)。中隊長の像だけが新しくなり、末端の像は古いまま。
+ *   ready     : 操縦手の手元にある(飛ばせる)
+ *   flying    : 飛ばし先へ向かう・その上で見ている
+ *   returning : 電池が尽きる前に操縦手の元へ戻っている
+ *   swapping  : 電池を替えている
+ *   lost      : 操縦手が倒れて落ちた
+ *   spent     : 電池を使い切った
+ */
+export interface Drone {
+  id: number;
+  side: Side;
+  companyId: number;
+  /** 操縦手の兵士 id */
+  operatorId: number;
+  state: "ready" | "flying" | "returning" | "swapping" | "lost" | "spent";
+  pos: Vec2;
+  /** 飛ばし先(flying のとき) */
+  target: Vec2 | null;
+  /** 残りの電池(いま使っているものを含む) */
+  batteriesLeft: number;
+  /** いまの電池で飛べる残りティック */
+  flightTicksLeft: number;
+  /** state に入ったティック */
+  stateTick: number;
+  /** 操縦手の記憶(ドローンが直接見た接触)。ここから中隊長へ無線で上がる */
+  belief: Map<string, Contact>;
+  lastReportTick: number;
+  /** 臨時報告(A-8)の判定 */
+  flashWatch: FlashWatch;
 }
 
 /**

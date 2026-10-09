@@ -45,7 +45,7 @@
 | 2 | **能力を足さない**(仕様 §4) | 命令の適用は `sim/playerOrders.ts` の**人間と同じ関数**。出せる命令の種類も AI 指揮官が出しているもの(任務 seize / support_by_fire / screen 等)だけ | 座席がある間は AI に上書きされない / 外すと AI が再開する |
 | 3 | **陣営を名前で渡さない**(仕様 §2/§13) | 観測の中の陣営は `"own"` / `"enemy"`。青に座っても赤に座っても同じ形の盤面に見える | 陣営ラベルを入れ替えた盤面で、反対側の座席に**完全に同じ観測**が届くこと |
 
-## 3. やり取りの形(プロトコル `echelon-llm/0.6`)
+## 3. やり取りの形(プロトコル `echelon-llm/0.7`)
 
 型の定義は `src/llm/protocol.ts`。
 
@@ -53,7 +53,7 @@
 
 ```jsonc
 {
-  "protocol": "echelon-llm/0.6",
+  "protocol": "echelon-llm/0.7",
   "timeSec": 84.0, "tick": 2520,
   "you": {
     "echelon": "company", "unit": 0, "name": "中隊長",
@@ -109,6 +109,7 @@
 | `reinforce` | 陣営の最上位 | 後援部隊を要請する(回数に上限) | `orderReinforcement` |
 | `fire_mission` | 中隊長 | 迫撃砲の射撃を地点へ要請する(`[v7.2]`)。却下されたら理由が `lastResult` に返る | `orderFireMission` → `requestFireMission`(AIの中隊長と共通) |
 | `smoke` | 分隊長 | 発煙弾を地点へ焚く(`[v7.2]`)。煙は視線だけを遮る。観測の `smoke` に残数・間隔・投げられる距離・盤上の煙 | `orderSmoke` → `throwSmoke`(AIの分隊長と共通) |
+| `drone` | 中隊長 | 観測ドローンを地点の上へ飛ばす(`[v7.3]` A-2)。観測の `drone` に状態・位置・電池・見える半径・届く距離。ドローンが見たものは操縦手から無線で遅れて `contacts` に入る | `orderDrone` → `taskDrone`(AIの中隊長と共通) |
 | `anti_armor` | 分隊長 | 対戦車・対構造物火器を地点へ撃たせる(`[v7.3]` A-3)。観測の `antiArmor` に残弾・間隔・射手の位置・射程 | `orderAntiArmor` → `fireAntiArmor`(AIの射手と共通) |
 | `plan` | 中隊長(立案中のみ) | 作戦を書き換える(`[v7.3]` A-1)。`op` = task(unit・mission・objective)/ main(objective)/ route(unit・points)/ start(unit・atSec)/ phase_line(points 2点、空で消す)/ fires(fires=[{target, atSec}])。観測の `phase` が `planning` のときは命令一覧が `plan` と `hold` だけになり、観測の `plan` に今の作戦が載る | `editPlan`(人間の立案パネルと共通) |
 | `hold` | 全階層 | 何もしない(現在の命令を続ける) | — |
@@ -167,4 +168,4 @@ npm run llm -- --echelon platoon --interval 15 --model qwen2.5-7b-instruct --ver
 ## 7. まだやっていないこと(次の候補)
 
 ロードマップ([`docs/ロードマップ.md`](ロードマップ.md))へ移した。LLM まわりは C-23〜C-27(複数の座席、対戦と評価、観測の要約、会話の履歴、ツール呼び出し形式)。
-迫撃砲の要請(旧 S-5)は `[v7.2]` で実装した(プロトコル `echelon-llm/0.2`)。発煙(旧 S-2、`smoke`)で `0.3`。`[v7.3]` で接触に `heard`(銃声で聞いただけの接触、ロードマップ A-5)を足して `0.4`、立案中の作戦の書き換え(`plan` 命令と観測の `phase`・`plan`、A-1)を足して `0.5`、対戦車・対構造物火器(`anti_armor` 命令と観測の `antiArmor`、A-3)を足して `0.6`。
+迫撃砲の要請(旧 S-5)は `[v7.2]` で実装した(プロトコル `echelon-llm/0.2`)。発煙(旧 S-2、`smoke`)で `0.3`。`[v7.3]` で接触に `heard`(銃声で聞いただけの接触、ロードマップ A-5)を足して `0.4`、立案中の作戦の書き換え(`plan` 命令と観測の `phase`・`plan`、A-1)を足して `0.5`、対戦車・対構造物火器(`anti_armor` 命令と観測の `antiArmor`、A-3)を足して `0.6`、観測ドローン(`drone` 命令と観測の `drone`、A-2)を足して `0.7`。
