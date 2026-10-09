@@ -68,6 +68,7 @@ function ThinkingPanelBody() {
         {thinking.squads.length === 0 && <div className="tp-empty">（この陣営に分隊なし）</div>}
       </div>
 
+      {thinking.counter && <div className="tp-empty">⟲ {thinking.counter}</div>}
       {thinking.flashes.length > 0 && (
         <div className="tp-selected">
           <div className="panel-cap">

@@ -92,7 +92,7 @@ and a regular Grid. Each side picks its own size — a squad (9), a platoon (36)
 plus any reinforcements — and its own command doctrine. Besides the meeting engagement there is an
 attack/defence mode, where the defender holds every objective until the clock runs out. The defender
 starts that mode dug in, with machine-gun positions, fighting positions, alternate positions and
-barbed wire.
+barbed wire, a forward position and an ambush.
 
 ## What is simulated
 
@@ -114,7 +114,9 @@ barbed wire.
   they are being watched over.
 - **Defensive planning.** In attack/defence the defending company commander sites positions from
   terrain alone, without knowing where the attacker is. Machine guns fire only inside their sector,
-  fighting positions give the same cover as windows, and wire stops people but not sight.
+  fighting positions give the same cover as windows, and wire stops people but not sight. An L-shaped
+  ambush holds its fire until the enemy is in the kill zone, a forward position falls back to the main
+  line when pressed, and a lost objective draws a counterattack.
 - **Morale and victory.** Fire teams can break, command succession is handled, and objectives
   decide the battle.
 - **Company assets.** A 60 mm mortar that fires at what the company commander *believes*, not at

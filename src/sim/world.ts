@@ -470,6 +470,7 @@ function buildCompanies(scenario: Scenario, soldiers: Soldier[]): CompanyState[]
       lastFireMissionTick: 0,
       // 立案フェーズを踏んだときだけ `beginPlanning` が入れる(`[v6.5]`)
       plan: null,
+      counterattack: null,
       commanderId: null,
       degradedSinceTick: null,
     });

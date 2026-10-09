@@ -825,6 +825,12 @@ export interface CompanyState {
   lastFireMissionTick: number;
 
   /**
+   * 逆襲(`[v7.3]` ロードマップ A-4)。攻防戦の防御側の中隊長が、奪われた拠点を取り返しに
+   * 1個小隊を差し向けている間だけ非 null
+   */
+  counterattack: { objectiveId: number; platoonId: number; sinceTick: number } | null;
+
+  /**
    * 戦闘前に立てた作戦(`[v6.5]`)。null なら立案フェーズを踏んでいない
    * (テストやヘッドレス実行の既定)。作戦がある間、麾下小隊への任務割り当ては
    * 幾何的な担当区域ではなくこの計画から引く — 計画は FRAGO(=拠点の確保完了や
@@ -1247,8 +1253,12 @@ export interface Gunshot {
  *   fighting  : 射撃壕・土嚢。就いた者は窓と同じ補正を受ける(被命中 −60% / 命中 +30%、§8)
  *   alternate : 予備陣地。拠点を持つ小隊のFTが、後退・潰走のときに下がる先
  *   wire      : `[v7.2]` 鉄条網(S-1b)。人は通さず視線は通す。接近路を横切って張る
+ *   forward   : `[v7.3]` 前進陣地(A-4 縦深防御の第1線)。1個分隊が拠点の前方に就き、
+ *               撃ち合いながら敵を遅らせ、押されたら拠点(第2線)へ下がる
+ *   ambush    : `[v7.3]` 待ち伏せ(A-4、L字型)。1個分隊が接近路の脇に伏せ、敵が殺傷地帯に
+ *               入るまで撃たない。`pos` は側面の組(長辺)の位置、`killZone` が殺傷地帯の中心
  */
-export type DefenseKind = "mg" | "fighting" | "alternate" | "wire";
+export type DefenseKind = "mg" | "fighting" | "alternate" | "wire" | "forward" | "ambush";
 
 /**
  * 防衛陣地1つ(`[v7.2]` ロードマップ S-1)。防衛側の中隊長が戦闘前に置く。
@@ -1267,6 +1277,18 @@ export interface DefensivePosition {
   objectiveId: number | null;
   /** mg に就く班(火器分隊の squadId と FT 番号)。他の種類は null */
   crew: { squadId: number; ftIndex: number } | null;
+  /** 待ち伏せの殺傷地帯の中心(`[v7.3]` ambush のみ) */
+  killZone?: Vec2;
+  /**
+   * 分隊の陣地の進み具合(`[v7.3]` forward / ambush。分隊まるごとが就くので crew.ftIndex = -1)。
+   *   set      : 陣地に就いている(待ち伏せなら撃たずに待つ)
+   *   sprung   : 待ち伏せが撃ち始めた。陣地で戦う
+   *   withdraw : 前進陣地から拠点へ下がっている
+   *   released : 役目を終え、分隊は通常の指揮に戻った
+   */
+  stage?: "set" | "sprung" | "withdraw" | "released";
+  /** stage に入ったティック */
+  stageTick?: number;
 }
 
 /** 人間が立案時に置き直した陣地(初期条件コードに載る、ロードマップ P3)。`idx` は AI 案での並び順 */

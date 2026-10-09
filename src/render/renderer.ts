@@ -2305,6 +2305,30 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
             zig.push({ x: p.pos.x + r.x * t + p.facing.x * a, z: p.pos.z + r.z * t + p.facing.z * a });
           }
           draw(zig, c, 0.95);
+        } else if (p.kind === "forward") {
+          // 前進陣地(`[v7.3]` A-4): 正面に横たえた線と、敵の方角への小さな山形
+          const r = { x: -p.facing.z, z: p.facing.x };
+          const at = (a: number, b: number): Vec2 => ({
+            x: p.pos.x + r.x * a + p.facing.x * b,
+            z: p.pos.z + r.z * a + p.facing.z * b,
+          });
+          const op = p.stage === "released" ? 0.3 : 0.9;
+          draw([at(-6, 0), at(6, 0)], c, op);
+          draw([at(-2, 0.5), at(0, 2.2), at(2, 0.5)], c, op);
+        } else if (p.kind === "ambush" && p.killZone) {
+          // 待ち伏せ(`[v7.3]` A-4): 伏せる位置から殺傷地帯への線と、殺傷地帯の円
+          const op = p.stage === "set" ? 0.9 : 0.3;
+          const kz = p.killZone;
+          draw([{ ...p.pos }, { ...kz }], c, op);
+          const ring: Vec2[] = [];
+          for (let k = 0; k <= 20; k++) {
+            const a = (k / 20) * Math.PI * 2;
+            ring.push({
+              x: kz.x + Math.cos(a) * DEFENSE.AMBUSH_KZ_RADIUS,
+              z: kz.z + Math.sin(a) * DEFENSE.AMBUSH_KZ_RADIUS,
+            });
+          }
+          draw(ring, c, op * 0.6);
         } else {
           const ring: Vec2[] = [];
           for (let k = 0; k <= 16; k++) {

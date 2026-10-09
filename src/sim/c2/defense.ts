@@ -24,7 +24,14 @@ import { castRayIndexed, collidesWallIndexed, hasLineOfSightIndexed } from "../w
 import { isOffField } from "../systems/litter.ts";
 import { issue } from "./fireteam.ts";
 import { isDefender } from "./planning.ts";
-import type { AABB, CompanyState, DefensivePosition, FireteamState, Soldier, Vec2 } from "../types.ts";
+import type {
+  AABB,
+  CompanyState,
+  DefensivePosition,
+  FireteamState,
+  Soldier,
+  Vec2,
+} from "../types.ts";
 import { setWire } from "../world.ts";
 import type { World } from "../world.ts";
 
@@ -115,8 +122,13 @@ export function wireSpotBlocker(
     const b = defenseSpotBlocker(world, q);
     if (b === "too_far") continue; // 端が遠くても中心が近ければよい(下で中心を見る)
     if (b) return b;
-    if (world.objectives.some((o) => dist(o.pos, q) < o.radius + DEFENSE.WIRE_CLEARANCE)) return "blocked";
-    if (world.defense.some((d) => d.id !== selfId && d.kind !== "wire" && dist(d.pos, q) < DEFENSE.WIRE_CLEARANCE)) {
+    if (world.objectives.some((o) => dist(o.pos, q) < o.radius + DEFENSE.WIRE_CLEARANCE))
+      return "blocked";
+    if (
+      world.defense.some(
+        (d) => d.id !== selfId && d.kind !== "wire" && dist(d.pos, q) < DEFENSE.WIRE_CLEARANCE,
+      )
+    ) {
       return "blocked";
     }
   }
@@ -125,7 +137,9 @@ export function wireSpotBlocker(
 
 /** 陣地の種類に応じた置き場所の規則(鉄条網だけは線分で見る) */
 function spotBlockerFor(world: World, p: DefensivePosition, at: Vec2): DefenseSpotBlock | null {
-  return p.kind === "wire" ? wireSpotBlocker(world, at, p.facing, p.id) : defenseSpotBlocker(world, at);
+  return p.kind === "wire"
+    ? wireSpotBlocker(world, at, p.facing, p.id)
+    : defenseSpotBlocker(world, at);
 }
 
 /** 鉄条網を張り直す(経路探索と移動の当たり判定)。立案のときだけ呼ぶ */
@@ -139,7 +153,6 @@ function applyWire(world: World): void {
 function hasField(world: World, p: Vec2, face: Vec2, len: number): boolean {
   return hasLineOfSightIndexed(world.wallIndex, p.x, p.z, p.x + face.x * len, p.z + face.z * len);
 }
-
 
 /**
  * 中隊長(AI)の陣地案。**世界は変えない**(立案と下達を分ける、planning.ts と同じ作法)。
@@ -162,7 +175,14 @@ export function planDefense(world: World, co: CompanyState): Omit<DefensivePosit
     for (const back of DEFENSE.ALTERNATE_BACK) {
       const p = { x: o.pos.x - fwd.x * back, z: o.pos.z - fwd.z * back };
       if (!ok(p)) continue;
-      out.push({ side: co.side, kind: "alternate", pos: p, facing: { ...fwd }, objectiveId: o.id, crew: null });
+      out.push({
+        side: co.side,
+        kind: "alternate",
+        pos: p,
+        facing: { ...fwd },
+        objectiveId: o.id,
+        crew: null,
+      });
       break;
     }
 
@@ -175,7 +195,14 @@ export function planDefense(world: World, co: CompanyState): Omit<DefensivePosit
         const p = { x: o.pos.x + ray.x * r, z: o.pos.z + ray.z * r };
         if (!ok(p) || !hasField(world, p, face, DEFENSE.FIGHTING_FIELD)) continue;
         if (out.some((q) => dist(q.pos, p) < DEFENSE.MIN_SPACING)) continue;
-        out.push({ side: co.side, kind: "fighting", pos: p, facing: face, objectiveId: o.id, crew: null });
+        out.push({
+          side: co.side,
+          kind: "fighting",
+          pos: p,
+          facing: face,
+          objectiveId: o.id,
+          crew: null,
+        });
         break;
       }
     }
@@ -188,7 +215,14 @@ export function planDefense(world: World, co: CompanyState): Omit<DefensivePosit
         const p = { x: o.pos.x + ray.x * r, z: o.pos.z + ray.z * r };
         if (wireSpotBlocker(world, p, ray) !== null) continue;
         if (out.some((q) => dist(q.pos, p) < DEFENSE.WIRE_HALF_LEN * 2)) continue;
-        out.push({ side: co.side, kind: "wire", pos: p, facing: ray, objectiveId: o.id, crew: null });
+        out.push({
+          side: co.side,
+          kind: "wire",
+          pos: p,
+          facing: ray,
+          objectiveId: o.id,
+          crew: null,
+        });
         break;
       }
     }
@@ -202,7 +236,9 @@ export function planDefense(world: World, co: CompanyState): Omit<DefensivePosit
       (sq) =>
         sq.side === co.side &&
         sq.platoonId === t.platoonId &&
-        world.soldiers.some((s) => s.side === sq.side && s.squadId === sq.squadId && s.role === "mg"),
+        world.soldiers.some(
+          (s) => s.side === sq.side && s.squadId === sq.squadId && s.role === "mg",
+        ),
     );
     for (const sq of weapons) {
       const teams = world.fireteams
@@ -223,7 +259,14 @@ export function planDefense(world: World, co: CompanyState): Omit<DefensivePosit
             for (const ang of DEFENSE.MG_ANGLES_DEG) {
               // 内側(拠点の前)へ振る向きを正にとる
               const face = rotate(fwd, -sign * ang);
-              const field = castRayIndexed(world.wallIndex, p.x, p.z, face.x, face.z, DEFENSE.MG_FIELD_CAP);
+              const field = castRayIndexed(
+                world.wallIndex,
+                p.x,
+                p.z,
+                face.x,
+                face.z,
+                DEFENSE.MG_FIELD_CAP,
+              );
               if (field < DEFENSE.MG_MIN_FIELD) continue;
               // 射界が長いほど良く、拠点から遠いほど・外へ振るほど少し悪い
               const score = field - 0.3 * dist(p, o.pos) - (ang < 0 ? 5 : 0);
@@ -243,7 +286,142 @@ export function planDefense(world: World, co: CompanyState): Omit<DefensivePosit
       });
     }
   }
+
+  // ── `[v7.3]` 分隊の陣地(ロードマップ A-4)。**既存の陣地のあとに並べる** — 人間の置き直しは
+  //    AI案での並び順(idx)で指すので、前に挟むと `[v7.2]` の初期条件コードがずれる ──
+  for (const t of co.plan.tasks) {
+    if (t.objectiveId === null) continue;
+    const o = world.objectives.find((x) => x.id === t.objectiveId);
+    if (!o) continue;
+    const rifles = rifleSquadsOf(world, co.side, t.platoonId);
+    const isMain = o.id === co.plan.mainObjectiveId;
+
+    // 待ち伏せ(L字型): 主陣地の正面だけ。3個以上の小銃分隊があるときに2番目の分隊を充てる
+    if (isMain && rifles.length >= 3) {
+      const amb = planAmbush(world, o.pos, fwd, right, out);
+      if (amb) {
+        out.push({
+          side: co.side,
+          kind: "ambush",
+          pos: amb.pos,
+          facing: amb.face,
+          objectiveId: o.id,
+          crew: { squadId: rifles[1]!, ftIndex: -1 },
+          killZone: amb.kz,
+        });
+        continue; // 主陣地の正面は待ち伏せが受け持つ(前進陣地を重ねると殺傷地帯に立つことになる)
+      }
+    }
+
+    // 前進陣地(縦深防御の第1線): 2個以上の小銃分隊があるときに1番目の分隊を充てる
+    if (rifles.length >= 2) {
+      const fp = planForward(world, o.pos, fwd, right, out);
+      if (fp) {
+        out.push({
+          side: co.side,
+          kind: "forward",
+          pos: fp,
+          facing: { ...fwd },
+          objectiveId: o.id,
+          crew: { squadId: rifles[0]!, ftIndex: -1 },
+        });
+      }
+    }
+  }
   return out;
+}
+
+/**
+ * その小隊の小銃分隊(機関銃を持たない分隊)の squadId。編成上の通し番号の順
+ * (鏡像の2人で一致する `ordinal`、P2)
+ */
+function rifleSquadsOf(world: World, side: CompanyState["side"], platoonId: number): number[] {
+  const first = new Map<number, number>();
+  const hasMg = new Set<number>();
+  for (const s of world.soldiers) {
+    if (s.side !== side || s.platoonId !== platoonId || s.squadId < 0) continue;
+    if (s.role === "mg") hasMg.add(s.squadId);
+    const cur = first.get(s.squadId);
+    if (cur === undefined || s.ordinal < cur) first.set(s.squadId, s.ordinal);
+  }
+  return [...first.entries()]
+    .filter(([id]) => !hasMg.has(id))
+    .sort((a, b) => a[1] - b[1])
+    .map(([id]) => id);
+}
+
+/**
+ * 前進陣地(`[v7.3]` A-4)。拠点の前方 `FORWARD_DIST`、敵の方角へ射界の抜ける地点。
+ * 真正面で見つからなければ左右へ少しずつずらす(自陣営フレームの左から、P2)
+ */
+function planForward(
+  world: World,
+  obj: Vec2,
+  fwd: Vec2,
+  right: Vec2,
+  taken: ReadonlyArray<{ pos: Vec2 }>,
+): Vec2 | null {
+  for (const d of DEFENSE.FORWARD_DIST) {
+    for (const lat of [0, -6, 6, -12, 12]) {
+      const p = { x: obj.x + fwd.x * d + right.x * lat, z: obj.z + fwd.z * d + right.z * lat };
+      if (defenseSpotBlocker(world, p) !== null) continue;
+      if (!hasField(world, p, fwd, DEFENSE.FORWARD_FIELD)) continue;
+      if (taken.some((q) => dist(q.pos, p) < DEFENSE.MIN_SPACING * 2)) continue;
+      return p;
+    }
+  }
+  return null;
+}
+
+/**
+ * 待ち伏せ(`[v7.3]` A-4、L字型)。殺傷地帯 = 拠点の前方の接近路上の1点。
+ * 側面の組(長辺)は接近路から横へ離れた所に伏せ、殺傷地帯へ視線が通ること。
+ * 正面の組(短辺)は殺傷地帯の手前(拠点寄り)から前を向く(`ambushSlots`)。
+ */
+function planAmbush(
+  world: World,
+  obj: Vec2,
+  fwd: Vec2,
+  right: Vec2,
+  taken: ReadonlyArray<{ pos: Vec2 }>,
+): { pos: Vec2; face: Vec2; kz: Vec2 } | null {
+  for (const d of DEFENSE.AMBUSH_KZ_DIST) {
+    const kz = { x: obj.x + fwd.x * d, z: obj.z + fwd.z * d };
+    const b = world.bounds;
+    if (kz.x < b.minX + 4 || kz.x > b.maxX - 4 || kz.z < b.minZ + 4 || kz.z > b.maxZ - 4) continue;
+    for (const lat of DEFENSE.AMBUSH_LAT) {
+      for (const sign of [-1, 1]) {
+        const p = { x: kz.x + right.x * sign * lat, z: kz.z + right.z * sign * lat };
+        if (defenseSpotBlocker(world, p) !== null) continue;
+        if (!hasLineOfSightIndexed(world.wallIndex, p.x, p.z, kz.x, kz.z)) continue;
+        if (taken.some((q) => dist(q.pos, p) < DEFENSE.MIN_SPACING * 2)) continue;
+        // 隠れていること: 接近路の上流(敵が来る側)から伏せる位置が見通せない。見えていれば
+        // 敵は殺傷地帯に入る前に伏せた分隊を撃つ — 旧市街で開戦2秒で発見されたのがそれ
+        // 長辺(伏せる位置)も短辺(殺傷地帯の手前)も、どちらも隠れていること
+        const short = {
+          x: kz.x - fwd.x * DEFENSE.AMBUSH_SHORT_BACK + right.x * sign * 6,
+          z: kz.z - fwd.z * DEFENSE.AMBUSH_SHORT_BACK + right.z * sign * 6,
+        };
+        const exposed = DEFENSE.AMBUSH_HIDE_FROM.some(([up, lat]) => {
+          const q = { x: kz.x + fwd.x * up + right.x * lat, z: kz.z + fwd.z * up + right.z * lat };
+          return [p, short].some((t) => hasLineOfSightIndexed(world.wallIndex, q.x, q.z, t.x, t.z));
+        });
+        if (exposed) continue;
+        return { pos: p, face: dirTo(p, kz), kz };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * 陣地を動かす。待ち伏せは殺傷地帯ごと平行に動かす(伏せる位置と撃つ先の関係を保つ)
+ */
+function relocate(p: DefensivePosition, at: Vec2): void {
+  if (p.killZone) {
+    p.killZone = { x: p.killZone.x + at.x - p.pos.x, z: p.killZone.z + at.z - p.pos.z };
+  }
+  p.pos = { ...at };
 }
 
 /**
@@ -251,13 +429,24 @@ export function planDefense(world: World, co: CompanyState): Omit<DefensivePosit
  * 据え直す。他の陣地は向きを変えない
  */
 function refaceAfterMove(world: World, p: DefensivePosition, co: CompanyState | undefined): void {
+  if (p.kind === "ambush" && p.killZone) {
+    p.facing = dirTo(p.pos, p.killZone);
+    return;
+  }
   if (p.kind !== "mg" || !co) return;
   const fwd = unit(co.advanceDir);
   let best = p.facing;
   let bestField = -1;
   for (const ang of [0, -15, 15, -30, 30, -45, 45]) {
     const face = rotate(fwd, ang);
-    const field = castRayIndexed(world.wallIndex, p.pos.x, p.pos.z, face.x, face.z, DEFENSE.MG_FIELD_CAP);
+    const field = castRayIndexed(
+      world.wallIndex,
+      p.pos.x,
+      p.pos.z,
+      face.x,
+      face.z,
+      DEFENSE.MG_FIELD_CAP,
+    );
     if (field > bestField + 1e-9) {
       bestField = field;
       best = face;
@@ -280,7 +469,7 @@ export function setupDefense(world: World): void {
       const edit = world.defenseEdits.find((e) => e.side === co.side && e.idx === idx);
       // 置き直しも同じ規則を通す。初期条件コードを手で書き換えても壁の中には置けない
       if (edit && spotBlockerFor(world, pos, edit.pos) === null) {
-        pos.pos = { ...edit.pos };
+        relocate(pos, edit.pos);
         refaceAfterMove(world, pos, co);
       }
       world.defense.push(pos);
@@ -361,6 +550,9 @@ function occupyPositions(world: World): void {
         .filter((p) => p.side === co.side && p.kind === "mg" && p.crew)
         .map((p) => `${p.crew!.squadId}:${p.crew!.ftIndex}`),
     );
+    // `[v7.3]` 分隊の陣地(前進陣地・待ち伏せ)に就く分隊は、拠点のまわりではなく陣地へ
+    const squadPosts = world.defense.filter((p) => p.side === co.side && isSquadPost(p));
+    const postSquads = new Set(squadPosts.map((p) => p.crew!.squadId));
     for (const t of co.plan.tasks) {
       if (t.objectiveId === null) continue;
       const o = world.objectives.find((x) => x.id === t.objectiveId);
@@ -371,7 +563,8 @@ function occupyPositions(world: World): void {
             s.side === co.side &&
             s.platoonId === t.platoonId &&
             s.status === "ok" &&
-            !crews.has(`${s.squadId}:${s.fireteamId}`),
+            !crews.has(`${s.squadId}:${s.fireteamId}`) &&
+            !postSquads.has(s.squadId),
         )
         .sort((a, b) => a.ordinal - b.ordinal);
       // 拠点に近いところから順に詰める。拠点が建物の中なら、まず建物の中が埋まる
@@ -384,6 +577,13 @@ function occupyPositions(world: World): void {
         placeSoldier(s, at, fwd, world.tick);
       }
     }
+    for (const p of squadPosts) {
+      p.stage = "set";
+      p.stageTick = world.tick;
+      const men = squadMembers(world, p).filter((s) => s.status === "ok");
+      const slots = squadPostSlots(world, p, men.length, fwd);
+      men.forEach((s, i) => placeSoldier(s, slots[i]!.at, slots[i]!.face, world.tick));
+    }
     // 機関銃の班は陣地へ
     for (const p of world.defense) {
       if (p.side !== co.side || p.kind !== "mg" || !p.crew) continue;
@@ -395,7 +595,9 @@ function occupyPositions(world: World): void {
             s.fireteamId === p.crew!.ftIndex &&
             s.status === "ok",
         )
-        .sort((a, b) => (a.role === "mg" ? 0 : 1) - (b.role === "mg" ? 0 : 1) || a.ordinal - b.ordinal);
+        .sort(
+          (a, b) => (a.role === "mg" ? 0 : 1) - (b.role === "mg" ? 0 : 1) || a.ordinal - b.ordinal,
+        );
       crew.forEach((s, i) => {
         const at = i === 0 ? p.pos : freeSpotNear(world, crewSlots(p)[(i - 1) % 2]!);
         placeSoldier(s, at, p.facing, world.tick);
@@ -404,12 +606,83 @@ function occupyPositions(world: World): void {
   }
 }
 
+/** 分隊まるごとが就く陣地か(`[v7.3]` 前進陣地・待ち伏せ) */
+export function isSquadPost(p: DefensivePosition): boolean {
+  return (p.kind === "forward" || p.kind === "ambush") && p.crew !== null && p.crew.ftIndex === -1;
+}
+
+/** 陣地に就く分隊の隊員(戦場に残っている者)。並びは FT → 編成上の通し番号(P2) */
+function squadMembers(world: World, p: DefensivePosition): Soldier[] {
+  return world.soldiers
+    .filter(
+      (s) =>
+        s.side === p.side && s.squadId === p.crew!.squadId && s.status !== "kia" && !isOffField(s),
+    )
+    .sort((a, b) => a.fireteamId - b.fireteamId || a.ordinal - b.ordinal);
+}
+
+/**
+ * 分隊の陣地での1人ずつの持ち場と向き(`[v7.3]`)。
+ *   forward : 正面に直交して横一列(2.2m 間隔)。全員が敵の方角を向く
+ *   ambush  : L字。前半の者(分隊長・第1組)は側面の組 = 接近路と平行に伏せて殺傷地帯を向く。
+ *             後半の者(第2組)は正面の組 = 殺傷地帯の手前から前を向く
+ */
+function squadPostSlots(
+  world: World,
+  p: DefensivePosition,
+  n: number,
+  fwd: Vec2,
+): Array<{ at: Vec2; face: Vec2 }> {
+  const out: Array<{ at: Vec2; face: Vec2 }> = [];
+  const right = { x: -fwd.z, z: fwd.x };
+  if (p.kind === "forward" || !p.killZone) {
+    for (let i = 0; i < n; i++) {
+      const k = (i - (n - 1) / 2) * 2.2;
+      out.push({
+        at: freeSpotNear(world, { x: p.pos.x + right.x * k, z: p.pos.z + right.z * k }),
+        face: { ...fwd },
+      });
+    }
+    return out;
+  }
+  const kz = p.killZone;
+  const longN = Math.ceil(n / 2);
+  const toKz = dirTo(p.pos, kz);
+  // 長辺: 接近路と平行に、伏せる位置から**自陣の側へ**並ぶ(敵の側へ張り出すと先に見つかる)
+  for (let i = 0; i < longN; i++) {
+    const k = -i * 2.5;
+    out.push({
+      at: freeSpotNear(world, { x: p.pos.x + fwd.x * k, z: p.pos.z + fwd.z * k }),
+      face: toKz,
+    });
+  }
+  // 短辺: 殺傷地帯の手前(拠点寄り)、側面の組と同じ側に寄せて前を向く
+  const side = (p.pos.x - kz.x) * right.x + (p.pos.z - kz.z) * right.z >= 0 ? 1 : -1;
+  const base = {
+    x: kz.x - fwd.x * DEFENSE.AMBUSH_SHORT_BACK + right.x * side * 6,
+    z: kz.z - fwd.z * DEFENSE.AMBUSH_SHORT_BACK + right.z * side * 6,
+  };
+  const shortN = n - longN;
+  for (let i = 0; i < shortN; i++) {
+    const k = (i - (shortN - 1) / 2) * 2.2;
+    const at = { x: base.x + right.x * k, z: base.z + right.z * k };
+    out.push({ at: freeSpotNear(world, at), face: dirTo(at, kz) });
+  }
+  return out;
+}
+
 /** 機関銃の班の副射手・弾薬手の位置(射手の斜め後ろ左右) */
 function crewSlots(p: DefensivePosition): Vec2[] {
   const right = { x: -p.facing.z, z: p.facing.x };
   return [
-    { x: p.pos.x - p.facing.x * 1.4 - right.x * 1.0, z: p.pos.z - p.facing.z * 1.4 - right.z * 1.0 },
-    { x: p.pos.x - p.facing.x * 1.4 + right.x * 1.0, z: p.pos.z - p.facing.z * 1.4 + right.z * 1.0 },
+    {
+      x: p.pos.x - p.facing.x * 1.4 - right.x * 1.0,
+      z: p.pos.z - p.facing.z * 1.4 - right.z * 1.0,
+    },
+    {
+      x: p.pos.x - p.facing.x * 1.4 + right.x * 1.0,
+      z: p.pos.z - p.facing.z * 1.4 + right.z * 1.0,
+    },
   ];
 }
 
@@ -435,8 +708,7 @@ function applyAlternates(world: World): void {
 }
 
 export type DefenseMoveResult =
-  | { ok: true }
-  | { ok: false; reason: DefenseSpotBlock | "not_planning" | "not_your_position" };
+  { ok: true } | { ok: false; reason: DefenseSpotBlock | "not_planning" | "not_your_position" };
 
 /**
  * 立案中に陣地を置き直す(`[v7.2]`)。**防御側の中隊長の座席**だけが置き直せる(P4)。
@@ -461,7 +733,7 @@ export function moveDefensivePosition(
   const at = { x: Math.round(to.x * 100) / 100, z: Math.round(to.z * 100) / 100 };
   const block = spotBlockerFor(world, p, at);
   if (block) return { ok: false, reason: block };
-  p.pos = at;
+  relocate(p, at);
   refaceAfterMove(world, p, co);
   applyAlternates(world);
   if (p.kind === "wire") applyWire(world);
@@ -490,11 +762,12 @@ function postOf(world: World, ft: FireteamState): DefensivePosition | null {
   if (ft.mode === "ROUT" || ft.mode === "FALLBACK" || ft.mode === "CQB") return null;
   const p = world.defense.find(
     (d) =>
-      d.kind === "mg" &&
       d.crew !== null &&
       d.side === ft.side &&
       d.crew.squadId === ft.squadId &&
-      d.crew.ftIndex === ft.ftIndex,
+      ((d.kind === "mg" && d.crew.ftIndex === ft.ftIndex) ||
+        // `[v7.3]` 分隊の陣地は役目を終えるまで(released)分隊まるごとが就く
+        (isSquadPost(d) && d.stage !== "released")),
   );
   if (!p) return null;
   if (aiSuppressed(world, "squad", ft.side, ft.squadId)) return null;
@@ -522,9 +795,14 @@ export function defenseSystem(world: World): void {
   if (world.phase !== "battle") return;
   const decide = world.tick % DECIDE_EVERY_TICKS === 0;
 
+  // `[v7.3]` 分隊の陣地(前進陣地・待ち伏せ)は分隊単位で動かす
+  for (const p of world.defense) {
+    if (isSquadPost(p) && p.stage !== "released") runSquadPost(world, p, decide);
+  }
+
   for (const ft of world.fireteams) {
     const p = postOf(world, ft);
-    if (!p) continue;
+    if (!p || isSquadPost(p)) continue;
     const crew = world.soldiers.filter(
       (s) =>
         s.side === ft.side &&
@@ -560,6 +838,118 @@ export function defenseSystem(world: World): void {
         else issue(world, s, "hold", null, p.facing);
       });
   }
+}
+
+const AMBUSH_FIGHT_TICKS = Math.round(DEFENSE.AMBUSH_FIGHT_SEC * SIM_HZ);
+const WITHDRAW_MAX_TICKS = Math.round(DEFENSE.WITHDRAW_MAX_SEC * SIM_HZ);
+
+function setStage(
+  world: World,
+  p: DefensivePosition,
+  stage: NonNullable<DefensivePosition["stage"]>,
+): void {
+  p.stage = stage;
+  p.stageTick = world.tick;
+}
+
+/**
+ * 分隊の陣地を1ティックぶん進める(`[v7.3]` ロードマップ A-4)。
+ *
+ * **判断の材料は隊員が自分の目で見ているもの(`sees`)と、撃たれた・倒れたという
+ * 自分の身に起きたことだけ**(P1)。分隊長は麾下の視界を直接持つ階層なので(仕様 §5)、
+ * これは分隊長の判断として正当。攻撃側の位置を世界から直接読むことはしない。
+ *
+ *   待ち伏せ: 殺傷地帯に敵が入る / 自衛の距離まで寄られる / 撃たれる・倒れる → 撃ち始める。
+ *             撃ち始めたら `AMBUSH_FIGHT_SEC` だけ陣地で戦い、通常の指揮へ戻る
+ *   前進陣地: 撃ち合いながら待つ。寄られる / 多数を見る / 倒れる → 拠点へ下がる。
+ *             着いたら(または時間切れで)通常の指揮へ戻る
+ */
+function runSquadPost(world: World, p: DefensivePosition, decide: boolean): void {
+  const all = squadMembers(world, p);
+  const men = all.filter((s) => s.status === "ok");
+  if (men.length === 0) {
+    setStage(world, p, "released");
+    return;
+  }
+  // 人間・LLM がこの分隊(やその中のFT・兵)に座っている間は陣地の側は何もしない
+  if (aiSuppressed(world, "squad", p.side, p.crew!.squadId)) return;
+  if (men.some((s) => aiSuppressed(world, "fireteam", s.side, s.id))) return;
+
+  const o = world.objectives.find((x) => x.id === p.objectiveId) ?? null;
+  const hurt = all.some((s) => s.status === "wia");
+  const shotAt = men.some((s) => s.alertUntilTick > world.tick && s.alertFrom !== null);
+  const seen: Soldier[] = [];
+  for (const s of men) {
+    for (const id of s.sees) {
+      const t = world.soldierById.get(id);
+      if (t && t.status === "ok" && !seen.includes(t)) seen.push(t);
+    }
+  }
+  const nearest = (t: Soldier): number => Math.min(...men.map((s) => dist(s.pos, t.pos)));
+  const stage = p.stage ?? "set";
+
+  if (p.kind === "ambush") {
+    if (stage === "set") {
+      const inZone =
+        p.killZone !== undefined &&
+        seen.some((t) => dist(t.pos, p.killZone!) <= DEFENSE.AMBUSH_KZ_RADIUS);
+      const tooClose = seen.some((t) => nearest(t) <= DEFENSE.AMBUSH_SELF_DEFENSE);
+      if (inZone || tooClose || shotAt || hurt) {
+        setStage(world, p, "sprung");
+      } else {
+        // 撃たずに待つ。射撃系(combat.ts)は holdFireUntilTick を見て引き金を引かない
+        for (const s of men) s.holdFireUntilTick = Math.max(s.holdFireUntilTick, world.tick + 2);
+      }
+    } else if (stage === "sprung" && world.tick - (p.stageTick ?? 0) >= AMBUSH_FIGHT_TICKS) {
+      setStage(world, p, "released");
+      return;
+    }
+  } else if (stage === "set") {
+    const pressed =
+      seen.some((t) => nearest(t) <= DEFENSE.FORWARD_WITHDRAW_RANGE) ||
+      seen.length >= DEFENSE.FORWARD_WITHDRAW_SEEN ||
+      hurt;
+    if (pressed) setStage(world, p, "withdraw");
+  } else if (stage === "withdraw") {
+    let cx = 0;
+    let cz = 0;
+    for (const s of men) {
+      cx += s.pos.x;
+      cz += s.pos.z;
+    }
+    const c = { x: cx / men.length, z: cz / men.length };
+    const home = o?.pos ?? p.pos;
+    if (
+      dist(c, home) <= DEFENSE.WITHDRAW_ARRIVE ||
+      world.tick - (p.stageTick ?? 0) >= WITHDRAW_MAX_TICKS
+    ) {
+      setStage(world, p, "released");
+      return;
+    }
+  }
+  if (!decide) return;
+
+  const fwd = { ...p.facing };
+  if (p.stage === "withdraw" && o) {
+    // 拠点(第2線)へ下がる。下がりながらも見えている敵の方を向く(撃てる相手は撃つ)
+    const back = { x: -fwd.x, z: -fwd.z };
+    men.forEach((s, i) => {
+      const k = (i - (men.length - 1) / 2) * 2;
+      const right = { x: -fwd.z, z: fwd.x };
+      const dest = { x: o.pos.x + right.x * k + back.x * 2, z: o.pos.z + right.z * k + back.z * 2 };
+      const t = s.sees.map((id) => world.soldierById.get(id)).find((x) => x && x.status === "ok");
+      issue(world, s, "retreat", dest, t ? dirTo(s.pos, t.pos) : fwd);
+    });
+    return;
+  }
+  const co = world.companies.find((c) => c.side === p.side);
+  const slots = squadPostSlots(world, p, men.length, unit(co?.advanceDir ?? fwd));
+  men.forEach((s, i) => {
+    const slot = slots[i]!;
+    if (dist(s.pos, slot.at) > DEFENSE.POST_ARRIVE * 1.5)
+      issue(world, s, "move", slot.at, slot.face);
+    else issue(world, s, "hold", null, slot.face);
+  });
 }
 
 /** その地点が射撃壕の上か(就いていれば窓と同じ補正、§8)。陣営は問わない(物理的な遮蔽) */
