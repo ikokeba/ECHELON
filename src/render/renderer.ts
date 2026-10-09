@@ -2294,6 +2294,17 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
             z: p.pos.z + r.z * a + p.facing.z * b,
           });
           draw([q(-h, -h), q(h, -h), q(h, h), q(-h, h), q(-h, -h)], c, 0.9);
+        } else if (p.kind === "wire") {
+          // 鉄条網(`[v7.2]` S-1b): 接近路を横切るジグザグ
+          const r = { x: -p.facing.z, z: p.facing.x };
+          const zig: Vec2[] = [];
+          const L = DEFENSE.WIRE_HALF_LEN;
+          for (let k = 0; k <= 16; k++) {
+            const t = -L + (k / 16) * 2 * L;
+            const a = k % 2 === 0 ? 0.55 : -0.55;
+            zig.push({ x: p.pos.x + r.x * t + p.facing.x * a, z: p.pos.z + r.z * t + p.facing.z * a });
+          }
+          draw(zig, c, 0.95);
         } else {
           const ring: Vec2[] = [];
           for (let k = 0; k <= 16; k++) {

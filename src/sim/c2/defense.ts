@@ -24,7 +24,8 @@ import { castRayIndexed, collidesWallIndexed, hasLineOfSightIndexed } from "../w
 import { isOffField } from "../systems/litter.ts";
 import { issue } from "./fireteam.ts";
 import { isDefender } from "./planning.ts";
-import type { CompanyState, DefensivePosition, FireteamState, Soldier, Vec2 } from "../types.ts";
+import type { AABB, CompanyState, DefensivePosition, FireteamState, Soldier, Vec2 } from "../types.ts";
+import { setWire } from "../world.ts";
 import type { World } from "../world.ts";
 
 const DECIDE_EVERY_TICKS = Math.round(0.3 * SIM_HZ);
@@ -75,6 +76,65 @@ export function defenseSpotBlocker(world: World, p: Vec2): DefenseSpotBlock | nu
   return null;
 }
 
+/** 鉄条網の線分上の点(`[v7.2]` S-1b)。正面に直交して `WIRE_HALF_LEN` ずつ左右へ */
+function wireSamples(center: Vec2, face: Vec2, step: number): Vec2[] {
+  const r = { x: -face.z, z: face.x };
+  const out: Vec2[] = [];
+  const n = Math.round((DEFENSE.WIRE_HALF_LEN * 2) / step);
+  for (let i = 0; i <= n; i++) {
+    const t = -DEFENSE.WIRE_HALF_LEN + i * step;
+    out.push({ x: center.x + r.x * t, z: center.z + r.z * t });
+  }
+  return out;
+}
+
+/**
+ * 鉄条網の線分を、移動を止める小さな軸平行ボックスの列にする(`[v7.2]` S-1b)。
+ * 壁は軸平行ボックスしか持てないので、斜めの線は重なり合う小箱で近似する
+ */
+export function wireBoxes(p: DefensivePosition): AABB[] {
+  return wireSamples(p.pos, p.facing, DEFENSE.WIRE_BOX_STEP).map((q) => ({
+    cx: q.x,
+    cz: q.z,
+    hw: DEFENSE.WIRE_BOX_HALF,
+    hd: DEFENSE.WIRE_BOX_HALF,
+  }));
+}
+
+/**
+ * 鉄条網を置けない理由(`[v7.2]` S-1b)。線分の全長が置ける場所で、拠点の判定円と
+ * 他の陣地を塞がないこと。AI の候補選びも人間の置き直しもここを通る(P4)
+ */
+export function wireSpotBlocker(
+  world: World,
+  center: Vec2,
+  face: Vec2,
+  selfId = -1,
+): DefenseSpotBlock | null {
+  for (const q of wireSamples(center, face, 1)) {
+    const b = defenseSpotBlocker(world, q);
+    if (b === "too_far") continue; // 端が遠くても中心が近ければよい(下で中心を見る)
+    if (b) return b;
+    if (world.objectives.some((o) => dist(o.pos, q) < o.radius + DEFENSE.WIRE_CLEARANCE)) return "blocked";
+    if (world.defense.some((d) => d.id !== selfId && d.kind !== "wire" && dist(d.pos, q) < DEFENSE.WIRE_CLEARANCE)) {
+      return "blocked";
+    }
+  }
+  return defenseSpotBlocker(world, center) === "too_far" ? "too_far" : null;
+}
+
+/** 陣地の種類に応じた置き場所の規則(鉄条網だけは線分で見る) */
+function spotBlockerFor(world: World, p: DefensivePosition, at: Vec2): DefenseSpotBlock | null {
+  return p.kind === "wire" ? wireSpotBlocker(world, at, p.facing, p.id) : defenseSpotBlocker(world, at);
+}
+
+/** 鉄条網を張り直す(経路探索と移動の当たり判定)。立案のときだけ呼ぶ */
+function applyWire(world: World): void {
+  const boxes = world.defense.filter((p) => p.kind === "wire").flatMap(wireBoxes);
+  if (boxes.length === 0 && world.wireWalls.length === 0) return;
+  setWire(world, boxes);
+}
+
 /** 正面へ射界が抜けているか */
 function hasField(world: World, p: Vec2, face: Vec2, len: number): boolean {
   return hasLineOfSightIndexed(world.wallIndex, p.x, p.z, p.x + face.x * len, p.z + face.z * len);
@@ -116,6 +176,19 @@ export function planDefense(world: World, co: CompanyState): Omit<DefensivePosit
         if (!ok(p) || !hasField(world, p, face, DEFENSE.FIGHTING_FIELD)) continue;
         if (out.some((q) => dist(q.pos, p) < DEFENSE.MIN_SPACING)) continue;
         out.push({ side: co.side, kind: "fighting", pos: p, facing: face, objectiveId: o.id, crew: null });
+        break;
+      }
+    }
+
+    // ── 鉄条網(`[v7.2]` S-1b): 拠点の前方、射撃壕の外側に、接近路を横切る向きで ──
+    // 射撃壕・機関銃の射界の中に敵を足止めするのが役目なので、壕より遠く(20〜36m)に張る
+    for (const ang of DEFENSE.WIRE_ANGLES_DEG.slice(0, DEFENSE.WIRE_PER_OBJECTIVE)) {
+      const ray = rotate(fwd, ang);
+      for (let r = DEFENSE.WIRE_MIN_R; r <= DEFENSE.WIRE_MAX_R; r += 2) {
+        const p = { x: o.pos.x + ray.x * r, z: o.pos.z + ray.z * r };
+        if (wireSpotBlocker(world, p, ray) !== null) continue;
+        if (out.some((q) => dist(q.pos, p) < DEFENSE.WIRE_HALF_LEN * 2)) continue;
+        out.push({ side: co.side, kind: "wire", pos: p, facing: ray, objectiveId: o.id, crew: null });
         break;
       }
     }
@@ -206,7 +279,7 @@ export function setupDefense(world: World): void {
       const pos: DefensivePosition = { ...p, id: id++ };
       const edit = world.defenseEdits.find((e) => e.side === co.side && e.idx === idx);
       // 置き直しも同じ規則を通す。初期条件コードを手で書き換えても壁の中には置けない
-      if (edit && defenseSpotBlocker(world, edit.pos) === null) {
+      if (edit && spotBlockerFor(world, pos, edit.pos) === null) {
         pos.pos = { ...edit.pos };
         refaceAfterMove(world, pos, co);
       }
@@ -214,6 +287,7 @@ export function setupDefense(world: World): void {
     });
   }
   applyAlternates(world);
+  applyWire(world);
   occupyPositions(world);
 }
 
@@ -223,7 +297,7 @@ export function setupDefense(world: World): void {
  */
 function nearestFreeSlot(world: World, c: Vec2, fwd: Vec2, taken: readonly Vec2[]): Vec2 {
   const fits = (q: Vec2): boolean =>
-    !collidesWallIndexed(world.wallIndex, q.x, q.z, 0.5) &&
+    !collidesWallIndexed(world.moveIndex, q.x, q.z, 0.5) &&
     !taken.some((t) => (t.x - q.x) ** 2 + (t.z - q.z) ** 2 < 1.4 * 1.4) &&
     q.x > world.bounds.minX + 2 &&
     q.x < world.bounds.maxX - 2 &&
@@ -246,7 +320,7 @@ function freeSpotNear(world: World, p: Vec2): Vec2 {
   const fits = (q: Vec2): boolean => {
     const b = world.bounds;
     if (q.x < b.minX + 2 || q.x > b.maxX - 2 || q.z < b.minZ + 2 || q.z > b.maxZ - 2) return false;
-    return !collidesWallIndexed(world.wallIndex, q.x, q.z, 0.5);
+    return !collidesWallIndexed(world.moveIndex, q.x, q.z, 0.5);
   };
   if (fits(p)) return p;
   for (let r = 1; r <= 12; r += 1) {
@@ -385,11 +459,12 @@ export function moveDefensivePosition(
   // 初期条件コードの精度(0.01m)へ先に丸める。丸めないと、いま目の前の盤面と
   // コードから作り直した盤面が数ミリずれ、同じ戦闘にならない(P3)
   const at = { x: Math.round(to.x * 100) / 100, z: Math.round(to.z * 100) / 100 };
-  const block = defenseSpotBlocker(world, at);
+  const block = spotBlockerFor(world, p, at);
   if (block) return { ok: false, reason: block };
   p.pos = at;
   refaceAfterMove(world, p, co);
   applyAlternates(world);
+  if (p.kind === "wire") applyWire(world);
   // 置き直した陣地へ班を入れ直す。初期条件から立案し直したときと同じ盤面になる(P3)
   occupyPositions(world);
   return { ok: true };

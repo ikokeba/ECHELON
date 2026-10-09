@@ -95,6 +95,15 @@ export interface World {
    * ナビグリッドはこちらから張る — 窓から出入りできてしまうと突入ドリルが意味を失う。
    */
   navWalls: AABB[];
+  /** 鉄条網を除いた経路探索の壁(`[v7.2]` S-1b)。鉄条網を張り替えるときの土台 */
+  navWallsBase: AABB[];
+  /** 鉄条網(`[v7.2]` S-1b)。人は通さず視線は通す。`setWire` でだけ変える */
+  wireWalls: AABB[];
+  /**
+   * 移動の当たり判定の索引(`[v7.2]` S-1b)= 視線の壁 + 鉄条網。鉄条網が無ければ
+   * `wallIndex` と同じもの。移動・分離・担架はこちらを見る
+   */
+  moveIndex: WallIndex;
   /** 建物(仕様 §7)。屋外と屋内はシームレスな1つのマップ */
   buildings: Building[];
   /** 扉。開閉が視界の境界線になる(仕様 §7.6) */
@@ -497,6 +506,35 @@ function blockersOf(structural: readonly AABB[], doors: readonly Door[]): AABB[]
 export function setBlockers(world: World, walls: AABB[]): void {
   world.walls = walls;
   world.wallIndex = buildWallIndex(walls, world.bounds);
+  // 移動の当たり判定は「視線の壁 + 鉄条網」(`[v7.2]` S-1b)。鉄条網が無ければ同じ索引を使う
+  world.moveIndex =
+    world.wireWalls.length > 0
+      ? buildWallIndex([...walls, ...world.wireWalls], world.bounds)
+      : world.wallIndex;
+}
+
+/**
+ * 鉄条網を差し替える(`[v7.2]` S-1b)。経路探索の壁と移動の当たり判定を張り直す。
+ *
+ * 鉄条網は**人は通さず視線は通す**。窓(視線を通して人を通さない)と同じ型なので、
+ * 視線の壁(`walls`)には入れず、経路探索の壁(`navWalls`)と移動の当たり判定
+ * (`moveIndex`)にだけ入れる。経路探索は張り直しになる(屋外グリッドの再構築)ので、
+ * 立案のときだけ呼ぶ。
+ */
+export function setWire(world: World, wire: AABB[]): void {
+  world.wireWalls = wire.map((w) => ({ ...w }));
+  world.navWalls = [...world.navWallsBase, ...world.wireWalls];
+  world.nav = buildNavSet(
+    world.navWalls,
+    world.bounds,
+    NAV_STEP_OUTDOOR,
+    NAV_MARGIN_OUTDOOR,
+    world.buildings,
+    world.buildings.filter((b) => world.navBuildings.has(b.id)),
+    CQB.NAV_STEP,
+    CQB.NAV_MARGIN,
+  );
+  setBlockers(world, world.walls);
 }
 
 /**
@@ -584,6 +622,7 @@ function buildWorld(scenario: Scenario): World {
   const soldiers = scenario.soldiers.map(cloneSoldier);
   const soldierById = new Map(soldiers.map((s) => [s.id, s]));
 
+  const wallIndex = buildWallIndex(walls, scenario.bounds);
   const mode: BattleMode = scenario.mode ?? "meeting";
   const attacker: Side = scenario.attacker ?? "blue";
   return {
@@ -597,7 +636,11 @@ function buildWorld(scenario: Scenario): World {
         : 0,
     bounds: { ...scenario.bounds },
     walls,
-    wallIndex: buildWallIndex(walls, scenario.bounds),
+    wallIndex,
+    // 鉄条網が張られるまでは移動の当たり判定も視線の壁と同じ(`[v7.2]` S-1b)
+    moveIndex: wallIndex,
+    navWallsBase: navWalls.map((w) => ({ ...w })),
+    wireWalls: [],
     structuralWalls,
     navWalls,
     buildings,

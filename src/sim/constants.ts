@@ -621,6 +621,19 @@ export const DEFENSE = {
   FIGHTING_FIELD: 18,
   /** 予備陣地を拠点の後方どれだけに置くか m(候補を順に試す) */
   ALTERNATE_BACK: [30, 25, 35, 20, 40],
+  /** 鉄条網(`[v7.2]` S-1b)。1本の半分の長さ m(全長12m)*/
+  WIRE_HALF_LEN: 6,
+  /** 拠点1つあたりの本数と、張る向き(前進方向からの角度、度) */
+  WIRE_PER_OBJECTIVE: 2,
+  WIRE_ANGLES_DEG: [-20, 20],
+  /** 拠点からの距離 m(射撃壕より外、近い順に試す) */
+  WIRE_MIN_R: 20,
+  WIRE_MAX_R: 36,
+  /** 拠点の判定円・他の陣地からの最小の間隔 m(自分の陣地を塞がない) */
+  WIRE_CLEARANCE: 3,
+  /** 線分を近似する小箱の間隔 m と半幅 m(間隔 < 2×半幅 で隙間なく重なる) */
+  WIRE_BOX_STEP: 0.6,
+  WIRE_BOX_HALF: 0.4,
   /** 陣地は自軍の拠点からこれより遠くに置けない m(人間が置き直すときも同じ) */
   MAX_FROM_OBJECTIVE: 60,
   /** 陣地に就いたとみなす距離 m */

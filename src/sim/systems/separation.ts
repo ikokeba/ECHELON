@@ -111,7 +111,7 @@ export function separationSystem(world: World): void {
     const nx = s.pos.x + ox;
     const nz = s.pos.z + oz;
     // 押し出しで壁へめり込ませない
-    if (!collidesWallIndexed(world.wallIndex, nx, nz, SOLDIER_RADIUS)) {
+    if (!collidesWallIndexed(world.moveIndex, nx, nz, SOLDIER_RADIUS)) {
       s.pos = { x: nx, z: nz };
     }
   }

@@ -36,7 +36,7 @@ import type {
   VictoryState,
 } from "@sim/types.ts";
 import type { ControlState } from "@sim/control.ts";
-import type { DefenseEdit } from "@sim/types.ts";
+import type { DefenseEdit, DefenseKind } from "@sim/types.ts";
 import type { ReplayEntry } from "@sim/replay.ts";
 import { postureFromRisk } from "@sim/tuning.ts";
 import { DOCTRINES, type DoctrineKey } from "@sim/doctrine.ts";
@@ -300,7 +300,7 @@ export interface PlanTaskView {
 /** 防衛陣地の表示(`[v7.2]` S-1)。立案パネルの一覧と、置き直しの対象選び */
 export interface DefenseView {
   id: number;
-  kind: "mg" | "fighting" | "alternate";
+  kind: DefenseKind;
   /** 一覧の表示名(例: "機関銃 1") */
   label: string;
   /** どの拠点のまわりか */
