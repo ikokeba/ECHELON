@@ -141,7 +141,12 @@ function thinkingOf(world: World): ThinkingSnapshot {
       };
     }
   }
-  return { fireteams, squads, flashes, selected };
+  // 逆襲(`[v7.3]` A-4)
+  const ca = world.companies.find((c) => c.side === side && c.counterattack)?.counterattack ?? null;
+  const counter = ca
+    ? `${platoonName(ca.platoonId)} が ${world.objectives.find((o) => o.id === ca.objectiveId)?.label ?? "拠点"} へ逆襲中`
+    : null;
+  return { fireteams, squads, flashes, counter, selected };
 }
 
 /**
@@ -179,8 +184,15 @@ function planViewsOf(world: World, side: Side, truth: boolean): {
         })),
       // 防衛陣地(`[v7.2]` S-1)。種類ごとの通し番号で呼ぶ
       defense: (() => {
-        const n = { mg: 0, fighting: 0, alternate: 0, wire: 0 };
-        const name = { mg: "機関銃", fighting: "射撃壕", alternate: "予備陣地", wire: "鉄条網" };
+        const n = { mg: 0, fighting: 0, alternate: 0, wire: 0, forward: 0, ambush: 0 };
+        const name = {
+          mg: "機関銃",
+          fighting: "射撃壕",
+          alternate: "予備陣地",
+          wire: "鉄条網",
+          forward: "前進陣地",
+          ambush: "待ち伏せ",
+        };
         return world.defense
           .filter((p) => p.side === co.side)
           .map((p) => ({

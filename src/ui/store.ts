@@ -310,6 +310,8 @@ export interface ThinkingSnapshot {
   squads: ThinkingSquad[];
   /** 表示側が受信した臨時報告(新しい順、`[v7.3]`) */
   flashes: ThinkingFlash[];
+  /** 表示側の中隊長が逆襲を命じていれば、その一文(`[v7.3]` A-4) */
+  counter: string | null;
   selected: ThinkingSelected | null;
 }
 
@@ -645,7 +647,7 @@ export const useSimStore = create<UiState>((set, get) => ({
   lastOrderResult: null,
   setLastOrderResult: (r) =>
     set((s) => ({ lastOrderResult: { ...r, seq: (s.lastOrderResult?.seq ?? 0) + 1 } })),
-  thinking: { fireteams: [], squads: [], flashes: [], selected: null },
+  thinking: { fireteams: [], squads: [], flashes: [], counter: null, selected: null },
   debug: {
     panelOpen: false,
     fov: "off",

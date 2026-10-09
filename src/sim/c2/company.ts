@@ -25,6 +25,7 @@ import {
   CASEVAC_ASSET_SPEED,
   CASEVAC_QUEUE_PENALTY_SEC,
   COMPANY_DECIDE_SEC,
+  DEFENSE,
   PLATOON_FRONTAGE,
   SIM_HZ,
 } from "../constants.ts";
@@ -34,9 +35,9 @@ import { clamp } from "../geometry.ts";
 import { next } from "../rng.ts";
 import { commandFactor } from "./succession.ts";
 import { assignHolders, clampToObjective } from "./objectiveHold.ts";
-import { activeTaskOf } from "./planning.ts";
+import { activeTaskOf, isDefender } from "./planning.ts";
 import { sideDoctrine } from "../world.ts";
-import type { CompanyState, Contact, Mission, Soldier, Vec2 } from "../types.ts";
+import type { CompanyState, Contact, Mission, Objective, Soldier, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
 const DECIDE_BASE_TICKS = Math.round(COMPANY_DECIDE_SEC * SIM_HZ);
@@ -76,6 +77,94 @@ function primaryThreat(belief: Map<string, Contact>): Contact | null {
     if (!best || c.confidence > best.confidence) best = c;
   }
   return best;
+}
+
+/**
+ * 逆襲の判断(`[v7.3]` ロードマップ A-4)。攻防戦の防御側の中隊長だけが行う。
+ *
+ * 防御は張り付くだけでは崩される。ドクトリン(ADP 3-90)は、奪われた陣地を**敵が統合・再編を
+ * 終える前に**予備で取り返すことを防御の一部としている。ここではそれを次の規則にした:
+ *
+ *   1. 作戦で受け持った拠点のうち、自軍の所有でなくなったもの(奪われた・奪われかけて中立)を
+ *      作戦の順(主陣地が先)に1つ選ぶ
+ *   2. 差し向ける小隊: 作戦の予備があればそれ。無ければ、自分の拠点を保持できていて、
+ *      そのまわりの敵(中隊長の像)が少なく(`COUNTER_MAX_LOCAL_THREAT`)、残存率が十分な小隊。
+ *      保持できている拠点が1つしか無いなら、そこは空けない(予備が無ければ逆襲しない)
+ *   3. 取り返したら(=所有に戻ったら)解除し、小隊は自分の持ち場へ戻る
+ *
+ * 材料は拠点の所有(全員に見える事実)と、中隊長の belief と麾下の兵力だけ(P1)。
+ * 人間の中隊長は同じことを `assignPlatoonMission`(seize)でできる(P4)。
+ */
+function decideCounterattack(
+  world: World,
+  co: CompanyState,
+  living: ReadonlyArray<{ platoonId: number; side: CompanyState["side"] }>,
+): { platoonId: number; objective: Objective } | null {
+  const plan = co.plan;
+  if (!plan || !isDefender(world, co.side)) {
+    co.counterattack = null;
+    return null;
+  }
+  const objOf = (id: number | null): Objective | null =>
+    id === null ? null : (world.objectives.find((o) => o.id === id) ?? null);
+  const strength = (platoonId: number): number => {
+    const men = world.soldiers.filter((s) => s.side === co.side && s.platoonId === platoonId);
+    return men.length === 0 ? 0 : men.filter((s) => s.status === "ok").length / men.length;
+  };
+  const isLiving = (platoonId: number): boolean => living.some((p) => p.platoonId === platoonId);
+
+  // 続行中の逆襲: 拠点がまだ取り返せておらず、小隊が戦える間は続ける
+  if (co.counterattack) {
+    const o = objOf(co.counterattack.objectiveId);
+    if (
+      o &&
+      o.owner !== co.side &&
+      isLiving(co.counterattack.platoonId) &&
+      strength(co.counterattack.platoonId) > 0.25
+    ) {
+      return { platoonId: co.counterattack.platoonId, objective: o };
+    }
+    co.counterattack = null;
+  }
+
+  const lost = plan.tasks
+    .map((t) => objOf(t.objectiveId))
+    .filter((o): o is Objective => o !== null && o.owner !== co.side);
+  const target = lost[0];
+  if (!target) return null;
+
+  const heldTasks = plan.tasks.filter((t) => objOf(t.objectiveId)?.owner === co.side);
+  const threatNear = (p: Vec2): number => {
+    let n = 0;
+    for (const c of co.belief.values()) {
+      if (c.confidence <= 0 || c.heard) continue;
+      if (dist(c.pos, p) <= DEFENSE.COUNTER_THREAT_RADIUS) n++;
+    }
+    return n;
+  };
+
+  let pick: number | null = null;
+  const reserve = plan.tasks.find((t) => t.role === "reserve" && isLiving(t.platoonId));
+  if (reserve && strength(reserve.platoonId) >= DEFENSE.COUNTER_MIN_STRENGTH) {
+    pick = reserve.platoonId;
+  } else if (heldTasks.length >= 2) {
+    let best: { id: number; threat: number; str: number } | null = null;
+    for (const t of heldTasks) {
+      if (!isLiving(t.platoonId)) continue;
+      const o = objOf(t.objectiveId)!;
+      const threat = threatNear(o.pos);
+      const str = strength(t.platoonId);
+      if (threat > DEFENSE.COUNTER_MAX_LOCAL_THREAT || str < DEFENSE.COUNTER_MIN_STRENGTH) continue;
+      // 敵が少ないほど、同じなら兵力が多いほど、同じなら作戦の順(決定論)
+      if (!best || threat < best.threat || (threat === best.threat && str > best.str + 1e-9)) {
+        best = { id: t.platoonId, threat, str };
+      }
+    }
+    pick = best?.id ?? null;
+  }
+  if (pick === null) return null;
+  co.counterattack = { objectiveId: target.id, platoonId: pick, sinceTick: world.tick };
+  return { platoonId: pick, objective: target };
 }
 
 /**
@@ -216,7 +305,6 @@ function postCompanyHq(world: World, co: CompanyState): void {
       : { kind: "move", target: { ...post }, facing: { ...co.advanceDir }, issuedTick: world.tick };
   }
 }
-
 
 export function companyAI(world: World): void {
   for (const co of world.companies) {
@@ -394,6 +482,9 @@ export function companyAI(world: World): void {
       }
     });
 
+    // 逆襲(`[v7.3]` ロードマップ A-4)。攻防戦の防御側が、奪われた拠点へ1個小隊を差し向ける
+    const counter = decideCounterattack(world, co, living);
+
     living.forEach((pl, i) => {
       // 戦闘前に立てた作戦(`[v6.5]` c2/planning.ts)。対象の拠点を取り終えるまでは
       // 計画の割り当てを維持する — 接敵のたびに担当区域が脅威の方向へ振れて、
@@ -415,7 +506,11 @@ export function companyAI(world: World): void {
       //   担当区域に脅威も拠点も無い側面の小隊 → screen(掩護・監視)
       //   それ以外 → seize(担当区域の確保 / 保持)
       let mkind: Mission["kind"] = task ? task.mission.kind : "seize";
-      if (pl.platoonId === detachPlatoonId && detachTarget) {
+      if (counter && pl.platoonId === counter.platoonId) {
+        // 逆襲に出る小隊は、奪われた拠点そのものを取り返しに行く(守備の持ち場へは引き戻さない)
+        objective = { ...counter.objective.pos };
+        mkind = "seize";
+      } else if (pl.platoonId === detachPlatoonId && detachTarget) {
         objective = detachTarget;
         mkind = "seize";
       } else if (
