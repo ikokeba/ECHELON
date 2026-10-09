@@ -17,7 +17,8 @@ It runs in your browser. The project is a playable prototype.
 
 Click any company, platoon or squad in the command tree and you are in charge of it. You get the
 same orders the AI would give, and the rest of the force keeps fighting around you. Right-click
-to send your unit somewhere; hand control back whenever you like.
+to send your unit somewhere; hand control back whenever you like. Picking a squad opens its fire
+teams and soldiers underneath, so you can also drop down to a team leader or a single rifleman.
 
 ![Taking control of a squad: the banner reads MANUAL, and right-click orders send the squad along a route.](docs/media/hotswap.gif)
 
@@ -76,6 +77,7 @@ step (in Japanese, for Windows).
 | Give a move order | Right-click on the map |
 | Call a mortar mission (company commander) | **射撃要請** at the top right, then click the target |
 | Throw smoke (squad leader) | **発煙** at the top right, then click the spot |
+| Stop and cover a direction (team leader, soldier) | **停止・警戒** at the top right, then click the direction |
 | Move a defensive position (defending company commander, while planning) | Pick it in the planning panel, then click the map |
 | After-action review / replay from the start | `R` or **AAR** in the clock bar |
 | Select a soldier | Left-click |

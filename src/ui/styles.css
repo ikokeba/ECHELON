@@ -947,6 +947,47 @@ body {
   flex: none;
 }
 
+/* `[v7.3]` FTリーダー・一兵卒の座席(ロードマップ A-7) */
+.et-team {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.et-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding-left: 8px;
+}
+
+.et-chip {
+  background: var(--surface-lo);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+}
+
+.et-chip:hover {
+  background: var(--surface-hi);
+}
+
+.et-chip:disabled,
+.et-node:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.et-chip.et-on {
+  border-color: var(--warn);
+  color: var(--warn);
+  background: #3a2f14;
+}
+
 /** 指揮継承直後(仕様 §12)。文字ではなく黄の点で示す */
 .et-deg {
   width: 6px;

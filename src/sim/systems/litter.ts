@@ -27,6 +27,7 @@ import { findPathSet } from "../navgrid.ts";
 import { advanceAlongPath } from "../pathfollow.ts";
 import { buildingAt } from "../cqb.ts";
 import { activateBuildingNav } from "../world.ts";
+import { soldierSeated } from "../control.ts";
 import type { Side, Soldier, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
@@ -118,8 +119,10 @@ function bearerOffset(i: number, size: number, dir: Vec2): Vec2 {
 }
 
 /** 分隊内で担架要員に選べる隊員か(手当中・搬送中・戦闘不能は除く)。 */
-function isAvailableBearer(cand: Soldier, patient: Soldier): boolean {
+function isAvailableBearer(world: World, cand: Soldier, patient: Soldier): boolean {
   return (
+    // 一兵卒として人間が座っている隊員は担架に就けない(`[v7.3]` A-7)
+    !soldierSeated(world, cand) &&
     cand.side === patient.side &&
     cand.squadId === patient.squadId &&
     // 本部要員(squadIdが負値)は小隊も一致していないと同じ部隊とは言えない
@@ -184,7 +187,7 @@ export function litterSystem(world: World): void {
     const need = bearersNeeded(patient, ccp);
 
     const cands = world.soldiers
-      .filter((c) => isAvailableBearer(c, patient))
+      .filter((c) => isAvailableBearer(world, c, patient))
       .map((c) => ({ c, d: dist(c.pos, patient.pos) }))
       // 距離が同点なら兵士IDで決着させ、走査順に依存しないようにする(対称性)
       .sort((a, b) => a.d - b.d || a.c.id - b.c.id);

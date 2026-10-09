@@ -28,7 +28,7 @@ import {
   PLATOON_FRONTAGE,
   SIM_HZ,
 } from "../constants.ts";
-import { aiSuppressed } from "../control.ts";
+import { aiSuppressed, soldierSeated } from "../control.ts";
 import { flotFrom } from "./flot.ts";
 import { clamp } from "../geometry.ts";
 import { next } from "../rng.ts";
@@ -206,6 +206,8 @@ function postCompanyHq(world: World, co: CompanyState): void {
 
     // 中隊長本人を人間が操作している間はAIの位置取りを止める(仕様 §4)
     if (s.hqRole === "co" && aiSuppressed(world, "company", co.side, co.companyId)) continue;
+    // 本部要員に一兵卒として座っている間も止める(`[v7.3]` A-7)
+    if (soldierSeated(world, s)) continue;
 
     const post = s.hqRole === "firstSergeant" ? world.ccp[co.side] : co.cp;
     const arrived = dist(s.pos, post) < 2.0;

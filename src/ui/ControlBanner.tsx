@@ -38,12 +38,22 @@ export function ControlBanner() {
   }
 
   const sideCls = control.side === "blue" ? "cb-blue" : "cb-red";
-  const echelon = ECHELON_JP[control.echelon as ViewEchelon] ?? control.echelon;
-  const suffix = UNIT_SUFFIX[control.echelon as "company" | "platoon" | "squad"] ?? "";
+  // `[v7.3]` FTリーダー・一兵卒の座席(A-7)は兵士IDで持つ
+  const echelon =
+    control.echelon === "fireteam"
+      ? "FTリーダー"
+      : control.echelon === "soldier"
+        ? "一兵卒"
+        : (ECHELON_JP[control.echelon as ViewEchelon] ?? control.echelon);
+  const suffix =
+    control.echelon === "fireteam" || control.echelon === "soldier"
+      ? "号の"
+      : (UNIT_SUFFIX[control.echelon as "company" | "platoon" | "squad"] ?? "");
   return (
     <div className={`panel panel-live cmdbanner ${sideCls}`}>
       <span className="cb-side">{control.side === "blue" ? "BLUE" : "RED"}</span>
       <span className="cb-unit">
+        {control.echelon === "fireteam" || control.echelon === "soldier" ? "#" : ""}
         {control.unitId}
         {suffix}
         {echelon}を操作中

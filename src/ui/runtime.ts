@@ -16,6 +16,7 @@ import {
   orderFireMission,
   orderReinforcement,
   orderSmoke,
+  orderHold,
 } from "@sim/playerOrders.ts";
 import { SMOKE_BLOCK_TEXT, smokeCooldownLeft, smokeThrower } from "@sim/systems/smoke.ts";
 import { applyReplay, replayCursor, startRecording, type ReplayCursor } from "@sim/replay.ts";
@@ -204,6 +205,16 @@ function planViewsOf(world: World, side: Side, truth: boolean): {
   return { plans, routes };
 }
 
+/** 階層ツリーの隊員の職の略称(`[v7.3]` A-7) */
+const ROLE_SHORT: Record<string, string> = {
+  leader: "TL",
+  saw: "SAW",
+  grenadier: "GR",
+  rifleman: "R",
+  mg: "MG",
+  shield: "盾",
+};
+
 /** 階層ツリー用の編成一覧を組み立てる。損耗を反映するため定期的に更新する。 */
 function rosterOf(world: World): RosterCompany[] {
   const out: RosterCompany[] = [];
@@ -217,12 +228,29 @@ function rosterOf(world: World): RosterCompany[] {
             const men = world.soldiers.filter(
               (s) => s.side === sq.side && s.squadId === sq.squadId,
             );
+            // FTと隊員(`[v7.3]` A-7)。分隊長枠(fireteamId < 0)は分隊のノードが受け持つ
+            const ftIdx = [...new Set(men.filter((m) => m.fireteamId >= 0).map((m) => m.fireteamId))];
+            ftIdx.sort((a, b) => a - b);
+            const fireteams = ftIdx.map((fi) => {
+              const team = men.filter((m) => m.fireteamId === fi && m.status !== "kia" && !isOffField(m));
+              const leader = team.find((m) => m.isFireteamLeader && m.status === "ok");
+              return {
+                ftIndex: fi,
+                leaderId: leader?.id ?? null,
+                members: team.map((m) => ({
+                  id: m.id,
+                  label: ROLE_SHORT[m.role] ?? m.role,
+                  ok: m.status === "ok",
+                })),
+              };
+            });
             return {
               squadId: sq.squadId,
               commanderId: sq.commanderId,
               effective: men.filter((s) => s.status === "ok").length,
               total: men.length,
               degraded: isDegraded(sq),
+              fireteams,
             };
           });
         // 小隊本部も戦力として数える(仕様 §2)
@@ -634,6 +662,14 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
             : r.ok
               ? { ok: true, text: `迫撃砲 ${r.rounds}発を要請 ${at}` }
               : { ok: false, text: `要請は通らなかった — ${FIRE_MISSION_BLOCK_TEXT[r.reason]}` },
+        );
+      } else if (kind === "hold") {
+        // 止まってその方向を警戒する(`[v7.3]` A-7)。FTリーダー・一兵卒の座席
+        const ok = orderHold(world, p);
+        ui.setLastOrderResult(
+          ok
+            ? { ok: true, text: `停止して ${at} の方向を警戒` }
+            : { ok: false, text: "止まれと命じられるのはFTリーダー・一兵卒だけ" },
         );
       } else {
         const r = orderSmoke(world, p);
