@@ -47,6 +47,8 @@ export function OrderToast() {
               ? "◎ 発煙: 焚く地点をクリック"
               : armed === "hold"
                 ? "◎ 停止・警戒: 向く方向をクリック"
+                : armed === "at"
+                  ? "◎ 対戦車: 撃つ地点をクリック"
                 : `${fire!.ok ? "◎" : "✕"} ${fire!.text}`}
         </span>
       </div>

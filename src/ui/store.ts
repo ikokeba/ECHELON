@@ -205,10 +205,20 @@ export interface HudSnapshot {
   fireSupport: Record<Side, HudFireSupport | null>;
   /** 発煙弾(`[v7.2]`)。分隊長を操作していなければ null */
   smoke: HudSmoke | null;
+  /** 対戦車・対構造物火器(`[v7.3]` A-3)。分隊長を操作していて、分隊に射手がいるときだけ */
+  antiArmor: HudAntiArmor | null;
 }
 
 /** 地点を選んで出す命令(`[v7.2]`) */
-export type ArmedOrder = "fire" | "smoke" | "hold";
+export type ArmedOrder = "fire" | "smoke" | "hold" | "at";
+
+/** 対戦車・対構造物火器の表示(`[v7.3]` ロードマップ A-3) */
+export interface HudAntiArmor {
+  left: number;
+  cooldownSec: number;
+  /** 撃てる射手がいる */
+  canFire: boolean;
+}
 
 /** 発煙弾の表示(`[v7.2]` ロードマップ S-2)。人間が分隊長を操作しているときだけ */
 export interface HudSmoke {
@@ -615,6 +625,7 @@ export const useSimStore = create<UiState>((set, get) => ({
   reinforcement: { blue: null, red: null },
   fireSupport: { blue: null, red: null },
   smoke: null,
+  antiArmor: null,
   reinforceNonce: 0,
 
   paused: false,

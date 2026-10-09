@@ -11,6 +11,7 @@ import { separationSystem } from "./systems/separation.ts";
 import { perceptionSystem } from "./systems/perception.ts";
 import { combatSystem } from "./systems/combat.ts";
 import { hearingSystem } from "./systems/hearing.ts";
+import { antiArmorSystem } from "./systems/antiArmor.ts";
 import { indirectSystem } from "./systems/indirect.ts";
 import { windowsSystem } from "./systems/windows.ts";
 import { casualtiesSystem } from "./systems/casualties.ts";
@@ -39,6 +40,8 @@ export function stepWorld(world: World): void {
   // 0. 前ティックの描画用エフェクトを捨てる(`[v6.1]`)。ここに溜まるのはこのティックに
   //    起きた発砲・擲弾着弾だけで、シムの判断には一切使わない。
   world.fx.length = 0;
+  // 銃声(`[v7.3]` A-5)も同じ。このティックに鳴った音だけを聴覚システムが読む
+  world.gunshots.length = 0;
   // 0.5 後援部隊(`[v7.0]`)。着いた部隊を盤に載せ、AIの最上位指揮官が要請を判断する。
   //     索敵より前に置くので、着いた部隊はこのティックから見て動ける
   reinforcementSystem(world);
@@ -74,6 +77,8 @@ export function stepWorld(world: World): void {
   // 射撃に効くようにするため(仕様 §8.6)。要請もここで出るので、中隊長の判断は
   // 常に「このティックの開始時点の像」に対して行われる。
   indirectSystem(world);
+  // 対戦車・対構造物火器(`[v7.3]` A-3)。迫撃砲と同じく戦闘判定の前に着弾させる
+  antiArmorSystem(world);
   combatSystem(world);
   // 8.5 音(`[v7.3]` A-5)。このティックの銃声を、見えていない敵の粗い接触としてFTの記憶へ
   hearingSystem(world);

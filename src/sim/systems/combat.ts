@@ -307,8 +307,6 @@ export function combatSystem(world: World): void {
   const fireAlignRad = world.tuning.fireAlignRad;
   const pending: PendingShot[] = [];
   const grenades: PendingGrenade[] = [];
-  // 銃声(`[v7.3]` A-5)。このティックに撃った・投げた者を積み、聴覚システムが読む
-  world.gunshots.length = 0;
 
   // 擲弾手の照準点はFTの world picture から採る(LOS不要でも情報階層は迂回しない)
   const aimPointsByFt = new Map<string, Vec2[]>();

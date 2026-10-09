@@ -17,8 +17,15 @@ import {
   orderReinforcement,
   orderSmoke,
   orderHold,
+  orderAntiArmor,
 } from "@sim/playerOrders.ts";
 import { SMOKE_BLOCK_TEXT, smokeCooldownLeft, smokeThrower } from "@sim/systems/smoke.ts";
+import {
+  ANTI_ARMOR_BLOCK_TEXT,
+  antiArmorCooldownLeft,
+  antiArmorRoundsOf,
+  gunnerOf,
+} from "@sim/systems/antiArmor.ts";
 import { applyReplay, replayCursor, startRecording, type ReplayCursor } from "@sim/replay.ts";
 import { aarDue, captureAarFrame, type AarFrame } from "@sim/aar.ts";
 import {
@@ -406,6 +413,20 @@ function smokeHud(world: World): HudSnapshot["smoke"] {
   };
 }
 
+/** 対戦車・対構造物火器の表示(`[v7.3]` A-3)。人間が分隊長を操作していて、分隊に射手がいるときだけ */
+function antiArmorHud(world: World): HudSnapshot["antiArmor"] {
+  const c = world.control;
+  if (!c || c.echelon !== "squad") return null;
+  const sq = world.squads.find((s) => s.side === c.side && s.squadId === c.unitId);
+  if (!sq) return null;
+  if (!world.soldiers.some((s) => s.side === sq.side && s.squadId === sq.squadId && s.quals.antiArmor)) return null;
+  return {
+    left: antiArmorRoundsOf(world, sq),
+    cooldownSec: antiArmorCooldownLeft(world, sq) * SIM_DT,
+    canFire: gunnerOf(world, sq) !== null,
+  };
+}
+
 function hudOf(world: World, view: ViewResult): HudSnapshot {
   let blueAlive = 0;
   let redAlive = 0;
@@ -476,6 +497,7 @@ function hudOf(world: World, view: ViewResult): HudSnapshot {
     reinforcement: { blue: reinforcementHud(world, "blue"), red: reinforcementHud(world, "red") },
     fireSupport: { blue: fireSupportHud(world, "blue"), red: fireSupportHud(world, "red") },
     smoke: smokeHud(world),
+    antiArmor: antiArmorHud(world),
   };
 }
 
@@ -735,6 +757,16 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
             : r.ok
               ? { ok: true, text: `迫撃砲 ${r.rounds}発を要請 ${at}` }
               : { ok: false, text: `要請は通らなかった — ${FIRE_MISSION_BLOCK_TEXT[r.reason]}` },
+        );
+      } else if (kind === "at") {
+        // 対戦車・対構造物火器(`[v7.3]` A-3)。AIの射手と同じ関数を通す
+        const r = orderAntiArmor(world, p);
+        ui.setLastOrderResult(
+          !r
+            ? { ok: false, text: "対戦車火器を撃たせられるのは分隊長だけ" }
+            : r.ok
+              ? { ok: true, text: `対戦車火器を発射 ${at} — ${r.hit ? "命中" : "外れ"}${r.victims > 0 ? `、${r.victims}名を倒した` : ""}` }
+              : { ok: false, text: `撃てなかった — ${ANTI_ARMOR_BLOCK_TEXT[r.reason]}` },
         );
       } else if (kind === "hold") {
         // 止まってその方向を警戒する(`[v7.3]` A-7)。FTリーダー・一兵卒の座席

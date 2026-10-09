@@ -5,7 +5,7 @@
  * プログラム的なフィクスチャとしてシナリオを持つ。
  */
 
-import { GRENADE, OBJECTIVE } from "./constants.ts";
+import { ANTI_ARMOR, GRENADE, OBJECTIVE } from "./constants.ts";
 import {
   DEFAULT_FORCE,
   FORCE_SCALES,
@@ -128,6 +128,7 @@ export function makeSoldier(seed: SoldierSeed): Soldier {
     holdFireUntilTick: 0,
     // 擲弾は擲弾手のみが携行する(仕様 §14: 3発/戦闘)
     grenades: (seed.role ?? "rifleman") === "grenadier" ? GRENADE.CHARGES : 0,
+    ...(seed.quals?.antiArmor ? { atRounds: ANTI_ARMOR.ROUNDS_PER_SQUAD } : {}),
     routed: false,
     bleedOutTick: 0,
     order: seed.moveTo
@@ -147,6 +148,7 @@ export function makeSoldier(seed: SoldierSeed): Soldier {
     quals: {
       medicalCrossTrained: seed.quals?.medicalCrossTrained ?? false,
       designatedMarksman: seed.quals?.designatedMarksman ?? false,
+      ...(seed.quals?.antiArmor ? { antiArmor: true } : {}),
     },
     assignedAider: null,
     treating: null,
@@ -325,6 +327,8 @@ function makeSquad(
             // 選抜射手は分隊に1名、ブラボー組(ft=1)のライフルマンが兼任(仕様 §14)。
             // `[v6.9]` 編成から外すと索敵300m・専用射撃諸元・支援配置がまとめて消える
             designatedMarksman: spec.marksman && ft === 1 && m === qualSlot,
+            // `[v7.3]` 対戦車・対構造物火器の射手はアルファ組の同じ枠(A-3)
+            ...(spec.antiArmor && ft === 0 && m === qualSlot ? { antiArmor: true } : {}),
           },
         }),
       );
