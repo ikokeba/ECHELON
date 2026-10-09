@@ -263,6 +263,16 @@ export interface ThinkingSquad {
   cqb: boolean;
   degraded: boolean;
 }
+/** 受信した臨時報告1件の表示(`[v7.3]` ロードマップ A-8) */
+export interface ThinkingFlash {
+  key: string;
+  /** 送信元(例: "2分隊" / "1小隊") */
+  from: string;
+  /** きっかけ(例: "接敵・指揮官交代") */
+  what: string;
+  /** 受信してからの秒数 */
+  agoSec: number;
+}
 export interface ThinkingSelected {
   id: number;
   side: Side;
@@ -282,6 +292,8 @@ export interface ThinkingSelected {
 export interface ThinkingSnapshot {
   fireteams: ThinkingFT[];
   squads: ThinkingSquad[];
+  /** 表示側が受信した臨時報告(新しい順、`[v7.3]`) */
+  flashes: ThinkingFlash[];
   selected: ThinkingSelected | null;
 }
 
@@ -617,7 +629,7 @@ export const useSimStore = create<UiState>((set, get) => ({
   lastOrderResult: null,
   setLastOrderResult: (r) =>
     set((s) => ({ lastOrderResult: { ...r, seq: (s.lastOrderResult?.seq ?? 0) + 1 } })),
-  thinking: { fireteams: [], squads: [], selected: null },
+  thinking: { fireteams: [], squads: [], flashes: [], selected: null },
   debug: {
     panelOpen: false,
     fov: "off",

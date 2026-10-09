@@ -106,6 +106,18 @@ function thinkingOf(world: World): ThinkingSnapshot {
       degraded: s.degradedSinceTick !== null,
     }));
 
+  // 受信した臨時報告(`[v7.3]` A-8)。その陣営の小隊長・中隊長が受け取ったもの
+  const FLASH_JP = { contact: "接敵", commander: "指揮官交代", rout: "潰走" } as const;
+  const flashes = world.flashLog
+    .filter((f) => f.side === side)
+    .slice(0, 5)
+    .map((f) => ({
+      key: `${f.tick}:${f.fromEchelon}:${f.fromUnitId}`,
+      from: `${f.fromUnitId}${f.fromEchelon === "squad" ? "分隊" : "小隊"}`,
+      what: f.reasons.map((r) => FLASH_JP[r]).join("・"),
+      agoSec: Math.round((world.tick - f.tick) / SIM_HZ),
+    }));
+
   let selected: ThinkingSnapshot["selected"] = null;
   const sid = ui.selectedSoldierId;
   if (sid != null) {
@@ -128,7 +140,7 @@ function thinkingOf(world: World): ThinkingSnapshot {
       };
     }
   }
-  return { fireteams, squads, selected };
+  return { fireteams, squads, flashes, selected };
 }
 
 /**

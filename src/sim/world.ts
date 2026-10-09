@@ -38,6 +38,8 @@ import type {
   DefenseEdit,
   DefensivePosition,
   Door,
+  FlashLogEntry,
+  FlashWatch,
   FireteamState,
   FxEvent,
   Objective,
@@ -156,6 +158,11 @@ export interface World {
   /** 伝達中の無線報告。world.tick >= report.deliverTick になった時点で到達する */
   reports: Report[];
   /**
+   * 受信された臨時報告の記録(`[v7.3]` ロードマップ A-8)。新しい順に `FLASH_REPORT.LOG_KEEP`
+   * 件まで。**UI の表示専用でシムは読まない**(判断は belief と部下の報告から行う)
+   */
+  flashLog: FlashLogEntry[];
+  /**
    * 飛翔中の火力支援任務(`[v6.9]` 仕様 §10/§11)。
    * 照準点は**要請時点の中隊長の像**で凍結されている(仕様 §5)。
    */
@@ -256,6 +263,14 @@ function activeReinforcement(scenario: Scenario, side: Side): ReinforcementSpec 
   return r && r.calls > 0 ? { ...r } : null;
 }
 
+/**
+ * 臨時報告の判定の初期状態(`[v7.3]`)。指揮官は `successionSystem` が初めて席に着かせた
+ * ときに「変化」として拾わないよう、null のまま始めて無線側が初回に写し取る。
+ */
+export function newFlashWatch(): FlashWatch {
+  return { contact: false, commanderId: null, routed: 0, lastFlashTick: -1_000_000 };
+}
+
 /** 編成に存在する (陣営, 分隊, FT) の組ごとにコントローラを1つ生成する。 */
 export function buildFireteams(scenario: Scenario, soldiers: Soldier[]): FireteamState[] {
   const seen = new Map<string, FireteamState>();
@@ -335,6 +350,7 @@ export function buildSquads(scenario: Scenario, soldiers: Soldier[]): SquadState
       flank: null,
       flankGoal: null,
       flankAssault: false,
+      flashWatch: newFlashWatch(),
       smokes: SMOKE.PER_SQUAD,
       lastSmokeTick: -1_000_000,
     });
@@ -374,6 +390,7 @@ export function buildPlatoons(scenario: Scenario, soldiers: Soldier[]): PlatoonS
       commanderId: null,
       degradedSinceTick: null,
       flank: null,
+      flashWatch: newFlashWatch(),
     });
   }
   return [...seen.values()];
@@ -659,6 +676,7 @@ function buildWorld(scenario: Scenario): World {
     companies: buildCompanies(scenario, soldiers),
     nextSoldierId: soldiers.reduce((mx, s) => Math.max(mx, s.id), 0) + 1,
     reports: [],
+    flashLog: [],
     fireMissions: [],
     nextFireMissionId: 1,
     smokes: [],

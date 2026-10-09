@@ -68,6 +68,19 @@ function ThinkingPanelBody() {
         {thinking.squads.length === 0 && <div className="tp-empty">（この陣営に分隊なし）</div>}
       </div>
 
+      {thinking.flashes.length > 0 && (
+        <div className="tp-selected">
+          <div className="panel-cap">
+            <span>FLASH / 臨時報告</span>
+          </div>
+          {thinking.flashes.map((f) => (
+            <div key={f.key} className="mono">
+              {f.from} <b>{f.what}</b> · {f.agoSec}秒前
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="tp-selected">
         <div className="panel-cap">
           <span>SELECTED</span>

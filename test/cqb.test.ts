@@ -166,25 +166,30 @@ describe("突入待機命令の3段階(仕様 §7.2/§7.3)", () => {
   });
 
   it("突入は単一ファイル — 全員が同時に扉へ殺到しない(仕様 §7.3)", () => {
-    const w = createWorld(urbanCqbFixture(1));
     // ブリーチ中、「まだ順番待ちの隊員」と「もう動き出した隊員」が同時に存在する
     // 瞬間があること。4名が一斉に扉へ殺到する挙動はプロトタイプで確認済みの失敗。
+    // `[v7.3]` 臨時報告(A-8)で戦闘の展開が変わり、シード1では突入するFTが1名まで
+    // 減ってから突入した(1名では並びようがない)。標本を3シードに広げる(判定は変えない)
     let sawStagger = false;
-    for (let t = 0; t < 90 * SIM_HZ && !sawStagger; t++) {
-      runTicks(w, 1);
-      for (const ft of w.fireteams) {
-        if (ft.mode !== "CQB" || ft.cqbStage !== "breach") continue;
-        const men = w.soldiers.filter(
-          (s) =>
-            s.side === ft.side &&
-            s.squadId === ft.squadId &&
-            s.fireteamId === ft.ftIndex &&
-            s.status === "ok",
-        );
-        if (men.length < 2) continue;
-        const waiting = men.filter((s) => s.order.kind === "hold").length;
-        const moving = men.length - waiting;
-        if (waiting > 0 && moving > 0) sawStagger = true;
+    for (const seed of [1, 2, 3]) {
+      if (sawStagger) break;
+      const w = createWorld(urbanCqbFixture(seed));
+      for (let t = 0; t < 90 * SIM_HZ && !sawStagger; t++) {
+        runTicks(w, 1);
+        for (const ft of w.fireteams) {
+          if (ft.mode !== "CQB" || ft.cqbStage !== "breach") continue;
+          const men = w.soldiers.filter(
+            (s) =>
+              s.side === ft.side &&
+              s.squadId === ft.squadId &&
+              s.fireteamId === ft.ftIndex &&
+              s.status === "ok",
+          );
+          if (men.length < 2) continue;
+          const waiting = men.filter((s) => s.order.kind === "hold").length;
+          const moving = men.length - waiting;
+          if (waiting > 0 && moving > 0) sawStagger = true;
+        }
       }
     }
     expect(sawStagger).toBe(true);

@@ -97,7 +97,8 @@ barbed wire.
 - **Five echelons**, each with real soldiers. Platoon and company headquarters can be killed, and
   command then passes down the chain.
 - **Information that degrades with rank.** Soldiers see, leaders pool what their teams see, and
-  everything above squad level is radio-only.
+  everything above squad level is radio-only. Besides the 5-second routine report, contact, a change of
+  commander and a rout go up at once as flash reports.
 - **Movement doctrine.** Traveling, traveling overwatch and bounding overwatch, chosen from what
   the commander believes rather than from the truth. Formations adapt to corridor width.
 - **Flanking.** Squads split into a base-of-fire team and a maneuver team that circles the enemy;

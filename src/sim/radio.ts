@@ -22,6 +22,7 @@ import { sideDoctrine } from "./world.ts";
 import {
   CONFIDENCE_CUTOFF,
   DEGRADED_RADIO_LATENCY_MUL,
+  FLASH_REPORT,
   POS_ERROR_GROWTH,
   POS_ERROR_MAX,
   RADIO_LATENCY_SEC,
@@ -29,11 +30,20 @@ import {
   SIM_HZ,
 } from "./constants.ts";
 import { forwardOf } from "./c2/flot.ts";
-import type { Contact, Report, Side, SubordinateReport, Vec2 } from "./types.ts";
+import type {
+  Contact,
+  FlashReason,
+  FlashWatch,
+  Report,
+  Side,
+  SubordinateReport,
+  Vec2,
+} from "./types.ts";
 import type { World } from "./world.ts";
 
 const REPORT_INTERVAL_TICKS = Math.round(REPORT_INTERVAL_SEC * SIM_HZ);
 const RADIO_LATENCY_TICKS = Math.round(RADIO_LATENCY_SEC * SIM_HZ);
+const FLASH_GAP_TICKS = Math.round(FLASH_REPORT.MIN_GAP_SEC * SIM_HZ);
 
 /**
  * 報告に載せる接触情報の確度の下限。これを下回る古い情報は、無線の帯域を無駄に
@@ -139,6 +149,7 @@ export function radioSystem(world: World): void {
         stillInFlight.push(r);
         continue;
       }
+      if (r.flash) logFlash(world, r);
       if (r.fromEchelon === "squad") {
         const pl = world.platoons.find((p) => p.side === r.side && p.platoonId === r.toUnitId);
         if (pl) {
@@ -180,7 +191,15 @@ export function radioSystem(world: World): void {
   for (const sq of world.squads) {
     // ドクトリンで報告が疎になる(仕様 §13)。正規軍は倍率1で現行と一致 `[v6.8]`
     const doc = sideDoctrine(world, sq.side);
-    if (world.tick - sq.lastReportTick < REPORT_INTERVAL_TICKS * doc.reportIntervalMul) continue;
+    // 臨時報告(`[v7.3]` A-8)。重要な変化があれば定時を待たずに今送る
+    const flash = flashReasons(world, sq.flashWatch, {
+      contact: hasFirmContact(sq.belief),
+      commanderId: sq.commanderId,
+      routed: routedFireteams(world, sq.side, (squadId) => squadId === sq.squadId),
+    });
+    if (!flash && world.tick - sq.lastReportTick < REPORT_INTERVAL_TICKS * doc.reportIntervalMul) {
+      continue;
+    }
     sq.lastReportTick = world.tick;
 
     const members = livingSoldiersOfSquad(world, sq.side, sq.squadId);
@@ -195,6 +214,7 @@ export function radioSystem(world: World): void {
       sentTick: world.tick,
       deliverTick: world.tick + Math.round(RADIO_LATENCY_TICKS * doc.radioLatencyMul),
       contacts: selectContactsForReport(sq.belief),
+      ...(flash ? { flash } : {}),
       ownStatus: {
         effective: effective.length,
         total: members.length,
@@ -210,7 +230,21 @@ export function radioSystem(world: World): void {
   //    仕様 §5 の「さらに遅延・粒度が粗くなる」が構造的に成立する。
   for (const pl of world.platoons) {
     const plDoc = sideDoctrine(world, pl.side);
-    if (world.tick - pl.lastReportTick < REPORT_INTERVAL_TICKS * plDoc.reportIntervalMul) continue;
+    // 小隊長の臨時報告(`[v7.3]`)。接敵は分隊の臨時報告が届いて小隊長の像に確かな接触が
+    // 載った時点で立つので、分隊 → 小隊 → 中隊と1ホップずつ遅れて伝わる(仕様 §5)
+    const squadIds = new Set(
+      world.squads
+        .filter((q) => q.side === pl.side && q.platoonId === pl.platoonId)
+        .map((q) => q.squadId),
+    );
+    const flash = flashReasons(world, pl.flashWatch, {
+      contact: hasFirmContact(pl.belief),
+      commanderId: pl.commanderId,
+      routed: routedFireteams(world, pl.side, (squadId) => squadIds.has(squadId)),
+    });
+    if (!flash && world.tick - pl.lastReportTick < REPORT_INTERVAL_TICKS * plDoc.reportIntervalMul) {
+      continue;
+    }
     pl.lastReportTick = world.tick;
 
     const members = world.soldiers.filter(
@@ -232,6 +266,7 @@ export function radioSystem(world: World): void {
       deliverTick:
         world.tick + Math.round(RADIO_LATENCY_TICKS * latencyMul * plDoc.radioLatencyMul),
       contacts: selectContactsForReport(pl.belief),
+      ...(flash ? { flash } : {}),
       ownStatus: {
         effective: effective.length,
         total: members.length,
@@ -240,6 +275,68 @@ export function radioSystem(world: World): void {
       },
     });
   }
+}
+
+/** 確かな接触(確度が FTの CONTACT 判定と同じ線を超える)を1件でも持っているか */
+function hasFirmContact(belief: Map<string, Contact>): boolean {
+  for (const c of belief.values()) if (c.confidence >= FLASH_REPORT.CONTACT_CONF) return true;
+  return false;
+}
+
+/** 条件に合う分隊に属するFTのうち、潰走しているものの数 */
+function routedFireteams(world: World, side: Side, inUnit: (squadId: number) => boolean): number {
+  let n = 0;
+  for (const ft of world.fireteams) {
+    if (ft.side === side && ft.routedSinceTick !== null && inUnit(ft.squadId)) n++;
+  }
+  return n;
+}
+
+/**
+ * 臨時報告を出すべきか(`[v7.3]` ロードマップ A-8)。出すならきっかけの一覧、出さないなら null。
+ *
+ * 前回覚えた状態(`watch`)といまの状態を比べ、**変わったときだけ**立てる。
+ *   - 接敵: 確かな接触が「無い → ある」。消えたほうは報告しない(定時で足りる)
+ *   - 指揮官: 継いだ者が変わった。最初に席に着いたとき(前が null)は変化ではない
+ *   - 潰走: 潰走しているFTが増えた
+ * 間隔の下限(`MIN_GAP_SEC`)の内側で起きた変化は、`watch` を更新しないまま次に持ち越す。
+ * 取りこぼさず、かつ撃ち合いのあいだ無線を埋めない。
+ */
+function flashReasons(
+  world: World,
+  watch: FlashWatch,
+  now: { contact: boolean; commanderId: number | null; routed: number },
+): FlashReason[] | null {
+  const reasons: FlashReason[] = [];
+  if (now.contact && !watch.contact) reasons.push("contact");
+  if (watch.commanderId !== null && now.commanderId !== watch.commanderId) {
+    reasons.push("commander");
+  }
+  if (now.routed > watch.routed) reasons.push("rout");
+
+  if (reasons.length > 0 && world.tick - watch.lastFlashTick < FLASH_GAP_TICKS) return null;
+
+  // 送るか、知らせるほどでもない変化(接触が消えた・潰走が減った)なら、いまの状態を覚える
+  watch.contact = now.contact;
+  watch.commanderId = now.commanderId;
+  watch.routed = now.routed;
+  if (reasons.length === 0) return null;
+  watch.lastFlashTick = world.tick;
+  return reasons;
+}
+
+/** 受信した臨時報告を UI 用の記録へ残す(`[v7.3]`)。シムの判断には使わない */
+function logFlash(world: World, r: Report): void {
+  world.flashLog.unshift({
+    side: r.side,
+    tick: world.tick,
+    sentTick: r.sentTick,
+    fromEchelon: r.fromEchelon,
+    fromUnitId: r.fromUnitId,
+    reasons: [...(r.flash ?? [])],
+    contacts: r.contacts.length,
+  });
+  if (world.flashLog.length > FLASH_REPORT.LOG_KEEP) world.flashLog.length = FLASH_REPORT.LOG_KEEP;
 }
 
 /**
