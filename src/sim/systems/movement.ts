@@ -135,7 +135,7 @@ export function movementSystem(world: World): void {
           faceToward(s, combatLook(world, s), maxTurn);
           continue;
         }
-        const accepted = moveWithWallSlide(world.wallIndex, s.pos, step.pos);
+        const accepted = moveWithWallSlide(world.moveIndex, s.pos, step.pos);
         s.pos = accepted;
         s.pathIdx = step.pathIdx;
         // 隊形位置の近くまで来たら迂回を畳んで通常の追従へ戻す
@@ -150,7 +150,7 @@ export function movementSystem(world: World): void {
         if (standoffBlocks(world, s, s.pos, to)) {
           s.stuckTicks = 0;
         } else {
-          const accepted = moveWithWallSlide(world.wallIndex, s.pos, to);
+          const accepted = moveWithWallSlide(world.moveIndex, s.pos, to);
           const progressed = Math.hypot(accepted.x - s.pos.x, accepted.z - s.pos.z);
           s.pos = accepted;
           accountStuck(s, progressed);
@@ -173,7 +173,7 @@ export function movementSystem(world: World): void {
         faceToward(s, combatLook(world, s), maxTurn);
         continue;
       }
-      const accepted = moveWithWallSlide(world.wallIndex, s.pos, step.pos);
+      const accepted = moveWithWallSlide(world.moveIndex, s.pos, step.pos);
       const progressed = Math.hypot(accepted.x - s.pos.x, accepted.z - s.pos.z);
       s.pos = accepted;
       s.pathIdx = step.pathIdx;

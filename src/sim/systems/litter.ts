@@ -270,7 +270,7 @@ export function litterSystem(world: World): void {
 
     // 搬送速度倍率(仕様 §9: 2名0.5倍 / 4名0.85倍)。全体がここに律速される
     const step = advanceAlongPath(patient.pos, patient.path, patient.pathIdx, maxStep * speedMul);
-    const accepted = slide(world.wallIndex, patient.pos, step.pos);
+    const accepted = slide(world.moveIndex, patient.pos, step.pos);
     const progressed = Math.hypot(accepted.x - patient.pos.x, accepted.z - patient.pos.z);
     patient.pos = accepted;
     patient.pathIdx = step.pathIdx;
@@ -299,7 +299,7 @@ export function litterSystem(world: World): void {
       const px = patient.pos.x + off.x;
       const pz = patient.pos.z + off.z;
       // 担架の四隅へ貼り付ける。壁に食い込む位置なら担架中心へ寄せる
-      b.pos = collidesWallIndexed(world.wallIndex, px, pz, SOLDIER_RADIUS * 0.7)
+      b.pos = collidesWallIndexed(world.moveIndex, px, pz, SOLDIER_RADIUS * 0.7)
         ? { ...patient.pos }
         : { x: px, z: pz };
       b.path = [];

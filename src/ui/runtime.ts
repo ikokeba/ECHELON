@@ -166,8 +166,8 @@ function planViewsOf(world: World, side: Side, truth: boolean): {
         })),
       // 防衛陣地(`[v7.2]` S-1)。種類ごとの通し番号で呼ぶ
       defense: (() => {
-        const n = { mg: 0, fighting: 0, alternate: 0 };
-        const name = { mg: "機関銃", fighting: "射撃壕", alternate: "予備陣地" };
+        const n = { mg: 0, fighting: 0, alternate: 0, wire: 0 };
+        const name = { mg: "機関銃", fighting: "射撃壕", alternate: "予備陣地", wire: "鉄条網" };
         return world.defense
           .filter((p) => p.side === co.side)
           .map((p) => ({

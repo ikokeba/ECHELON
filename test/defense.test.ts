@@ -192,3 +192,87 @@ describe("人間による置き直し(`[v7.2]` S-1、P3/P4)", () => {
     expect(w2.soldiers.map((s) => [s.status, s.pos])).toEqual(w.soldiers.map((s) => [s.status, s.pos]));
   }, 300000);
 });
+
+describe("鉄条網(`[v7.2]` S-1b)", () => {
+  it("防御側が拠点の前方に張る。視線は通し、人は通さない", async () => {
+    const { wireBoxes } = await import("../src/sim/c2/defense.ts");
+    const { hasLineOfSightIndexed, collidesWallIndexed } = await import("../src/sim/wallIndex.ts");
+    const w = planned(assault());
+    const wires = w.defense.filter((p) => p.kind === "wire");
+    expect(wires.length).toBeGreaterThan(0);
+    expect(w.defense.filter((p) => p.kind === "wire" && p.side === "blue")).toEqual([]);
+    for (const p of wires) {
+      const a = { x: p.pos.x - p.facing.x * 4, z: p.pos.z - p.facing.z * 4 };
+      const b = { x: p.pos.x + p.facing.x * 4, z: p.pos.z + p.facing.z * 4 };
+      // 線を横切る視線は通る(視線の壁には入っていない)
+      expect(hasLineOfSightIndexed(w.wallIndex, a.x, a.z, b.x, b.z)).toBe(true);
+      // 線の上は移動の当たり判定にかかる
+      expect(collidesWallIndexed(w.moveIndex, p.pos.x, p.pos.z, 0.35)).toBe(true);
+      expect(collidesWallIndexed(w.wallIndex, p.pos.x, p.pos.z, 0.35)).toBe(false);
+      // 小箱は隙間なく並ぶ
+      const boxes = wireBoxes(p);
+      for (let i = 1; i < boxes.length; i++) {
+        const d = Math.hypot(boxes[i]!.cx - boxes[i - 1]!.cx, boxes[i]!.cz - boxes[i - 1]!.cz);
+        expect(d).toBeLessThan(boxes[i]!.hw * 2);
+      }
+    }
+  });
+
+  it("鉄条網の向こうへ行けと命じられた兵は、乗り越えずに回り込む", async () => {
+    const { findPathSet } = await import("../src/sim/navgrid.ts");
+    const w = planned(assault());
+    beginBattle(w);
+    const p = w.defense.find((d) => d.kind === "wire")!;
+    const s = w.soldiers.find((x) => x.side === "blue" && x.status === "ok")!;
+    const from = { x: p.pos.x - p.facing.x * 3, z: p.pos.z - p.facing.z * 3 };
+    const to = { x: p.pos.x + p.facing.x * 3, z: p.pos.z + p.facing.z * 3 };
+    const path = findPathSet(w.nav, from.x, from.z, to.x, to.z);
+    expect(path).not.toBeNull();
+    // 経路は鉄条網の端を回るので、まっすぐ(6m)より長い
+    let len = 0;
+    let prev = from;
+    for (const q of path!) {
+      len += Math.hypot(q.x - prev.x, q.z - prev.z);
+      prev = q;
+    }
+    expect(len).toBeGreaterThan(9);
+    // 兵士を線の手前に置いて線の向こうへ真っすぐ歩かせても、線を越えない
+    s.pos = { ...from };
+    s.order = { kind: "move", target: { ...to }, facing: { ...p.facing }, issuedTick: w.tick };
+    s.path = [{ ...to }];
+    s.pathIdx = 0;
+    const side = (q: { x: number; z: number }) => (q.x - p.pos.x) * p.facing.x + (q.z - p.pos.z) * p.facing.z;
+    for (let t = 0; t < 2 * SIM_HZ; t++) {
+      stepWorld(w);
+      const r = { x: -p.facing.z, z: p.facing.x };
+      const along = Math.abs((s.pos.x - p.pos.x) * r.x + (s.pos.z - p.pos.z) * r.z);
+      // 線の幅の内側にいる間は、手前側から向こう側へ抜けていない
+      if (along < DEFENSE.WIRE_HALF_LEN - 1) expect(side(s.pos)).toBeLessThan(0);
+    }
+  }, 300000);
+
+  it("人間は鉄条網も同じ規則で置き直せ、経路探索が張り直される", () => {
+    const w = planned(assault());
+    const wire = w.defense.find((p) => p.kind === "wire" && p.side === "red")!;
+    const before = { ...wire.pos };
+    // 拠点の上には張れない
+    const o = w.objectives[0]!;
+    expect(moveDefensivePosition(w, wire.id, o.pos, seatOf(w, "red")).ok).toBe(false);
+    // 前後へずらす(候補を順に試して、通る場所を探す)。線に沿ってずらすと旧位置の中心が
+    // 新しい線の上に残るので、線と直交する向きに動かす
+    let moved = false;
+    for (const d of [2, -2, 3, -3, 4, -4, 6, -6]) {
+      const to = { x: before.x + wire.facing.x * d, z: before.z + wire.facing.z * d };
+      if (moveDefensivePosition(w, wire.id, to, seatOf(w, "red")).ok) {
+        moved = true;
+        break;
+      }
+    }
+    expect(moved).toBe(true);
+    // 旧位置の中心は通れるようになり、新位置は通れない
+    const wi = w.wireWalls;
+    const at = (q: { x: number; z: number }) => wi.some((b) => Math.abs(b.cx - q.x) <= b.hw && Math.abs(b.cz - q.z) <= b.hd);
+    expect(at(wire.pos)).toBe(true);
+    expect(at(before)).toBe(false);
+  });
+});

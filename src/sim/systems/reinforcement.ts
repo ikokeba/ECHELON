@@ -94,13 +94,13 @@ function freeSpot(world: World, p: Vec2): Vec2 {
   const b = world.bounds;
   const inside = (q: Vec2): boolean =>
     q.x > b.minX + 2 && q.x < b.maxX - 2 && q.z > b.minZ + 2 && q.z < b.maxZ - 2;
-  if (inside(p) && !collidesWallIndexed(world.wallIndex, p.x, p.z, 0.8)) return p;
+  if (inside(p) && !collidesWallIndexed(world.moveIndex, p.x, p.z, 0.8)) return p;
   for (let r = 2; r <= FREE_SEARCH; r += 2) {
     const n = Math.max(8, Math.round(r * 2));
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2;
       const q = { x: p.x + Math.sin(a) * r, z: p.z + Math.cos(a) * r };
-      if (inside(q) && !collidesWallIndexed(world.wallIndex, q.x, q.z, 0.8)) return q;
+      if (inside(q) && !collidesWallIndexed(world.moveIndex, q.x, q.z, 0.8)) return q;
     }
   }
   return p;

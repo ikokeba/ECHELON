@@ -1176,8 +1176,9 @@ export type FxEvent =
  *               撃つ相手がいないときは最終阻止射撃線(FPL)に銃を据える
  *   fighting  : 射撃壕・土嚢。就いた者は窓と同じ補正を受ける(被命中 −60% / 命中 +30%、§8)
  *   alternate : 予備陣地。拠点を持つ小隊のFTが、後退・潰走のときに下がる先
+ *   wire      : `[v7.2]` 鉄条網(S-1b)。人は通さず視線は通す。接近路を横切って張る
  */
-export type DefenseKind = "mg" | "fighting" | "alternate";
+export type DefenseKind = "mg" | "fighting" | "alternate" | "wire";
 
 /**
  * 防衛陣地1つ(`[v7.2]` ロードマップ S-1)。防衛側の中隊長が戦闘前に置く。
