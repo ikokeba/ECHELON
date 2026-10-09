@@ -106,7 +106,7 @@ export function decayBelief(belief: Map<string, Contact>, tick: number): void {
   for (const [key, c] of belief) {
     const age = (tick - c.lastSeenTick) / SIM_HZ;
     c.confidence = decayedConfidence(age);
-    c.posError = Math.min(POS_ERROR_MAX, c.hopError + age * POS_ERROR_GROWTH);
+    c.posError = posErrorOf(c, age);
     // 確度0(仕様 §5「180秒で消滅」)でも接触情報自体は消さない。`[v6]` の決定どおり、
     // 最終目撃情報のゴーストとして残置し、AIの索敵対象からのみ除外する
     // (除外の判定は利用側が confidence を見て行う)。
@@ -115,6 +115,16 @@ export function decayBelief(belief: Map<string, Contact>, tick: number): void {
       belief.delete(key);
     }
   }
+}
+
+/**
+ * 接触の位置誤差(m)。見た接触は「ホップ由来の粗さ + 経過時間による拡大」を上限で頭打ち。
+ * 聞いた接触(`[v7.3]` A-5)は最初から粗さそのものが誤差で、時間では広げない
+ * (音の見積もりの粗さ `heardError` に、無線のホップぶんの粗さ `hopError` を足す)。
+ */
+export function posErrorOf(c: Contact, ageSec: number): number {
+  if (c.heard) return (c.heardError ?? 0) + c.hopError;
+  return Math.min(POS_ERROR_MAX, c.hopError + ageSec * POS_ERROR_GROWTH);
 }
 
 /** 報告に載せるべき接触情報を選び、1ホップ分の粒度低下を加える。 */

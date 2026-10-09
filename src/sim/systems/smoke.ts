@@ -127,7 +127,7 @@ export function throwSmoke(world: World, sq: SquadState, target: Vec2): SmokeRes
 function primaryThreat(belief: Map<string, Contact>): Contact | null {
   let best: Contact | null = null;
   for (const c of belief.values()) {
-    if (c.confidence <= 0) continue;
+    if (c.confidence <= 0 || c.heard) continue; // 聞いただけの接触には焚かない(`[v7.3]`)
     if (!best || c.confidence > best.confidence) best = c;
   }
   return best;

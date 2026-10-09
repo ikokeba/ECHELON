@@ -65,11 +65,14 @@ function dist(a: Vec2, b: Vec2): number {
   return Math.hypot(a.x - b.x, a.z - b.z);
 }
 
-/** belief の中で最も確度の高い接触。確度0のゴーストは判断に使わない(仕様 §5 `[v6]`)。 */
+/**
+ * belief の中で最も確度の高い接触。確度0のゴーストは判断に使わない(仕様 §5 `[v6]`)。
+ * `[v7.3]` 聞いただけの接触(A-5)も使わない — 担当区域の向きは見た敵で決める
+ */
 function primaryThreat(belief: Map<string, Contact>): Contact | null {
   let best: Contact | null = null;
   for (const c of belief.values()) {
-    if (c.confidence <= 0) continue;
+    if (c.confidence <= 0 || c.heard) continue;
     if (!best || c.confidence > best.confidence) best = c;
   }
   return best;

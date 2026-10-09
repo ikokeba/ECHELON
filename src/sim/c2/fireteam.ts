@@ -32,8 +32,6 @@ import {
   MG,
   MORALE,
   WEAPON_RANGE,
-  POS_ERROR_GROWTH,
-  POS_ERROR_MAX,
   SHIELD,
   SIM_HZ,
 } from "../constants.ts";
@@ -48,6 +46,7 @@ import { exitCqb, runCqb } from "./cqbDrill.ts";
 import { mannesDefensivePost } from "./defense.ts";
 import { assignFires } from "./fireControl.ts";
 import { decayedConfidence } from "../belief.ts";
+import { posErrorOf } from "../radio.ts";
 import { shieldStackOffsets, shieldUp, stackPoint } from "../shield.ts";
 import type { Contact, FireteamMode, FireteamState, Soldier, Vec2 } from "../types.ts";
 
@@ -212,7 +211,7 @@ function updateMemory(world: World, ft: FireteamState, members: readonly Soldier
     }
     const age = (world.tick - c.lastSeenTick) / SIM_HZ;
     c.confidence = decayedConfidence(age);
-    c.posError = Math.min(POS_ERROR_MAX, c.hopError + age * POS_ERROR_GROWTH);
+    c.posError = posErrorOf(c, age);
     if (c.confidence < CONFIDENCE_CUTOFF) ft.memory.delete(key);
   }
 }
@@ -288,7 +287,9 @@ function selectMode(
   // 明記している。ただし後退判断だけは上位に置く — 崩れているのに突入はしない。
   if (ft.cqbDoorId !== null) return "CQB";
   if (contacts.some((c) => c.confidence > 0.85)) return "CONTACT";
-  if (ft.memory.size > 0 || ft.searchPoint) return "SEARCH";
+  // 掃討は**見た**接触だけで起こす(`[v7.3]`)。聞いた接触(`contacts` から除いてある)で
+  // 持ち場を離れると、遠くの銃声のたびに部隊が吸い寄せられる
+  if (contacts.length > 0 || ft.searchPoint) return "SEARCH";
   return "ADVANCE";
 }
 
@@ -682,7 +683,9 @@ export function fireteamAI(world: World): void {
     assignFires(world, living);
     const fallbackDeficit = pos.fallbackDeficit;
 
-    const contacts = [...ft.memory.values()];
+    // 判断に使うのは**見た**接触だけ(`[v7.3]` A-5)。聞いた接触は警戒の向き(ftThreat)と
+    // 上への報告にだけ効く
+    const contacts = [...ft.memory.values()].filter((c) => !c.heard);
     const squadStrength = world.soldiers.filter(
       (s) => s.side === ft.side && s.squadId === ft.squadId && s.status === "ok",
     ).length;

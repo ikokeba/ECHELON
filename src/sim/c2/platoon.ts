@@ -260,17 +260,20 @@ function dist(a: Vec2, b: Vec2): number {
 }
 
 /** belief の中で最も確度の高い接触。確度0のゴーストは判断に使わない。 */
-function primaryThreat(belief: Map<string, Contact>): Contact | null {
+function primaryThreat(belief: Map<string, Contact>, includeHeard = false): Contact | null {
   let best: Contact | null = null;
   for (const c of belief.values()) {
     if (c.confidence <= 0) continue; // ゴーストは索敵対象外(仕様 §5 `[v6]`)
+    // `[v7.3]` 聞いただけの接触(A-5)は移動技術の選択にだけ使う。機動の向きは見た敵で決める
+    if (c.heard && !includeHeard) continue;
     if (!best || c.confidence > best.confidence) best = c;
   }
   return best;
 }
 
 function selectTechnique(pl: PlatoonState, from: Vec2, rangeMul: number): MovementTechnique {
-  const threat = primaryThreat(pl.belief);
+  // 近くで銃声がすれば、見えていなくても警戒前進へ(`[v7.3]` A-5)
+  const threat = primaryThreat(pl.belief, true);
   if (!threat) return "traveling";
   const d = dist(from, threat.pos);
   // リスク許容度(`[v6.1]`)でしきい距離を伸縮する。既定(0.5)では rangeMul === 1。

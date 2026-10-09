@@ -37,6 +37,7 @@ import {
   INDIVIDUAL,
   TRACER_EVERY_TICKS,
   CLOSE_RANGE_BOOST,
+  HEARING,
 } from "../constants.ts";
 import { shieldAccMul, shieldUp, turnMulOf } from "../shield.ts";
 import { angleOf, dirFromAngle, turnToward } from "../geometry.ts";
@@ -306,6 +307,8 @@ export function combatSystem(world: World): void {
   const fireAlignRad = world.tuning.fireAlignRad;
   const pending: PendingShot[] = [];
   const grenades: PendingGrenade[] = [];
+  // 銃声(`[v7.3]` A-5)。このティックに撃った・投げた者を積み、聴覚システムが読む
+  world.gunshots.length = 0;
 
   // 擲弾手の照準点はFTの world picture から採る(LOS不要でも情報階層は迂回しない)
   const aimPointsByFt = new Map<string, Vec2[]>();
@@ -455,6 +458,12 @@ export function combatSystem(world: World): void {
         : shooter.role === "saw"
           ? "saw"
           : (weaponKindOf(shooter) as "rifle" | "dm" | "pistol");
+    world.gunshots.push({
+      sourceId: shooter.id,
+      side: shooter.side,
+      pos: { x: shooter.pos.x, z: shooter.pos.z },
+      range: HEARING.RANGE[weapon],
+    });
     const every = TRACER_EVERY_TICKS[weapon];
     if (outcome.hit || (world.tick + shooter.ordinal) % every === 0) {
       world.fx.push({
@@ -500,6 +509,13 @@ export function combatSystem(world: World): void {
       const wasDowned = v.status !== "ok";
       applyHit(v, wasDowned, chance(world.rngBySide[g.side], KIA_ON_HIT_CHANCE));
     }
+    // 爆発音は着弾点から響く(`[v7.3]` A-5)。投げた者の位置ではない
+    world.gunshots.push({
+      sourceId: -1,
+      side: g.side,
+      pos: { x: g.impact.x, z: g.impact.z },
+      range: HEARING.RANGE.grenade,
+    });
     // 着弾円(`[v6.1]`)。範囲攻撃であることが分かるよう半径ごと渡す(指摘: 擲弾を可視化)
     world.fx.push({
       kind: "grenade",

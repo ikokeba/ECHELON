@@ -10,6 +10,7 @@ import { movementSystem } from "./systems/movement.ts";
 import { separationSystem } from "./systems/separation.ts";
 import { perceptionSystem } from "./systems/perception.ts";
 import { combatSystem } from "./systems/combat.ts";
+import { hearingSystem } from "./systems/hearing.ts";
 import { indirectSystem } from "./systems/indirect.ts";
 import { windowsSystem } from "./systems/windows.ts";
 import { casualtiesSystem } from "./systems/casualties.ts";
@@ -74,6 +75,8 @@ export function stepWorld(world: World): void {
   // 常に「このティックの開始時点の像」に対して行われる。
   indirectSystem(world);
   combatSystem(world);
+  // 8.5 音(`[v7.3]` A-5)。このティックの銃声を、見えていない敵の粗い接触としてFTの記憶へ
+  hearingSystem(world);
   // 9. 死傷 — 出血タイマーの進行、応急手当(仕様 §9 前半)
   casualtiesSystem(world);
   // 10. 後送 — 担架班の編成と搬送(仕様 §9 後半)。分離のあとに走らせて、

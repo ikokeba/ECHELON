@@ -42,6 +42,7 @@ import type {
   FlashWatch,
   FireteamState,
   FxEvent,
+  Gunshot,
   Objective,
   PlatoonState,
   Posture,
@@ -182,6 +183,11 @@ export interface World {
   log: ReplayEntry[] | null;
   /** 最後に記録した設定の要約(変わったときだけ記録するため) */
   logStateKey: string;
+  /**
+   * このティックに鳴った銃声(`[v7.3]` systems/hearing.ts、ロードマップ A-5)。
+   * 戦闘システムが積み、同じティックのうちに聴覚システムが読む
+   */
+  gunshots: Gunshot[];
   /** 盤上の煙幕(`[v7.2]` systems/smoke.ts)。視線だけを遮る */
   smokes: Smoke[];
   nextSmokeId: number;
@@ -681,6 +687,7 @@ function buildWorld(scenario: Scenario): World {
     nextFireMissionId: 1,
     smokes: [],
     nextSmokeId: 1,
+    gunshots: [],
     log: null,
     logStateKey: "",
     defense: [],

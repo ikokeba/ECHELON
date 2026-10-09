@@ -21,7 +21,7 @@
 import type { Echelon, MissionKind, Side, Vec2 } from "../sim/types.ts";
 
 /** プロトコルの版。形を変えたら上げる。エージェント側はこれを見て解釈を切り替えられる */
-export const PROTOCOL_VERSION = "echelon-llm/0.3";
+export const PROTOCOL_VERSION = "echelon-llm/0.4";
 
 /** エージェントが座れる階層。兵士・FTは毎ティックの反射が要るので対象外(設計書 §3) */
 export type AgentEchelon = Extract<Echelon, "company" | "platoon" | "squad">;
@@ -82,6 +82,8 @@ export interface ObsContact {
   /** 最後に観測されてからの秒数 */
   ageSec: number;
   count?: number;
+  /** 見たのではなく銃声で聞いた接触(`[v7.3]`)。方角とだいたいの距離だけで、位置は粗い */
+  heard?: boolean;
 }
 
 /** エージェントが出せる命令の説明。座席の階層で変わる */

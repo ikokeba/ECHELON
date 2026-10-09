@@ -21,7 +21,9 @@ describe("臨時報告(`[v7.3]` ロードマップ A-8)", () => {
     const sent: Report[] = [];
     runCollect(w, 2400, sent);
 
-    const squadFlash = sent.filter((r) => r.fromEchelon === "squad" && r.flash?.includes("contact"));
+    const squadFlash = sent.filter(
+      (r) => r.fromEchelon === "squad" && r.flash?.includes("contact"),
+    );
     expect(squadFlash.length).toBeGreaterThan(0);
     // 接敵の臨時報告は定時の周期(5秒)からずれた時刻に出ている = 定時を待っていない
     const interval = Math.round(REPORT_INTERVAL_SEC * SIM_HZ);
@@ -66,7 +68,8 @@ describe("臨時報告(`[v7.3]` ロードマップ A-8)", () => {
     runCollect(w, 10, sent);
     expect(sq.commanderId).not.toBe(leader.id);
     const flash = sent.filter(
-      (r) => r.fromEchelon === "squad" && r.fromUnitId === sq.squadId && r.flash?.includes("commander"),
+      (r) =>
+        r.fromEchelon === "squad" && r.fromUnitId === sq.squadId && r.flash?.includes("commander"),
     );
     expect(flash.length).toBe(1);
   });

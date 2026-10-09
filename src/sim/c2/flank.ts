@@ -117,7 +117,7 @@ export function chooseFlankSide(input: FlankSideInput): 1 | -1 {
   const all = [...input.contacts];
   const scoreOf = (dir: 1 | -1): number => {
     const center = input.centerOf?.(dir) ?? threat;
-    const others = all.filter((c) => c.confidence > 0 && dist(c.pos, center) > 4);
+    const others = all.filter((c) => c.confidence > 0 && !c.heard && dist(c.pos, center) > 4);
     const p = onArc(center, bearingFrom(center, base) + dir * FLANK.TARGET_DEG * DEG, radius);
     const b = input.bounds;
     if (p.x < b.minX + 2 || p.x > b.maxX - 2 || p.z < b.minZ + 2 || p.z > b.maxZ - 2) {
@@ -169,7 +169,7 @@ export function enemyFlankAnchor(
   let best = threat;
   let bestOff = 0;
   for (const c of contacts) {
-    if (c.confidence <= 0 || dist(c.pos, threat) > reach) continue;
+    if (c.confidence <= 0 || c.heard || dist(c.pos, threat) > reach) continue;
     const off = (c.pos.x - threat.x) * sideX + (c.pos.z - threat.z) * sideZ;
     if (off > bestOff + 1e-9) {
       bestOff = off;

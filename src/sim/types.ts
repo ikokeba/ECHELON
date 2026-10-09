@@ -451,6 +451,13 @@ export interface Contact {
   confidence: number;
   /** 判明していれば目撃した人数 */
   count?: number;
+  /**
+   * 見たのではなく**聞いた**接触(`[v7.3]` ロードマップ A-5)。銃声の方角とだいたいの距離
+   * だけで、誰が撃ったかは分からない。位置誤差が大きく、確度も最初から低い
+   */
+  heard?: boolean;
+  /** 聞いた接触の、音の見積もりそのものの粗さ m(`[v7.3]`)。ホップの粗さは `hopError` に別に乗る */
+  heardError?: number;
 }
 
 /** 階層コントローラが持つ、報告のみから構築された私的な world picture(仕様 §5)。 */
@@ -1217,6 +1224,21 @@ export type FxEvent =
       suppressRadius: number;
       victims: number;
     };
+
+/**
+ * そのティックに鳴った銃声・爆発音1つ(`[v7.3]` ロードマップ A-5)。
+ * 戦闘システムが積み、聴覚システム(systems/hearing.ts)が読んで捨てる
+ */
+export interface Gunshot {
+  /** 撃った(投げた)者。爆発は投げた者 */
+  sourceId: number;
+  side: Side;
+  pos: Vec2;
+  /** 聞こえる距離 m(武器ごと、constants `HEARING.RANGE`) */
+  range: number;
+  /** 足音(`HEARING.FOOTSTEP`)。壁越しでも聞こえる距離が縮まない */
+  footstep?: boolean;
+}
 
 /**
  * 防衛陣地の種類(`[v7.2]` ロードマップ S-1)。
