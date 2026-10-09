@@ -71,6 +71,12 @@ export interface PlanRouteView {
   side: Side;
   main: boolean;
   points: Vec2[];
+  /**
+   * `[v7.3]` 作戦の書き換え(A-1)の描き分け。既定は接近経路(矢印つき)。
+   *   line : 調整線(矢印・山形なしの線)
+   *   fire : 射撃計画の照準点(points[0] を中心にした輪)
+   */
+  kind?: "route" | "line" | "fire";
 }
 
 /**
@@ -1154,7 +1160,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   const selectPathLine = makePolyline(MAP.live, 0.7); // 選択ユニットの計画経路
 
   // ── 作戦の接近経路(`[v6.5]`)── 立案フェーズにだけ出る。折れ線 + 先端の矢羽根。
-  const MAX_PLAN_ROUTES = 12;
+  const MAX_PLAN_ROUTES = 24;
   const planRouteLines = Array.from({ length: MAX_PLAN_ROUTES }, () => {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(16 * 3), 3));
@@ -1984,9 +1990,29 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       const line = planRouteLines[r]!;
       const arrow = planArrows[r]!;
       const rt = routes ? routes[r] : undefined;
-      if (!rt || rt.points.length < 2) {
+      // 射撃計画は照準点1つだけ。経路・調整線は2点以上
+      if (!rt || rt.points.length < (rt.kind === "fire" ? 1 : 2)) {
         line.visible = false;
         arrow.visible = false;
+        continue;
+      }
+      if (rt.kind === "line" || rt.kind === "fire") {
+        // `[v7.3]` 調整線・射撃計画(A-1)。矢印は立てない
+        arrow.visible = false;
+        col.setHex(SIDE_COLOR[rt.side]).lerp(col2.setHex(0xffffff), 0.45);
+        (line.material as THREE.LineBasicMaterial).color.copy(col);
+        (line.material as THREE.LineBasicMaterial).opacity = 0.9;
+        if (rt.kind === "line") {
+          setPolyline(line, rt.points, 0.17);
+        } else {
+          const c = rt.points[0]!;
+          const ring: Vec2[] = [];
+          for (let k = 0; k <= 20; k++) {
+            const a = (k / 20) * Math.PI * 2;
+            ring.push({ x: c.x + Math.cos(a) * MORTAR.BLAST_RADIUS, z: c.z + Math.sin(a) * MORTAR.BLAST_RADIUS });
+          }
+          setPolyline(line, ring, 0.17);
+        }
         continue;
       }
       const hot = opts.hoveredPlanKey == null || opts.hoveredPlanKey === rt.key;

@@ -44,6 +44,7 @@ import type {
   FxEvent,
   Gunshot,
   Objective,
+  PlanEdit,
   PlatoonState,
   Posture,
   FireMission,
@@ -176,6 +177,8 @@ export interface World {
   defense: DefensivePosition[];
   /** 立案時に人間が置き直した陣地(シナリオ由来。立案のたびにAI案へ重ねる) */
   defenseEdits: DefenseEdit[];
+  /** 立案時に人間・LLM が書き換えた作戦(`[v7.3]` A-1)。立案のたびにAI案へ重ねる */
+  planEdits: PlanEdit[];
   /**
    * 命令の記録(`[v7.2]` replay.ts、ロードマップ S-4)。null なら記録しない(既定)。
    * 初期条件コード + この記録で同じ戦闘を最初から再生できる
@@ -470,6 +473,7 @@ function buildCompanies(scenario: Scenario, soldiers: Soldier[]): CompanyState[]
       lastFireMissionTick: 0,
       // 立案フェーズを踏んだときだけ `beginPlanning` が入れる(`[v6.5]`)
       plan: null,
+      basePlan: null,
       counterattack: null,
       commanderId: null,
       degradedSinceTick: null,
@@ -693,6 +697,7 @@ function buildWorld(scenario: Scenario): World {
     logStateKey: "",
     defense: [],
     defenseEdits: (scenario.defenseEdits ?? []).map((e) => ({ ...e, pos: { ...e.pos } })),
+    planEdits: (scenario.planEdits ?? []).map((e) => JSON.parse(JSON.stringify(e)) as PlanEdit),
     controlMeasures: (scenario.controlMeasures ?? []).map((cm) => ({
       ...cm,
       points: cm.points.map((p) => ({ ...p })),

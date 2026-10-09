@@ -63,7 +63,8 @@ npm run dev
 ```
 
 Open <http://localhost:5173/>. The battle begins in a planning phase with time stopped: read the
-company commander's plan, then press **Start battle**.
+company commander's plan, then press **Start battle**. Sit in the company commander's seat and you can
+rewrite that plan before you start.
 
 If you do not work with code, [`docs/はじめかた.md`](docs/はじめかた.md) walks through setup step by
 step (in Japanese, for Windows).
@@ -78,6 +79,7 @@ step (in Japanese, for Windows).
 | Call a mortar mission (company commander) | **射撃要請** at the top right, then click the target |
 | Throw smoke (squad leader) | **発煙** at the top right, then click the spot |
 | Stop and cover a direction (team leader, soldier) | **停止・警戒** at the top right, then click the direction |
+| Rewrite the plan (company commander, while planning) | Pick mission, main effort and start time in the planning panel / **経路を描く**, **調整線を引く**, **射撃計画を足す**, then click the map |
 | Move a defensive position (defending company commander, while planning) | Pick it in the planning panel, then click the map |
 | After-action review / replay from the start | `R` or **AAR** in the clock bar |
 | Select a soldier | Left-click |

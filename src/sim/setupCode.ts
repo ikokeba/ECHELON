@@ -37,6 +37,7 @@
 import { playForce, type ForceSpec } from "./force.ts";
 import type { DeploymentPlan } from "./deployment.ts";
 import type { Side, Vec2 } from "./types.ts";
+import { normalizePlanEdit } from "./c2/planEdit.ts";
 
 /** コードの版。形式を変えたら上げる(古いコードは復元を拒否する) */
 const CODE_VERSION = "ECH1";
@@ -150,6 +151,8 @@ export function quantizeDeployment(d: DeploymentPlan): DeploymentPlan {
     ...(d.defense && d.defense.length > 0
       ? { defense: d.defense.map((e) => ({ side: e.side, idx: e.idx, pos: qVec(e.pos) })) }
       : {}),
+    // `[v7.3]` 書き換えた作戦(A-1)
+    ...(d.plan && d.plan.length > 0 ? { plan: d.plan.map(normalizePlanEdit) } : {}),
   };
 }
 

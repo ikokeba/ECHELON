@@ -24,7 +24,7 @@
 
 import { clamp } from "./geometry.ts";
 import { OBJECTIVE } from "./constants.ts";
-import type { BattleMode, Bounds, DefenseEdit, Scenario, Side, Vec2 } from "./types.ts";
+import type { BattleMode, Bounds, DefenseEdit, PlanEdit, Scenario, Side, Vec2 } from "./types.ts";
 
 /** 拠点1つぶんの配置指定。 */
 export interface ObjectivePlacement {
@@ -57,6 +57,8 @@ export interface DeploymentPlan {
    * 配置エディタで盤面を変えると AI 案の並びが変わるので、そのときは捨てる
    */
   defense?: DefenseEdit[];
+  /** 立案時に人間・LLM が書き換えた作戦(`[v7.3]` A-1)。初期条件の一部(P3) */
+  plan?: PlanEdit[];
 }
 
 /** 展開点を盤内に収めるための余白 m。ナビグリッドの縁に食い込ませない。 */
@@ -170,6 +172,9 @@ export function applyDeployment(sc: Scenario, plan: DeploymentPlan): Scenario {
     timeLimitSec: plan.timeLimitSec ?? sc.timeLimitSec ?? OBJECTIVE.ASSAULT_TIME_LIMIT_SEC,
     ...(plan.defense && plan.defense.length > 0
       ? { defenseEdits: plan.defense.map((e) => ({ ...e, pos: { ...e.pos } })) }
+      : {}),
+    ...(plan.plan && plan.plan.length > 0
+      ? { planEdits: plan.plan.map((e) => JSON.parse(JSON.stringify(e)) as PlanEdit) }
       : {}),
     soldiers: sc.soldiers.map((s) => ({
       ...s,

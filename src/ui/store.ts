@@ -36,7 +36,18 @@ import type {
   VictoryState,
 } from "@sim/types.ts";
 import type { ControlState } from "@sim/control.ts";
-import type { DefenseEdit, DefenseKind } from "@sim/types.ts";
+import type { DefenseEdit, DefenseKind, PlanEdit } from "@sim/types.ts";
+
+/**
+ * 盤面のクリックで作る作戦の書き換え(`[v7.3]` A-1)。
+ *   via  : 小隊の経由点を1つずつ足す(パネルの「確定」で終える)
+ *   line : 調整線の2点(1点目を置くと first が入る)
+ *   fire : 射撃計画を1件足す(時刻はパネルで変える)
+ */
+export type PlanArm =
+  | { kind: "via"; side: Side; platoonId: number; points: Vec2[] }
+  | { kind: "line"; side: Side; first: Vec2 | null }
+  | { kind: "fire"; side: Side };
 import type { ReplayEntry } from "@sim/replay.ts";
 import { postureFromRisk } from "@sim/tuning.ts";
 import { DOCTRINES, type DoctrineKey } from "@sim/doctrine.ts";
@@ -326,6 +337,11 @@ export interface PlanTaskView {
   role: PlanTask["role"];
   missionKind: PlanTask["mission"]["kind"];
   order: string;
+  /** `[v7.3]` 書き換え(A-1)に使う */
+  platoonId: number;
+  objectiveId: number | null;
+  startSec: number;
+  via: Vec2[];
 }
 /** 防衛陣地の表示(`[v7.2]` S-1)。立案パネルの一覧と、置き直しの対象選び */
 export interface DefenseView {
@@ -343,6 +359,13 @@ export interface PlanView {
   tasks: PlanTaskView[];
   /** 防衛陣地(攻防戦の防御側だけ) */
   defense: DefenseView[];
+  /** `[v7.3]` 書き換え(A-1)の材料: 主攻の拠点・調整線・射撃計画・選べる拠点 */
+  mainObjectiveId: number | null;
+  phaseLine: [Vec2, Vec2] | null;
+  fires: Array<{ target: Vec2; atSec: number }>;
+  objectives: Array<{ id: number; label: string }>;
+  /** 人間・LLM が書き換えた作戦か */
+  edited: boolean;
 }
 
 interface UiState extends HudSnapshot {
@@ -448,6 +471,15 @@ interface UiState extends HudSnapshot {
    * ランタイムがシムへ反映済みで、ここは初期条件コードに載せるためだけ
    */
   recordDefenseEdit: (e: DefenseEdit) => void;
+  /** 作戦の書き換え(`[v7.3]` A-1)を初期条件へ記録する。世界の側は適用済み */
+  recordPlanEdits: (edits: PlanEdit[]) => void;
+  /** 盤面のクリックで作る書き換え(経由点・調整線・射撃計画)の照準待ち(`[v7.3]` A-1) */
+  planArm: PlanArm | null;
+  setPlanArm: (a: PlanArm | null) => void;
+  /** 立案パネルからの書き換え要求。ランタイムが世界へ適用して記録する */
+  planEditQueue: PlanEdit[];
+  requestPlanEdit: (e: PlanEdit) => void;
+  takePlanEdits: () => PlanEdit[];
   /** 直近の地点命令の結果(OrderToast 用)。seq は表示の更新キー */
   lastOrderResult: { text: string; ok: boolean; seq: number } | null;
   setLastOrderResult: (r: { text: string; ok: boolean }) => void;
@@ -636,6 +668,21 @@ export const useSimStore = create<UiState>((set, get) => ({
   toggleAar: () => set((s) => ({ aarOpen: !s.aarOpen })),
   defenseMoveId: null,
   setDefenseMove: (id) => set({ defenseMoveId: id }),
+  recordPlanEdits: (edits) =>
+    set((s) => {
+      const base = s.deployment ?? s.deploymentDraft;
+      if (!base) return {};
+      return { deployment: quantizeDeployment({ ...base, plan: edits.map((e) => ({ ...e })) }) };
+    }),
+  planArm: null,
+  setPlanArm: (a) => set({ planArm: a }),
+  planEditQueue: [],
+  requestPlanEdit: (e) => set((s) => ({ planEditQueue: [...s.planEditQueue, e] })),
+  takePlanEdits: () => {
+    const q = get().planEditQueue;
+    if (q.length > 0) set({ planEditQueue: [] });
+    return q;
+  },
   recordDefenseEdit: (e) =>
     set((s) => {
       const base = s.deployment ?? s.deploymentDraft;

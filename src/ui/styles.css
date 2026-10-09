@@ -1760,3 +1760,36 @@ body {
 .aar-hint {
   color: var(--muted);
 }
+
+/* `[v7.3]` 作戦の書き換え(ロードマップ A-1) */
+.plan-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  width: 100%;
+}
+
+.plan-edit select,
+.plan-time input {
+  background: var(--surface-lo);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: inherit;
+  padding: 2px 4px;
+}
+
+.plan-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.plan-time input {
+  width: 52px;
+}

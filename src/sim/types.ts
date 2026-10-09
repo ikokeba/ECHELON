@@ -135,7 +135,48 @@ export interface PlanTask {
   route: Vec2[];
   /** 命令の一文(日本語)。UIにそのまま出す */
   order: string;
+  /**
+   * 経由点(`[v7.3]` ロードマップ A-1)。人間・LLM が描いた接近経路。小隊はこれを順に
+   * 通ってから任務の目標へ向かう。AI の案には無い(AI は最短の経路を通る)
+   */
+  via?: Vec2[];
+  /** いま向かっている経由点の番号(`[v7.3]`)。`via` を通り終えたら `via.length` */
+  viaIdx?: number;
+  /** 開始時刻 = 戦闘開始から何秒後に動き出すか(`[v7.3]` H時)。それまでは出発地点で待つ */
+  startSec?: number;
+  /** 最後に小隊へ下ろした作戦の段階(`[v7.3]`。"wait" / "viaN" / "pl" / "mission") */
+  legKey?: string;
 }
+
+/**
+ * 射撃計画の1件(`[v7.3]` ロードマップ A-1)。戦闘開始から `atSec` 秒後に、中隊長が
+ * `target` へ迫撃砲を要請する。要請はAIの中隊長・人間・LLM と同じ `requestFireMission`
+ * を通るので、弾・指揮所・要請間隔・射程・危険近接はすべて同じに掛かる
+ */
+export interface PlannedFire {
+  target: Vec2;
+  atSec: number;
+  /** 要請を出し終えた(または時機を逸して取りやめた) */
+  done?: boolean;
+}
+
+/**
+ * 作戦の書き換え1件(`[v7.3]` ロードマップ A-1)。人間・LLM が立案中に、中隊長の座席から
+ * AI の案の上に重ねる。初期条件コードに載る(P3)ので、同じコードからは同じ作戦になる。
+ *   task      : 小隊の任務(種別と対象の拠点)。`reserve` は予備(集結地点で待機)
+ *   main      : 主攻(防御なら主陣地)にする拠点
+ *   route     : 小隊の経由点。空なら AI の経路
+ *   start     : 小隊の開始時刻(戦闘開始からの秒)
+ *   phaseLine : 調整線。2点の線分。null で消す
+ *   fires     : 射撃計画(全件を置き換える)
+ */
+export type PlanEdit =
+  | { side: Side; op: "task"; platoonId: number; mission: MissionKind | "reserve"; objectiveId: number | null }
+  | { side: Side; op: "main"; objectiveId: number }
+  | { side: Side; op: "route"; platoonId: number; via: Vec2[] }
+  | { side: Side; op: "start"; platoonId: number; startSec: number }
+  | { side: Side; op: "phaseLine"; line: [Vec2, Vec2] | null }
+  | { side: Side; op: "fires"; fires: Array<{ target: Vec2; atSec: number }> };
 
 /**
  * 中隊長が戦闘前に立てる作戦(`[v6.5]`)。
@@ -151,6 +192,18 @@ export interface OperationPlan {
   tasks: PlanTask[];
   /** 企図(commander's intent)の一文。UIの見出しに使う */
   intent: string;
+  /**
+   * 調整線(`[v7.3]` ロードマップ A-1、phase line)。麾下の小隊はこの線の手前で止まり、
+   * 任務を持つ全小隊が線に着いたら(または待ちきれなくなったら)揃って越える
+   */
+  phaseLine?: [Vec2, Vec2] | null;
+  /** 調整線に最初の小隊が着いたティック / 線を越えてよくなったティック(`[v7.3]`) */
+  phaseLineFirstTick?: number | null;
+  phaseLineLiftedTick?: number | null;
+  /** 射撃計画(`[v7.3]` ロードマップ A-1) */
+  fires?: PlannedFire[];
+  /** 人間・LLM が書き換えた作戦か(`[v7.3]`)。UI の見出しに出す */
+  edited?: boolean;
 }
 
 /**
@@ -837,6 +890,11 @@ export interface CompanyState {
    * 攻勢分遣の判断)まで有効、という指揮の作法をそのまま実装している。
    */
   plan: OperationPlan | null;
+  /**
+   * 書き換える前の AI の作戦(`[v7.3]` A-1)。書き換えはいつもこの上に重ね直すので、
+   * 何度書き換えても初期条件コードから作り直した盤面と同じになる(P3)
+   */
+  basePlan: OperationPlan | null;
 
   commanderId: number | null;
   degradedSinceTick: number | null;
@@ -1074,6 +1132,8 @@ export interface Scenario {
   timeLimitSec?: number;
   /** 立案時に人間が置き直した防衛陣地(`[v7.2]` S-1)。AI案の上に重ねる */
   defenseEdits?: DefenseEdit[];
+  /** 立案時に人間・LLM が書き換えた作戦(`[v7.3]` A-1)。AI案の上に重ねる */
+  planEdits?: PlanEdit[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
