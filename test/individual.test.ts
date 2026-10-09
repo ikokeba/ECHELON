@@ -55,7 +55,9 @@ describe("個人の戦闘動作", () => {
     const spec = { ...DEFAULT_FORCE, scale: "platoon" as const };
     let pairs = 0;
     let unseen = 0;
-    for (const seed of [1, 2, 3]) {
+    // `[v7.2]` 突入にフラッシュバンが入ってから3シードでは近距離の組が9組に減ったので、
+    // 標本を4シードに広げる(判定の閾値は変えない)
+    for (const seed of [1, 2, 3, 4]) {
       const w = createWorld(companyClashScenario(seed, { blue: spec, red: { ...spec } }));
       for (let t = 0; t < 4500; t++) {
         stepWorld(w);

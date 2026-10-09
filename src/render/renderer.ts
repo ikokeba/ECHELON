@@ -206,6 +206,8 @@ interface Blast {
   mortar: boolean;
   /** 制圧が及ぶ半径 m。迫撃砲だけが持つ外側の土煙 */
   suppressRadius: number;
+  /** フラッシュバン(`[v7.2]`)。白い閃光で部屋を覆う */
+  flash?: boolean;
 }
 /** 破片の飛散線(`[v6.9]`)。着弾点から放射状に伸びて消える */
 interface Debris {
@@ -2029,6 +2031,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
             life: mortar ? MORTAR_BLAST_LIFE : BLAST_LIFE,
             mortar,
             suppressRadius: f.kind === "mortar" ? f.suppressRadius : f.radius,
+            flash: f.kind === "flashbang",
           });
           // 迫撃砲だけ破片を飛ばす。擲弾にも付けると盤面が線だらけになり、
           // 「これは別格の出来事だ」という区別が消える
@@ -2198,8 +2201,8 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       slot.ring.position.set(b.x, 0.06, b.z);
       slot.fill.scale.set(fillR, 1, fillR);
       slot.ring.scale.set(ringR, 1, ringR);
-      (slot.fill.material as THREE.MeshBasicMaterial).color.setHex(0xffb648);
-      (slot.ring.material as THREE.MeshBasicMaterial).color.setHex(0xffd27a);
+      (slot.fill.material as THREE.MeshBasicMaterial).color.setHex(b.flash ? 0xf4f6ff : 0xffb648);
+      (slot.ring.material as THREE.MeshBasicMaterial).color.setHex(b.flash ? 0xffffff : 0xffd27a);
       (slot.fill.material as THREE.MeshBasicMaterial).opacity = 0.42 * (1 - frac);
       (slot.ring.material as THREE.MeshBasicMaterial).opacity = 0.85 * (1 - frac);
       slot.fill.visible = true;

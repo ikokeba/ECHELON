@@ -124,7 +124,7 @@ describe("経路探索(仕様 §7 `[v6.1]`: 屋外1.0m + 屋内0.3m)", () => {
 });
 
 describe("突入待機命令の3段階(仕様 §7.2/§7.3)", () => {
-  it("スタック → ブリーチ → 室内掃討 → 再編成 を順に通る", () => {
+  it("スタック → (フラッシュバン)→ ブリーチ → 室内掃討 → 再編成 を順に通る", () => {
     const w = createWorld(urbanCqbFixture(1));
     const seen = new Map<string, CqbStage[]>();
     let doorOpenedTick = -1;
@@ -153,9 +153,10 @@ describe("突入待機命令の3段階(仕様 §7.2/§7.3)", () => {
 
     expect(seen.size).toBeGreaterThan(0);
     // 少なくとも1個FTが全段階を順に通っている。
-    // 掃討後に別の扉へ回ることがあるので、先頭一致で見る(再編成後の次の建物)
+    // 掃討後に別の扉へ回ることがあるので、先頭一致で見る(再編成後の次の建物)。
+    // `[v7.2]` フラッシュバンを持っていればブリーチの前に bang が入る(仕様 §8.4)
     const complete = [...seen.values()].find((stages) =>
-      stages.join(">").startsWith("stack>breach>clear>reorg"),
+      /^stack>(bang>)?breach>clear>reorg/.test(stages.join(">")),
     );
     expect(complete, `観測した段階遷移: ${JSON.stringify([...seen])}`).toBeDefined();
 
