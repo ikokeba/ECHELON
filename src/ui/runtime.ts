@@ -37,6 +37,7 @@ import { MORTAR, SIM_DT, SIM_HZ, SMOKE } from "@sim/constants.ts";
 import { isDegraded } from "@sim/c2/succession.ts";
 import { applyDeployment, defaultDeploymentOf } from "@sim/deployment.ts";
 import { beginBattle, beginPlanning, platoonName } from "@sim/c2/planning.ts";
+import { editPlan, PLAN_EDIT_BLOCK_TEXT } from "@sim/c2/planEdit.ts";
 import { doctrineOf } from "@sim/doctrine.ts";
 import type { PlanRouteView } from "@render/renderer.ts";
 import { createLlmSession, type LlmSession } from "../llm/session.ts";
@@ -48,6 +49,7 @@ import {
   currentSpeed,
   useSimStore,
   type HudSnapshot,
+  type PlanArm,
   type PlanView,
   type RosterCompany,
   type RosterPlatoon,
@@ -181,7 +183,17 @@ function planViewsOf(world: World, side: Side, truth: boolean): {
           role: t.role,
           missionKind: t.mission.kind,
           order: t.order,
+          platoonId: t.platoonId,
+          objectiveId: t.objectiveId,
+          startSec: t.startSec ?? 0,
+          via: (t.via ?? []).map((p) => ({ ...p })),
         })),
+      // 書き換え(`[v7.3]` A-1)の材料
+      mainObjectiveId: co.plan.mainObjectiveId,
+      phaseLine: co.plan.phaseLine ? [{ ...co.plan.phaseLine[0] }, { ...co.plan.phaseLine[1] }] : null,
+      fires: (co.plan.fires ?? []).map((f) => ({ target: { ...f.target }, atSec: f.atSec })),
+      objectives: world.objectives.map((o) => ({ id: o.id, label: o.label })),
+      edited: co.plan.edited === true,
       // 防衛陣地(`[v7.2]` S-1)。種類ごとの通し番号で呼ぶ
       defense: (() => {
         const n = { mg: 0, fighting: 0, alternate: 0, wire: 0, forward: 0, ambush: 0 };
@@ -203,6 +215,19 @@ function planViewsOf(world: World, side: Side, truth: boolean): {
           }));
       })(),
     });
+    // 調整線・射撃計画(`[v7.3]` A-1)
+    if (co.plan.phaseLine) {
+      routes.push({
+        key: `${co.side}:pl`,
+        side: co.side,
+        main: false,
+        points: [{ ...co.plan.phaseLine[0] }, { ...co.plan.phaseLine[1] }],
+        kind: "line",
+      });
+    }
+    (co.plan.fires ?? []).forEach((f, i) => {
+      routes.push({ key: `${co.side}:fire${i}`, side: co.side, main: false, points: [{ ...f.target }], kind: "fire" });
+    });
     for (const t of co.plan.tasks) {
       routes.push({
         key: `${co.side}:${t.platoonId}`,
@@ -215,6 +240,18 @@ function planViewsOf(world: World, side: Side, truth: boolean): {
   // 自陣営を先に並べる(神視点で敵の作戦が上に来ると読み違える)
   plans.sort((a, b) => (a.side === side ? -1 : 0) - (b.side === side ? -1 : 0));
   return { plans, routes };
+}
+
+/** 経由点・調整線を置いている途中の線を、作戦の経路の上に重ねる(`[v7.3]` A-1) */
+function withArmPreview(routes: PlanRouteView[], arm: PlanArm | null): PlanRouteView[] {
+  if (!arm) return routes;
+  if (arm.kind === "via" && arm.points.length > 0) {
+    return [...routes, { key: "arm", side: arm.side, main: false, points: arm.points, kind: "line" }];
+  }
+  if (arm.kind === "line" && arm.first) {
+    return [...routes, { key: "arm", side: arm.side, main: false, points: [arm.first], kind: "fire" }];
+  }
+  return routes;
 }
 
 /** 階層ツリーの隊員の職の略称(`[v7.3]` A-7) */
@@ -641,6 +678,30 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
       ui.setDefenseMove(null);
       ui.arm(null);
     }
+    // 作戦の書き換え(`[v7.3]` A-1)。盤面で点を選ぶもの(経由点・調整線・射撃計画)
+    if (ui.planArm && world.phase === "planning") {
+      const a = ui.planArm;
+      const q = { x: Math.round(p.x * 100) / 100, z: Math.round(p.z * 100) / 100 };
+      if (a.kind === "via") {
+        ui.setPlanArm({ ...a, points: [...a.points, q] });
+      } else if (a.kind === "line") {
+        if (!a.first) ui.setPlanArm({ ...a, first: q });
+        else {
+          ui.setPlanArm(null);
+          ui.requestPlanEdit({ side: a.side, op: "phaseLine", line: [a.first, q] });
+        }
+      } else {
+        ui.setPlanArm(null);
+        const cur = ui.plans.find((x) => x.side === a.side)?.fires ?? [];
+        const last = cur.reduce((m, f) => Math.max(m, f.atSec), 0);
+        ui.requestPlanEdit({
+          side: a.side,
+          op: "fires",
+          fires: [...cur, { target: q, atSec: last + MORTAR.COOLDOWN_SEC }],
+        });
+      }
+      return;
+    }
     // 防衛陣地の置き直し(`[v7.2]` S-1)。AIの陣地選びと同じ規則を通す
     if (ui.defenseMoveId !== null) {
       const id = ui.defenseMoveId;
@@ -766,6 +827,18 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
     // ── 作戦立案フェーズ(`[v6.5]`)──
     if (ui.phase === "battle" && world.phase === "planning") beginBattle(world);
     if (world.phase === "planning") {
+      // 作戦の書き換え(`[v7.3]` A-1)。AI の案に重ねて作り直し、初期条件へ記録する
+      const edits = ui.takePlanEdits();
+      if (edits.length > 0) {
+        for (const e of edits) {
+          const r = editPlan(world, e);
+          ui.setLastOrderResult(
+            r.ok ? { ok: true, text: "作戦を書き換えた" } : { ok: false, text: `書き換えられない — ${PLAN_EDIT_BLOCK_TEXT[r.reason]}` },
+          );
+        }
+        ui.recordPlanEdits(world.planEdits);
+        planViewKey = "";
+      }
       // 視点を変えたら見せる作戦も変わる(自陣営のみ / 神視点なら両陣営)
       const key = `${ui.viewSide}|${ui.viewEchelon === "truth"}`;
       if (key !== planViewKey) {
@@ -833,7 +906,7 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
       setup: ui.setupTool !== null || ui.deployment !== null ? ui.deploymentDraft : null,
       setupTool: ui.setupTool,
       // 立案フェーズの接近経路(`[v6.5]`)。戦闘に入ったら消える
-      planRoutes: world.phase === "planning" ? ui.planRoutes : null,
+      planRoutes: world.phase === "planning" ? withArmPreview(ui.planRoutes, ui.planArm) : null,
       hoveredPlanKey: ui.hoveredPlanKey,
       fx: frameFx,
     });

@@ -21,11 +21,13 @@
  *   --sec <s>           戦闘の長さ(シム時間、既定 600)
  *   --seed <n>          乱数種(既定 1)
  *   --shield            両軍とも盾持ちありの編成にする
+ *   --plan              `[v7.3]` 戦闘前に立案を挟み、中隊長の座席なら作戦を書き換えさせる(A-1)
  *   --mock              LM Studio を使わず規則エージェントで動かす
  *   --verbose           モデルの生の出力も表示する
  */
 
 import { createWorld } from "../sim/world.ts";
+import { beginBattle, beginPlanning } from "../sim/c2/planning.ts";
 import { stepWorld } from "../sim/step.ts";
 import { SCENARIOS, type ScenarioKey } from "../sim/scenario.ts";
 import { DEFAULT_FORCE, type ForceScale } from "../sim/force.ts";
@@ -78,6 +80,20 @@ async function main(): Promise<void> {
 
   console.log(`盤面 ${map} / 規模 ${scale} / 座席 ${side} ${echelon} #${unitId} / ${agent.name}`);
   console.log(`判断間隔 ${intervalSec}s・戦闘 ${totalSec}s(応答待ちの間は時間を止める)\n`);
+
+  // 立案(`[v7.3]` A-1)。中隊長の座席なら、時間を止めたまま1度だけ作戦を書き換えさせる
+  if (flag("plan")) {
+    beginPlanning(world);
+    if (echelon === "company") {
+      const e = await session.decideNow(world);
+      if (e) {
+        console.log(`[立案] (${e.latencyMs}ms) 意図: ${e.intent ?? "-"}`);
+        for (const r of e.results) console.log(`        ${r}`);
+        for (const r of e.errors) console.log(`        ! ${r}`);
+      }
+    }
+    beginBattle(world);
+  }
 
   const endTick = Math.round(totalSec * SIM_HZ);
   const step = Math.max(1, Math.round(intervalSec * SIM_HZ));

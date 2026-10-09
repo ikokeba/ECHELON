@@ -36,6 +36,7 @@ import { next } from "../rng.ts";
 import { commandFactor } from "./succession.ts";
 import { assignHolders, clampToObjective } from "./objectiveHold.ts";
 import { activeTaskOf, isDefender } from "./planning.ts";
+import { executePlan, planLeg } from "./planEdit.ts";
 import { sideDoctrine } from "../world.ts";
 import type { CompanyState, Contact, Mission, Objective, Soldier, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
@@ -313,6 +314,8 @@ export function companyAI(world: World): void {
     runCasevacAssets(world, co);
     postCompanyHq(world, co);
 
+    // 作戦の実行(`[v7.3]` A-1: 開始時刻・経由点・調整線・射撃計画)。誰が座っていても走る
+    executePlan(world, co);
     // 人間がこの中隊長を操作しているなら、AIの意思決定は行わない(仕様 §4)
     if (aiSuppressed(world, "company", co.side, co.companyId)) continue;
 
@@ -506,7 +509,13 @@ export function companyAI(world: World): void {
       //   担当区域に脅威も拠点も無い側面の小隊 → screen(掩護・監視)
       //   それ以外 → seize(担当区域の確保 / 保持)
       let mkind: Mission["kind"] = task ? task.mission.kind : "seize";
-      if (counter && pl.platoonId === counter.platoonId) {
+      // 作戦の段階(`[v7.3]` A-1)。開始時刻まで待つ・経由点を通る・調整線で揃う
+      const leg = task ? planLeg(world, co, task) : null;
+      if (task) task.legKey = leg?.key ?? "mission";
+      if (leg && !(counter && pl.platoonId === counter.platoonId)) {
+        objective = { ...leg.target };
+        mkind = leg.kind;
+      } else if (counter && pl.platoonId === counter.platoonId) {
         // 逆襲に出る小隊は、奪われた拠点そのものを取り返しに行く(守備の持ち場へは引き戻さない)
         objective = { ...counter.objective.pos };
         mkind = "seize";

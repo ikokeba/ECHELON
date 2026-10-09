@@ -1,4 +1,5 @@
-import { useSimStore, type PlanTaskView } from "./store.ts";
+import { useSimStore, type PlanTaskView, type PlanView } from "./store.ts";
+import type { MissionKind } from "@sim/types.ts";
 
 /**
  * L2 文脈スロット — 作戦立案フェーズ(`[v6.5]`、`[v6.6]` でレビュー反映)。
@@ -30,6 +31,224 @@ const MISSION_LABEL: Record<PlanTaskView["missionKind"], string> = {
   screen: "掩護",
 };
 
+/** その陣営の中隊長に座っていれば、作戦を書き換えられる(`[v7.3]` A-1) */
+function useEditable(): (p: PlanView) => boolean {
+  const control = useSimStore((s) => s.control);
+  return (p) => control?.echelon === "company" && control.side === p.side;
+}
+
+const EDIT_MISSIONS: Array<{ v: MissionKind | "reserve"; label: string }> = [
+  { v: "seize", label: "確保" },
+  { v: "support_by_fire", label: "支援射撃" },
+  { v: "screen", label: "掩護" },
+  { v: "reserve", label: "予備" },
+];
+
+/**
+ * 小隊1つぶんの書き換え(`[v7.3]` A-1)。任務・対象の拠点・主攻・開始時刻・経由点。
+ * どれも AI の案の上に重ねる書き換えで、初期条件コードに載る
+ */
+function TaskEditor({ plan, task }: { plan: PlanView; task: PlanTaskView }) {
+  const request = useSimStore((s) => s.requestPlanEdit);
+  const planArm = useSimStore((s) => s.planArm);
+  const setPlanArm = useSimStore((s) => s.setPlanArm);
+  const side = plan.side;
+  const mission: MissionKind | "reserve" = task.role === "reserve" ? "reserve" : task.missionKind;
+  const objective = task.objectiveId ?? plan.objectives[0]?.id ?? null;
+  const drawing = planArm?.kind === "via" && planArm.platoonId === task.platoonId ? planArm : null;
+  return (
+    <div className="plan-edit">
+      <select
+        value={mission}
+        onChange={(e) => {
+          const m = e.target.value as MissionKind | "reserve";
+          request({
+            side,
+            op: "task",
+            platoonId: task.platoonId,
+            mission: m,
+            objectiveId: m === "reserve" ? null : objective,
+          });
+        }}
+        title="任務の種別"
+      >
+        {EDIT_MISSIONS.map((m) => (
+          <option key={m.v} value={m.v}>
+            {m.label}
+          </option>
+        ))}
+      </select>
+      {mission !== "reserve" && (
+        <select
+          value={task.objectiveId ?? ""}
+          onChange={(e) =>
+            request({
+              side,
+              op: "task",
+              platoonId: task.platoonId,
+              mission,
+              objectiveId: Number(e.target.value),
+            })
+          }
+          title="対象の拠点"
+        >
+          {plan.objectives.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      )}
+      {mission !== "reserve" &&
+        task.objectiveId !== null &&
+        task.objectiveId !== plan.mainObjectiveId && (
+          <button
+            type="button"
+            className="seg-btn"
+            onClick={() => request({ side, op: "main", objectiveId: task.objectiveId! })}
+            title="この拠点を主攻(防御なら主陣地)にする"
+          >
+            主攻に
+          </button>
+        )}
+      <label className="plan-time" title="開始時刻(戦闘開始から何秒後に動き出すか。H時)">
+        H+
+        <input
+          type="number"
+          min={0}
+          max={600}
+          step={10}
+          value={task.startSec}
+          onChange={(e) =>
+            request({
+              side,
+              op: "start",
+              platoonId: task.platoonId,
+              startSec: Math.max(0, Number(e.target.value) || 0),
+            })
+          }
+        />
+        秒
+      </label>
+      {drawing ? (
+        <>
+          <button
+            type="button"
+            className="seg-btn seg-on"
+            onClick={() => {
+              setPlanArm(null);
+              request({ side, op: "route", platoonId: task.platoonId, via: drawing.points });
+            }}
+          >
+            経由点 {drawing.points.length} を確定
+          </button>
+          <button type="button" className="seg-btn" onClick={() => setPlanArm(null)}>
+            やめる
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          className="seg-btn"
+          onClick={() => setPlanArm({ kind: "via", side, platoonId: task.platoonId, points: [] })}
+          title="盤面をクリックして経由点を順に置く"
+        >
+          経路を描く{task.via.length > 0 ? `(${task.via.length})` : ""}
+        </button>
+      )}
+      {task.via.length > 0 && !drawing && (
+        <button
+          type="button"
+          className="seg-btn"
+          onClick={() => request({ side, op: "route", platoonId: task.platoonId, via: [] })}
+          title="経由点を消して AI の経路に戻す"
+        >
+          経路を消す
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** 中隊全体の書き換え(`[v7.3]` A-1)。調整線と迫撃砲の射撃計画 */
+function PlanWideEditor({ plan }: { plan: PlanView }) {
+  const request = useSimStore((s) => s.requestPlanEdit);
+  const planArm = useSimStore((s) => s.planArm);
+  const setPlanArm = useSimStore((s) => s.setPlanArm);
+  const side = plan.side;
+  const setFires = (fires: PlanView["fires"]) => request({ side, op: "fires", fires });
+  return (
+    <div className="plan-defense">
+      <div className="dbg-k">調整線・射撃計画(書き換え)</div>
+      <div className="plan-edit">
+        <button
+          type="button"
+          className={`seg-btn${planArm?.kind === "line" ? " seg-on" : ""}`}
+          onClick={() =>
+            setPlanArm(planArm?.kind === "line" ? null : { kind: "line", side, first: null })
+          }
+          title="盤面を2回クリックして調整線を引く。各小隊は線の手前で揃ってから越える"
+        >
+          {planArm?.kind === "line"
+            ? planArm.first
+              ? "2点目をクリック…"
+              : "1点目をクリック…"
+            : "調整線を引く"}
+        </button>
+        {plan.phaseLine && (
+          <button
+            type="button"
+            className="seg-btn"
+            onClick={() => request({ side, op: "phaseLine", line: null })}
+          >
+            調整線を消す
+          </button>
+        )}
+        <button
+          type="button"
+          className={`seg-btn${planArm?.kind === "fire" ? " seg-on" : ""}`}
+          onClick={() => setPlanArm(planArm?.kind === "fire" ? null : { kind: "fire", side })}
+          title="盤面をクリックして迫撃砲の射撃計画を足す(要請の規則はAIと同じ)"
+        >
+          {planArm?.kind === "fire" ? "照準点をクリック…" : "射撃計画を足す"}
+        </button>
+      </div>
+      {plan.fires.map((f, i) => (
+        <div key={i} className="plan-edit">
+          <span className="plan-unit">
+            射撃 {i + 1} ({f.target.x.toFixed(0)}, {f.target.z.toFixed(0)})
+          </span>
+          <label className="plan-time">
+            H+
+            <input
+              type="number"
+              min={0}
+              max={600}
+              step={15}
+              value={f.atSec}
+              onChange={(e) =>
+                setFires(
+                  plan.fires.map((x, j) =>
+                    j === i ? { ...x, atSec: Math.max(0, Number(e.target.value) || 0) } : x,
+                  ),
+                )
+              }
+            />
+            秒
+          </label>
+          <button
+            type="button"
+            className="seg-btn"
+            onClick={() => setFires(plan.fires.filter((_, j) => j !== i))}
+          >
+            ✕
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function PlanPanel() {
   const phase = useSimStore((s) => s.phase);
   const plans = useSimStore((s) => s.plans);
@@ -39,6 +258,7 @@ export function PlanPanel() {
   const defenseMoveId = useSimStore((s) => s.defenseMoveId);
   const setDefenseMove = useSimStore((s) => s.setDefenseMove);
   const control = useSimStore((s) => s.control);
+  const editable = useEditable();
 
   if (phase !== "planning") return null;
 
@@ -60,6 +280,11 @@ export function PlanPanel() {
             {p.side !== viewSide && <span className="plan-peek">神視点</span>}
           </div>
           <div className="plan-intent">{p.intent}</div>
+          {!editable(p) && p.side === viewSide && (
+            <div className="dbg-k">
+              中隊長に座ると作戦を書き換えられる(任務・主攻・経路・開始時刻・調整線・射撃計画)
+            </div>
+          )}
           {p.tasks.map((t) => (
             <div
               key={t.key}
@@ -71,8 +296,10 @@ export function PlanPanel() {
               <span className="plan-unit">{t.name}</span>
               <span className="plan-unit">{MISSION_LABEL[t.missionKind]}</span>
               <span className="plan-order">{t.order}</span>
+              {editable(p) && <TaskEditor plan={p} task={t} />}
             </div>
           ))}
+          {editable(p) && <PlanWideEditor plan={p} />}
           {p.defense.length > 0 && (
             <div
               className="plan-defense"
@@ -91,7 +318,9 @@ export function PlanPanel() {
                   disabled={!(control?.echelon === "company" && control.side === p.side)}
                   onClick={() => setDefenseMove(defenseMoveId === d.id ? null : d.id)}
                 >
-                  {defenseMoveId === d.id ? "地点を選択…" : `${d.label}${d.objective ? `(${d.objective})` : ""}`}
+                  {defenseMoveId === d.id
+                    ? "地点を選択…"
+                    : `${d.label}${d.objective ? `(${d.objective})` : ""}`}
                 </button>
               ))}
             </div>

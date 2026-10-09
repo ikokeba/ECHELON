@@ -21,7 +21,7 @@
 import type { Echelon, MissionKind, Side, Vec2 } from "../sim/types.ts";
 
 /** プロトコルの版。形を変えたら上げる。エージェント側はこれを見て解釈を切り替えられる */
-export const PROTOCOL_VERSION = "echelon-llm/0.4";
+export const PROTOCOL_VERSION = "echelon-llm/0.5";
 
 /** エージェントが座れる階層。兵士・FTは毎ティックの反射が要るので対象外(設計書 §3) */
 export type AgentEchelon = Extract<Echelon, "company" | "platoon" | "squad">;
@@ -92,8 +92,33 @@ export interface CommandSpec {
   description: string;
 }
 
+/**
+ * 中隊長の作戦(`[v7.3]` ロードマップ A-1)。中隊長の座席にだけ載る。
+ * 立案中(`phase: "planning"`)は `plan` 命令で書き換えられる
+ */
+export interface ObsPlan {
+  /** 主攻(防御なら主陣地)の拠点 id */
+  mainObjective: number | null;
+  tasks: Array<{
+    unit: number;
+    name: string;
+    role: "main" | "supporting" | "reserve";
+    mission: MissionKind;
+    /** 対象の拠点 id(予備は null) */
+    objective: number | null;
+    /** 開始時刻(戦闘開始からの秒) */
+    startSec: number;
+    /** 経由点 */
+    via: Vec2[];
+  }>;
+  phaseLine: [Vec2, Vec2] | null;
+  fires: Array<{ target: Vec2; atSec: number }>;
+}
+
 export interface Observation {
   protocol: typeof PROTOCOL_VERSION;
+  /** `[v7.3]` planning = 戦闘前の立案中(時間は止まっている。plan 命令だけが意味を持つ) */
+  phase: "planning" | "battle";
   /** 戦闘開始からの経過 s */
   timeSec: number;
   tick: number;
@@ -158,6 +183,8 @@ export interface Observation {
     durationSec: number;
     active: { pos: Vec2; leftSec: number }[];
   };
+  /** 中隊長の作戦(`[v7.3]`)。中隊長の座席のみ */
+  plan?: ObsPlan;
   commands: CommandSpec[];
   /** 前回の応答をどう処理したか。エージェントが自分の誤りを直すための手がかり */
   lastResult: string[];
@@ -202,6 +229,25 @@ export interface SmokeCommand {
   type: "smoke";
   target: Vec2;
 }
+/**
+ * 作戦を書き換える(中隊長の座席・立案中のみ、`[v7.3]` ロードマップ A-1)。
+ *   op=task       : unit の任務を mission(seize / support_by_fire / screen / reserve)と objective(拠点 id)に
+ *   op=main       : objective を主攻(主陣地)に
+ *   op=route      : unit の経由点を points に(空なら AI の経路)
+ *   op=start      : unit の開始時刻を atSec 秒に
+ *   op=phase_line : 調整線を points の2点に(空なら消す)
+ *   op=fires      : 迫撃砲の射撃計画を fires で置き換える
+ */
+export interface PlanCommand {
+  type: "plan";
+  op: "task" | "main" | "route" | "start" | "phase_line" | "fires";
+  unit?: number;
+  mission?: MissionKind | "reserve";
+  objective?: number;
+  points?: Vec2[];
+  atSec?: number;
+  fires?: Array<{ target: Vec2; atSec: number }>;
+}
 export type AgentCommand =
   | MoveCommand
   | AssignCommand
@@ -209,7 +255,8 @@ export type AgentCommand =
   | HoldCommand
   | ReinforceCommand
   | FireMissionCommand
-  | SmokeCommand;
+  | SmokeCommand
+  | PlanCommand;
 
 export interface AgentResponse {
   commands: AgentCommand[];
@@ -234,9 +281,30 @@ export const RESPONSE_SCHEMA = {
       items: {
         type: "object",
         properties: {
-          type: { type: "string", enum: ["move", "assign", "casevac", "hold", "reinforce", "fire_mission", "smoke"] },
-          unit: { type: "integer", description: "assign の対象(subordinates[].unit)" },
-          mission: { type: "string", enum: ["seize", "support_by_fire", "screen"] },
+          type: {
+            type: "string",
+            enum: ["move", "assign", "casevac", "hold", "reinforce", "fire_mission", "smoke", "plan"],
+          },
+          unit: { type: "integer", description: "assign / plan の対象(subordinates[].unit)" },
+          mission: { type: "string", enum: ["seize", "support_by_fire", "screen", "reserve"] },
+          op: { type: "string", enum: ["task", "main", "route", "start", "phase_line", "fires"] },
+          objective: { type: "integer", description: "plan の対象の拠点 id" },
+          atSec: { type: "number" },
+          points: {
+            type: "array",
+            items: { type: "object", properties: { x: { type: "number" }, z: { type: "number" } }, required: ["x", "z"] },
+          },
+          fires: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                target: { type: "object", properties: { x: { type: "number" }, z: { type: "number" } }, required: ["x", "z"] },
+                atSec: { type: "number" },
+              },
+              required: ["target", "atSec"],
+            },
+          },
           target: {
             type: "object",
             properties: { x: { type: "number" }, z: { type: "number" } },

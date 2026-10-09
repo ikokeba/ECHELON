@@ -65,6 +65,8 @@ export function createLlmSession(opts: LlmSessionOptions): LlmSession {
   const maxLog = opts.maxLog ?? 50;
   const log: SessionLogEntry[] = [];
   let lastAskTick = -Infinity;
+  /** 立案中に1度だけ作戦を尋ねたか(`[v7.3]` A-1。中隊長の座席) */
+  let askedInPlanning = false;
   let busy = false;
   let lastResult: string[] = [];
   let lastObservation: Observation | null = null;
@@ -146,7 +148,18 @@ export function createLlmSession(opts: LlmSessionOptions): LlmSession {
         else lastResult = p.entry.errors.map((e) => `エラー: ${e}`);
         push(p.entry);
       }
-      if (busy || world.victory || world.phase !== "battle") return;
+      if (busy || world.victory) return;
+      // 立案中(`[v7.3]` A-1): 中隊長の座席にだけ、作戦を書き換える機会を1度与える
+      if (world.phase === "planning") {
+        if (opts.seat.echelon !== "company" || askedInPlanning) return;
+        askedInPlanning = true;
+        busy = true;
+        void ask(world).then((r) => {
+          busy = false;
+          if (r) pending = r;
+        });
+        return;
+      }
       if (world.tick - lastAskTick < intervalTicks) return;
       lastAskTick = world.tick;
       busy = true;

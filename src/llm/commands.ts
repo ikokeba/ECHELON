@@ -19,9 +19,16 @@ import {
 } from "../sim/playerOrders.ts";
 import { SMOKE_BLOCK_TEXT } from "../sim/systems/smoke.ts";
 import { FIRE_MISSION_BLOCK_TEXT } from "../sim/systems/indirect.ts";
-import type { MissionKind, Vec2 } from "../sim/types.ts";
+import { editPlan, PLAN_EDIT_BLOCK_TEXT } from "../sim/c2/planEdit.ts";
+import type { MissionKind, PlanEdit, Vec2 } from "../sim/types.ts";
 import type { World } from "../sim/world.ts";
-import { MAX_COMMANDS, type AgentCommand, type AgentResponse, type AgentSeat } from "./protocol.ts";
+import {
+  MAX_COMMANDS,
+  type AgentCommand,
+  type AgentResponse,
+  type AgentSeat,
+  type PlanCommand,
+} from "./protocol.ts";
 
 const MISSIONS: readonly MissionKind[] = ["seize", "support_by_fire", "screen"];
 
@@ -66,6 +73,75 @@ function vecOf(v: unknown): Vec2 | null {
 export interface ParsedResponse {
   response: AgentResponse | null;
   errors: string[];
+}
+
+const PLAN_OPS: readonly PlanCommand["op"][] = ["task", "main", "route", "start", "phase_line", "fires"];
+
+/** `plan` 命令(`[v7.3]` A-1)の形を検証する。崩れていれば理由の文字列 */
+function parsePlan(c: Record<string, unknown>): PlanCommand | string {
+  const op = c.op as PlanCommand["op"];
+  if (!PLAN_OPS.includes(op)) return `op は ${PLAN_OPS.join(" / ")}`;
+  const unit = Number(c.unit);
+  const objective = Number(c.objective);
+  const points = Array.isArray(c.points) ? c.points.map(vecOf) : [];
+  if (points.some((p) => p === null)) return "points の各点は {x,z}";
+  const pts = points as Vec2[];
+  switch (op) {
+    case "task": {
+      const mission = c.mission as PlanCommand["mission"];
+      if (!Number.isInteger(unit) || !(mission === "reserve" || MISSIONS.includes(mission as MissionKind))) {
+        return "task には unit(整数)と mission が要る";
+      }
+      if (mission !== "reserve" && !Number.isInteger(objective)) return "task には objective(拠点 id)が要る";
+      return { type: "plan", op, unit, mission, ...(mission !== "reserve" ? { objective } : {}) };
+    }
+    case "main":
+      return Number.isInteger(objective) ? { type: "plan", op, objective } : "main には objective が要る";
+    case "route":
+      return Number.isInteger(unit) ? { type: "plan", op, unit, points: pts } : "route には unit が要る";
+    case "start": {
+      const atSec = Number(c.atSec);
+      return Number.isInteger(unit) && Number.isFinite(atSec)
+        ? { type: "plan", op, unit, atSec }
+        : "start には unit と atSec が要る";
+    }
+    case "phase_line":
+      return pts.length === 0 || pts.length === 2 ? { type: "plan", op, points: pts } : "phase_line の points は2点(空で消す)";
+    case "fires": {
+      const list = Array.isArray(c.fires) ? c.fires : [];
+      const fires: Array<{ target: Vec2; atSec: number }> = [];
+      for (const f of list) {
+        const t = isObj(f) ? vecOf(f.target) : null;
+        const at = isObj(f) ? Number(f.atSec) : NaN;
+        if (!t || !Number.isFinite(at)) return "fires の各件は {target:{x,z}, atSec}";
+        fires.push({ target: t, atSec: at });
+      }
+      return { type: "plan", op, fires };
+    }
+  }
+}
+
+/** `plan` 命令をシムの書き換え(`PlanEdit`)へ */
+function planEditOf(seat: AgentSeat, c: PlanCommand): PlanEdit {
+  const side = seat.side;
+  switch (c.op) {
+    case "task":
+      return { side, op: "task", platoonId: c.unit!, mission: c.mission!, objectiveId: c.objective ?? null };
+    case "main":
+      return { side, op: "main", objectiveId: c.objective! };
+    case "route":
+      return { side, op: "route", platoonId: c.unit!, via: c.points ?? [] };
+    case "start":
+      return { side, op: "start", platoonId: c.unit!, startSec: c.atSec ?? 0 };
+    case "phase_line":
+      return {
+        side,
+        op: "phaseLine",
+        line: c.points && c.points.length === 2 ? [c.points[0]!, c.points[1]!] : null,
+      };
+    case "fires":
+      return { side, op: "fires", fires: c.fires ?? [] };
+  }
 }
 
 /** JSON(または生テキスト)を検証済みの応答へ。壊れた命令は1件ずつ捨てて理由を残す */
@@ -118,6 +194,12 @@ export function parseResponse(raw: unknown): ParsedResponse {
         const target = vecOf(c.target);
         if (!target) errors.push(`commands[${i}] fire_mission: target {x,z} が無い`);
         else commands.push({ type: "fire_mission", target });
+        return;
+      }
+      case "plan": {
+        const p = parsePlan(c);
+        if (typeof p === "string") errors.push(`commands[${i}] plan: ${p}`);
+        else commands.push(p);
         return;
       }
       default:
@@ -228,6 +310,12 @@ export function applyResponse(world: World, seat: AgentSeat, resp: AgentResponse
               ? `#${i} smoke ${at}: 受理`
               : `#${i} smoke ${at}: 却下 — ${SMOKE_BLOCK_TEXT[r.reason]}`,
         );
+        return;
+      }
+      case "plan": {
+        // 作戦の書き換え(`[v7.3]` A-1)。人間と同じ `editPlan` を通る(中隊長の座席・立案中だけ)
+        const r = editPlan(world, planEditOf(seat, c), seat);
+        out.push(r.ok ? `#${i} plan ${c.op}: 受理` : `#${i} plan ${c.op}: 却下 — ${PLAN_EDIT_BLOCK_TEXT[r.reason]}`);
         return;
       }
       case "casevac": {

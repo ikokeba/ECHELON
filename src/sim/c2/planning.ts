@@ -30,6 +30,7 @@
 import { COVER_SEEK, PLANNING } from "../constants.ts";
 import { assembleForBattle } from "./assembly.ts";
 import { setupDefense } from "./defense.ts";
+import { applyPlanEdits, planLeg } from "./planEdit.ts";
 import { findPathSet } from "../navgrid.ts";
 import { bestOverwatchPoint } from "../cover.ts";
 import { insideBounds } from "../cqb.ts";
@@ -128,7 +129,7 @@ function simplifyRoute(path: readonly Vec2[]): Vec2[] {
 }
 
 /** 出発地点から目標までの接近経路。到達不能なら直線2点で返す。 */
-function routeTo(world: World, from: Vec2, to: Vec2): Vec2[] {
+export function routeTo(world: World, from: Vec2, to: Vec2): Vec2[] {
   const path = findPathSet(world.nav, from.x, from.z, to.x, to.z);
   if (!path || path.length === 0) return [{ ...from }, { ...to }];
   return simplifyRoute([from, ...path]);
@@ -333,10 +334,14 @@ export function applyPlan(world: World, co: CompanyState): void {
       (p) => p.side === co.side && p.companyId === co.companyId && p.platoonId === t.platoonId,
     );
     if (!pl) continue;
-    co.platoonObjectives.set(pl.platoonId, { ...t.mission.target });
-    co.platoonMissions.set(pl.platoonId, { ...t.mission, target: { ...t.mission.target } });
-    pl.objective = { ...t.mission.target };
-    pl.mission = { ...t.mission, target: { ...t.mission.target } };
+    // `[v7.3]` 書き換えた作戦の最初の段階(開始時刻まで待つ・最初の経由点・調整線、A-1)
+    const leg = planLeg(world, co, t);
+    t.legKey = leg?.key ?? "mission";
+    const m = leg ? { kind: leg.kind, target: leg.target } : t.mission;
+    co.platoonObjectives.set(pl.platoonId, { ...m.target });
+    co.platoonMissions.set(pl.platoonId, { kind: m.kind, target: { ...m.target } });
+    pl.objective = { ...m.target };
+    pl.mission = { kind: m.kind, target: { ...m.target } };
     // 前進軸は接近経路の第1脚。街路に沿って出るので、初手から建物へ突っ込まない
     if (t.route.length >= 2) {
       const a = t.route[0]!;
@@ -365,7 +370,9 @@ export function beginPlanning(world: World): void {
   // 34m前進したのに命令が「南へ143m」のままになった。
   assembleForBattle(world);
   for (const co of world.companies) {
-    co.plan = planOperation(world, co);
+    // `[v7.3]` AI の案を取っておき、人間・LLM の書き換え(初期条件)をその上に重ねる(A-1)
+    co.basePlan = planOperation(world, co);
+    co.plan = applyPlanEdits(world, co, co.basePlan, world.planEdits);
     applyPlan(world, co);
   }
   // `[v7.2]` 攻防戦の防御側は陣地を置く(ロードマップ S-1)。作戦のあと — 陣地は

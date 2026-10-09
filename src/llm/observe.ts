@@ -69,7 +69,10 @@ export function commandSpecs(
   seat: AgentSeat,
   canReinforce = false,
   canFire = false,
+  canPlan = false,
 ): CommandSpec[] {
+  // 立案中の中隊長は作戦の書き換えだけ(`[v7.3]` A-1)。時間が止まっているので他の命令は意味が無い
+  if (canPlan) return [PLAN_SPEC, { type: "hold", description: "書き換えずに AI の作戦のまま戦闘を始める" }];
   const list = baseSpecs(seat);
   const extra = [...(canFire ? [FIRE_MISSION_SPEC] : []), ...(canReinforce ? [REINFORCE_SPEC] : [])];
   if (extra.length === 0) return list;
@@ -82,6 +85,15 @@ const FIRE_MISSION_SPEC: CommandSpec = {
   description:
     "迫撃砲の射撃を target {x,z} へ要請する(observation.fireSupport を見る)。照準点は要請時点で固定され、" +
     "飛翔時間のあいだに敵が動けば外れる。射程外・前線の近く(危険近接)・間隔が明けていないときは却下される",
+};
+
+const PLAN_SPEC: CommandSpec = {
+  type: "plan",
+  description:
+    "立案中の作戦を書き換える(observation.plan を見る)。op=task: unit の任務を mission " +
+    "(seize / support_by_fire / screen / reserve)と objective(拠点 id)に / op=main: objective を主攻に / " +
+    "op=route: unit の経由点 points / op=start: unit の発進を atSec 秒後に / op=phase_line: 調整線 points(2点、空で消す)/ " +
+    "op=fires: 迫撃砲の射撃計画 fires [{target,atSec}](atSec は 45 秒以上・45 秒以上あける)",
 };
 
 const REINFORCE_SPEC: CommandSpec = {
@@ -164,8 +176,29 @@ export function buildObservation(
   const flying = fireCo
     ? world.fireMissions.find((m) => m.side === own && m.companyId === fireCo.companyId)
     : undefined;
+  const planCo = seat.echelon === "company" ? fireCo : undefined;
+  const plan = planCo?.plan;
   const base = {
     protocol: PROTOCOL_VERSION,
+    phase: world.phase,
+    ...(plan
+      ? {
+          plan: {
+            mainObjective: plan.mainObjectiveId,
+            tasks: plan.tasks.map((t) => ({
+              unit: t.platoonId,
+              name: platoonName(t.platoonId),
+              role: t.role,
+              mission: t.mission.kind,
+              objective: t.objectiveId,
+              startSec: t.startSec ?? 0,
+              via: (t.via ?? []).map(rv),
+            })),
+            phaseLine: plan.phaseLine ? ([rv(plan.phaseLine[0]), rv(plan.phaseLine[1])] as [Vec2, Vec2]) : null,
+            fires: (plan.fires ?? []).map((f) => ({ target: rv(f.target), atSec: f.atSec })),
+          },
+        }
+      : {}),
     timeSec: r1(world.tick / SIM_HZ),
     tick: world.tick,
     map: {
@@ -173,7 +206,7 @@ export function buildObservation(
       objectives,
     },
     victory: world.victory ? (rel(own, world.victory.winner) as RelSide) : null,
-    commands: commandSpecs(seat, canReinforce, canFire),
+    commands: commandSpecs(seat, canReinforce, canFire, world.phase === "planning" && plan !== undefined),
     lastResult,
     ...(canFire && fireCo
       ? {
