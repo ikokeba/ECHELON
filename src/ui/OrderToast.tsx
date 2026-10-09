@@ -11,14 +11,14 @@ import { useSimStore } from "./store.ts";
 export function OrderToast() {
   const lastOrder = useSimStore((s) => s.lastOrder);
   const control = useSimStore((s) => s.control);
-  const armed = useSimStore((s) => s.fireMissionArmed);
-  const fire = useSimStore((s) => s.lastFireResult);
+  const armed = useSimStore((s) => s.armed);
+  const fire = useSimStore((s) => s.lastOrderResult);
   const [flash, setFlash] = useState(false);
   const [fireFlash, setFireFlash] = useState(false);
   const seen = useRef(0);
   const fireSeen = useRef(0);
 
-  // 迫撃砲の要請結果(`[v7.2]`)。通らなかった理由もここに出す
+  // 迫撃砲・発煙の結果(`[v7.2]`)。通らなかった理由もここに出す
   useEffect(() => {
     if (!fire || fire.seq === fireSeen.current) return;
     fireSeen.current = fire.seq;
@@ -41,7 +41,11 @@ export function OrderToast() {
     return (
       <div className="panel order-toast ot-flash">
         <span className="ot-head">
-          {armed ? "◎ 迫撃砲: 撃つ地点をクリック" : `${fire!.ok ? "◎" : "✕"} ${fire!.text}`}
+          {armed === "fire"
+            ? "◎ 迫撃砲: 撃つ地点をクリック"
+            : armed === "smoke"
+              ? "◎ 発煙: 焚く地点をクリック"
+              : `${fire!.ok ? "◎" : "✕"} ${fire!.text}`}
         </span>
       </div>
     );

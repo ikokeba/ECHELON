@@ -14,7 +14,8 @@ import { platoonName } from "../sim/c2/planning.ts";
 import { reinforcementsLeft, topCommandOf } from "../sim/systems/reinforcement.ts";
 import { isOffField } from "../sim/systems/litter.ts";
 import { fireMissionCooldownLeft, mortarMagazine } from "../sim/systems/indirect.ts";
-import { MORTAR, SIM_HZ } from "../sim/constants.ts";
+import { MORTAR, SIM_HZ, SMOKE } from "../sim/constants.ts";
+import { smokeCooldownLeft, smokeThrower } from "../sim/systems/smoke.ts";
 import { sideDoctrine } from "../sim/world.ts";
 import type { Contact, Side, Vec2 } from "../sim/types.ts";
 import type { World } from "../sim/world.ts";
@@ -114,6 +115,12 @@ function baseSpecs(seat: AgentSeat): CommandSpec[] {
   }
   return [
     move,
+    {
+      type: "smoke",
+      description:
+        "発煙弾を target {x,z} へ焚く(observation.smoke を見る)。煙は円の中を通る視線を遮る — " +
+        "敵に見られながら開けた場所を渡るとき、敵と自分のあいだへ焚く。分隊長から throwRange m 以内だけ",
+    },
     {
       type: "casevac",
       description: "止血済みの負傷者を担架で後送する(担架要員2〜4名が一時的に抜ける)",
@@ -298,8 +305,21 @@ export function buildObservation(
       mode: ft.mode,
     });
   }
+  const thrower = smokeThrower(world, sq);
   return {
     ...base,
+    smoke: {
+      left: sq.smokes,
+      cooldownSec: r1(smokeCooldownLeft(world, sq) / SIM_HZ),
+      thrower: thrower ? rv(thrower.pos) : null,
+      throwRange: SMOKE.THROW_RANGE,
+      radius: SMOKE.RADIUS,
+      durationSec: SMOKE.DURATION_SEC,
+      active: world.smokes.map((s) => ({
+        pos: rv(s.pos),
+        leftSec: r1((s.untilTick - world.tick) / SIM_HZ),
+      })),
+    },
     you: {
       echelon: "squad",
       unit: sq.squadId,

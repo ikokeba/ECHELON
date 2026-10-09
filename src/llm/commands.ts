@@ -15,7 +15,9 @@ import {
   orderControlledTo,
   orderFireMission,
   orderReinforcement,
+  orderSmoke,
 } from "../sim/playerOrders.ts";
+import { SMOKE_BLOCK_TEXT } from "../sim/systems/smoke.ts";
 import { FIRE_MISSION_BLOCK_TEXT } from "../sim/systems/indirect.ts";
 import type { MissionKind, Vec2 } from "../sim/types.ts";
 import type { World } from "../sim/world.ts";
@@ -106,6 +108,12 @@ export function parseResponse(raw: unknown): ParsedResponse {
       case "reinforce":
         commands.push({ type: "reinforce" });
         return;
+      case "smoke": {
+        const target = vecOf(c.target);
+        if (!target) errors.push(`commands[${i}] smoke: target {x,z} が無い`);
+        else commands.push({ type: "smoke", target });
+        return;
+      }
       case "fire_mission": {
         const target = vecOf(c.target);
         if (!target) errors.push(`commands[${i}] fire_mission: target {x,z} が無い`);
@@ -202,6 +210,23 @@ export function applyResponse(world: World, seat: AgentSeat, resp: AgentResponse
             : r.ok
               ? `#${i} fire_mission ${at}: 受理(${r.rounds}発)`
               : `#${i} fire_mission ${at}: 却下 — ${FIRE_MISSION_BLOCK_TEXT[r.reason]}`,
+        );
+        return;
+      }
+      case "smoke": {
+        if (seat.echelon !== "squad") {
+          out.push(`#${i} smoke: 分隊長だけが出せる`);
+          return;
+        }
+        const t = clampToBounds(world, c.target);
+        const r = orderSmoke(world, t, seat);
+        const at = `(${t.x.toFixed(0)},${t.z.toFixed(0)})`;
+        out.push(
+          !r
+            ? `#${i} smoke: 却下`
+            : r.ok
+              ? `#${i} smoke ${at}: 受理`
+              : `#${i} smoke ${at}: 却下 — ${SMOKE_BLOCK_TEXT[r.reason]}`,
         );
         return;
       }

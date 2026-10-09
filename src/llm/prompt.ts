@@ -30,6 +30,8 @@ export const DEFAULT_SYSTEM_PROMPT = `あなたは見下ろし型の戦術シミ
 - {"type":"fire_mission","target":{"x":数値,"z":数値}} … 迫撃砲で地点を撃つ(中隊長のみ。observation.fireSupport があるときだけ)。
     照準点は要請した時点で固定され、飛翔時間ののちに落ちる。そのあいだに敵は動く。
     指揮所から minRange〜maxRange m の範囲だけ。味方の前線から dangerClose m 以内は撃てない。cooldownSec が 0 になるまで次は撃てない
+- {"type":"smoke","target":{"x":数値,"z":数値}} … 発煙弾を焚く(分隊長のみ。observation.smoke があるときだけ)。
+    煙は円の中を通る視線を遮る。敵に見られながら開けた場所を渡るときは、敵と自分のあいだへ焚く。分隊長から throwRange m 以内だけ
 - {"type":"hold"} … 何もしない。現在の命令を続ける
 
 ## 応答の形(JSON のみ。説明文やコードフェンスは付けない)

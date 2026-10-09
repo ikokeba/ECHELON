@@ -11,7 +11,13 @@ import { createWorld, sideDoctrine, type World } from "@sim/world.ts";
 import { SCENARIOS, type ScenarioKey } from "@sim/scenario.ts";
 import { resolveView, type ViewResult } from "@sim/viewpoint.ts";
 import { controlledSoldierId, swapTo } from "@sim/control.ts";
-import { orderControlledTo, orderFireMission, orderReinforcement } from "@sim/playerOrders.ts";
+import {
+  orderControlledTo,
+  orderFireMission,
+  orderReinforcement,
+  orderSmoke,
+} from "@sim/playerOrders.ts";
+import { SMOKE_BLOCK_TEXT, smokeCooldownLeft, smokeThrower } from "@sim/systems/smoke.ts";
 import {
   FIRE_MISSION_BLOCK_TEXT,
   fireMissionCooldownLeft,
@@ -19,7 +25,7 @@ import {
 } from "@sim/systems/indirect.ts";
 import { reinforcementsLeft, topCommandOf } from "@sim/systems/reinforcement.ts";
 import { isOffField } from "@sim/systems/litter.ts";
-import { MORTAR, SIM_DT, SIM_HZ } from "@sim/constants.ts";
+import { MORTAR, SIM_DT, SIM_HZ, SMOKE } from "@sim/constants.ts";
 import { isDegraded } from "@sim/c2/succession.ts";
 import { applyDeployment, defaultDeploymentOf } from "@sim/deployment.ts";
 import { beginBattle, beginPlanning, platoonName } from "@sim/c2/planning.ts";
@@ -277,6 +283,20 @@ function fireSupportHud(world: World, side: Side): HudSnapshot["fireSupport"][Si
   };
 }
 
+/** 発煙弾の表示(`[v7.2]`)。人間が分隊長を操作しているときだけ */
+function smokeHud(world: World): HudSnapshot["smoke"] {
+  const c = world.control;
+  if (!c || c.echelon !== "squad") return null;
+  const sq = world.squads.find((s) => s.side === c.side && s.squadId === c.unitId);
+  if (!sq) return null;
+  return {
+    left: sq.smokes,
+    total: SMOKE.PER_SQUAD,
+    cooldownSec: smokeCooldownLeft(world, sq) * SIM_DT,
+    canThrow: smokeThrower(world, sq) !== null,
+  };
+}
+
 function hudOf(world: World, view: ViewResult): HudSnapshot {
   let blueAlive = 0;
   let redAlive = 0;
@@ -346,6 +366,7 @@ function hudOf(world: World, view: ViewResult): HudSnapshot {
     victory: world.victory,
     reinforcement: { blue: reinforcementHud(world, "blue"), red: reinforcementHud(world, "red") },
     fireSupport: { blue: fireSupportHud(world, "blue"), red: fireSupportHud(world, "red") },
+    smoke: smokeHud(world),
   };
 }
 
@@ -506,18 +527,30 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
       ui.placeAt(p);
       return;
     }
-    // 迫撃砲の照準待ち(`[v7.2]`)。AIの中隊長と同じ関数を通す(仕様 §4)
-    if (ui.fireMissionArmed) {
-      ui.armFireMission(false);
-      const r = orderFireMission(world, p);
+    // 地点命令の照準待ち(`[v7.2]`)。迫撃砲・発煙とも、AIの指揮官と同じ関数を通す(仕様 §4)
+    if (ui.armed) {
+      const kind = ui.armed;
+      ui.arm(null);
       const at = `(${p.x.toFixed(0)}, ${p.z.toFixed(0)})`;
-      ui.setLastFireResult(
-        !r
-          ? { ok: false, text: "迫撃砲を要請できるのは中隊長だけ" }
-          : r.ok
-            ? { ok: true, text: `迫撃砲 ${r.rounds}発を要請 ${at}` }
-            : { ok: false, text: `要請は通らなかった — ${FIRE_MISSION_BLOCK_TEXT[r.reason]}` },
-      );
+      if (kind === "fire") {
+        const r = orderFireMission(world, p);
+        ui.setLastOrderResult(
+          !r
+            ? { ok: false, text: "迫撃砲を要請できるのは中隊長だけ" }
+            : r.ok
+              ? { ok: true, text: `迫撃砲 ${r.rounds}発を要請 ${at}` }
+              : { ok: false, text: `要請は通らなかった — ${FIRE_MISSION_BLOCK_TEXT[r.reason]}` },
+        );
+      } else {
+        const r = orderSmoke(world, p);
+        ui.setLastOrderResult(
+          !r
+            ? { ok: false, text: "発煙弾を焚けるのは分隊長だけ" }
+            : r.ok
+              ? { ok: true, text: `発煙弾を焚いた ${at}` }
+              : { ok: false, text: `焚けなかった — ${SMOKE_BLOCK_TEXT[r.reason]}` },
+        );
+      }
       useSimStore.getState().pushHud(hudOf(world, resolveView(world, {
         side: ui.viewSide,
         echelon: ui.viewEchelon,
@@ -570,7 +603,7 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
       swapTo(world, ui.control);
       lastControl = ui.control;
       // 中隊長の座席を離れたら迫撃砲の照準待ちも解く(`[v7.2]`)
-      if (ui.fireMissionArmed) ui.armFireMission(false);
+      if (ui.armed) ui.arm(null);
     }
     // デバッグスライダーの値をシムへ反映(既定値なら現行挙動と一致)
     syncTuning(world);

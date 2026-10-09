@@ -22,6 +22,7 @@ import {
   CQB,
   DOOR_THICKNESS,
   FLASHBANG,
+  SMOKE,
   OBJECTIVE,
   SIM_HZ,
   NAV_MARGIN_OUTDOOR,
@@ -47,6 +48,7 @@ import type {
   BattleMode,
   Side,
   SimPhase,
+  Smoke,
   Soldier,
   SquadState,
   Tuning,
@@ -147,6 +149,9 @@ export interface World {
    */
   fireMissions: FireMission[];
   nextFireMissionId: number;
+  /** 盤上の煙幕(`[v7.2]` systems/smoke.ts)。視線だけを遮る */
+  smokes: Smoke[];
+  nextSmokeId: number;
   controlMeasures: ControlMeasure[];
   /** 陣営ごとの負傷者集合点(CCP、仕様 §9)。担架班の搬送先。 */
   ccp: Record<Side, Vec2>;
@@ -304,6 +309,8 @@ export function buildSquads(scenario: Scenario, soldiers: Soldier[]): SquadState
       flank: null,
       flankGoal: null,
       flankAssault: false,
+      smokes: SMOKE.PER_SQUAD,
+      lastSmokeTick: -1_000_000,
     });
   }
   return [...seen.values()];
@@ -594,6 +601,8 @@ function buildWorld(scenario: Scenario): World {
     reports: [],
     fireMissions: [],
     nextFireMissionId: 1,
+    smokes: [],
+    nextSmokeId: 1,
     controlMeasures: (scenario.controlMeasures ?? []).map((cm) => ({
       ...cm,
       points: cm.points.map((p) => ({ ...p })),
