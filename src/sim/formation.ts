@@ -147,7 +147,8 @@ export function exposureAt(
   let total = 0;
   let exposed = 0;
   for (const c of contacts) {
-    if (c.confidence <= 0) continue;
+    // `[v7.3]` 聞いただけの接触(A-5)は位置が粗すぎて、遮蔽の当否を測れない
+    if (c.confidence <= 0 || c.heard) continue;
     total += c.confidence;
     if (hasLineOfSight(walls, c.pos.x, c.pos.z, p.x, p.z)) exposed += c.confidence;
   }

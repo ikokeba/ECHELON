@@ -45,7 +45,7 @@
 | 2 | **能力を足さない**(仕様 §4) | 命令の適用は `sim/playerOrders.ts` の**人間と同じ関数**。出せる命令の種類も AI 指揮官が出しているもの(任務 seize / support_by_fire / screen 等)だけ | 座席がある間は AI に上書きされない / 外すと AI が再開する |
 | 3 | **陣営を名前で渡さない**(仕様 §2/§13) | 観測の中の陣営は `"own"` / `"enemy"`。青に座っても赤に座っても同じ形の盤面に見える | 陣営ラベルを入れ替えた盤面で、反対側の座席に**完全に同じ観測**が届くこと |
 
-## 3. やり取りの形(プロトコル `echelon-llm/0.3`)
+## 3. やり取りの形(プロトコル `echelon-llm/0.4`)
 
 型の定義は `src/llm/protocol.ts`。
 
@@ -53,7 +53,7 @@
 
 ```jsonc
 {
-  "protocol": "echelon-llm/0.3",
+  "protocol": "echelon-llm/0.4",
   "timeSec": 84.0, "tick": 2520,
   "you": {
     "echelon": "company", "unit": 0, "name": "中隊長",
@@ -74,8 +74,9 @@
       "mission": { "kind": "seize", "target": {"x":-78,"z":-13} } }
   ],
   "contacts": [                             // 把握している敵(belief。真の位置ではない)
-    { "pos": {"x":12.5,"z":40.1}, "posError": 9.4, "confidence": 0.82, "ageSec": 21.0, "count": 1 }
-  ],
+    { "pos": {"x":12.5,"z":40.1}, "posError": 9.4, "confidence": 0.82, "ageSec": 21.0, "count": 1 },
+    { "pos": {"x":60.0,"z":-8.0}, "posError": 24.0, "confidence": 0.47, "ageSec": 96.0, "heard": true }
+  ],                                        // heard = 銃声で聞いただけ(方角と大まかな距離)`[v7.3]`
   "reinforcement": { "callsLeft": 1, "size": "squad", "delaySec": 90, "pendingEtaSec": [] },  // 要請できる座席のみ
   "fireSupport": { "roundsLeft": 9, "roundsPerMission": 3, "cooldownSec": 0, "inFlightEtaSec": null,
     "commandPost": {"x":0,"z":-150}, "minRange": 40, "maxRange": 400, "dangerClose": 45,
@@ -162,4 +163,4 @@ npm run llm -- --echelon platoon --interval 15 --model qwen2.5-7b-instruct --ver
 ## 7. まだやっていないこと(次の候補)
 
 ロードマップ([`docs/ロードマップ.md`](ロードマップ.md))へ移した。LLM まわりは C-23〜C-27(複数の座席、対戦と評価、観測の要約、会話の履歴、ツール呼び出し形式)。
-迫撃砲の要請(旧 S-5)は `[v7.2]` で実装した(プロトコル `echelon-llm/0.2`)。発煙(旧 S-2、`smoke`)で `0.3`。
+迫撃砲の要請(旧 S-5)は `[v7.2]` で実装した(プロトコル `echelon-llm/0.2`)。発煙(旧 S-2、`smoke`)で `0.3`。`[v7.3]` で接触に `heard`(銃声で聞いただけの接触、ロードマップ A-5)を足して `0.4`。

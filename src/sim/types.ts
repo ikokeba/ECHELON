@@ -451,6 +451,13 @@ export interface Contact {
   confidence: number;
   /** 判明していれば目撃した人数 */
   count?: number;
+  /**
+   * 見たのではなく**聞いた**接触(`[v7.3]` ロードマップ A-5)。銃声の方角とだいたいの距離
+   * だけで、誰が撃ったかは分からない。位置誤差が大きく、確度も最初から低い
+   */
+  heard?: boolean;
+  /** 聞いた接触の、音の見積もりそのものの粗さ m(`[v7.3]`)。ホップの粗さは `hopError` に別に乗る */
+  heardError?: number;
 }
 
 /** 階層コントローラが持つ、報告のみから構築された私的な world picture(仕様 §5)。 */
@@ -476,6 +483,11 @@ export interface Report {
   /** 受信側が読めるようになるティック(sentTick + 遅延) */
   deliverTick: number;
   contacts: Contact[];
+  /**
+   * 臨時報告のきっかけ(`[v7.3]` ロードマップ A-8)。定時報告なら無い。
+   * 中身(接触・自隊の状況)は定時報告と同じで、違うのは**いつ送られたか**だけ
+   */
+  flash?: FlashReason[];
   /** 送信元自身の戦力・状況サマリ(SALUTE報告の S/L に相当) */
   ownStatus: {
     effective: number;
@@ -488,6 +500,43 @@ export interface Report {
      */
     posLead: Vec2;
   };
+}
+
+/**
+ * 臨時報告のきっかけ(`[v7.3]` ロードマップ A-8)。
+ *   contact   : 接敵(確かな接触が無い状態から、ある状態になった)
+ *   commander : 指揮官の交代(負傷・戦死で次席者が継いだ。仕様 §12)
+ *   rout      : 麾下FTの潰走が増えた(仕様 §12)
+ */
+export type FlashReason = "contact" | "commander" | "rout";
+
+/**
+ * 臨時報告を出すかどうかを決めるための、送信元が前回の報告時点で覚えている状態
+ * (`[v7.3]`)。いまの状態と比べて「変わった」ときだけ臨時報告が立つ。
+ */
+export interface FlashWatch {
+  /** 確かな接触を持っていたか */
+  contact: boolean;
+  /** 指揮を執っていた兵士 */
+  commanderId: number | null;
+  /** 潰走していた麾下FTの数 */
+  routed: number;
+  /** 最後に臨時報告を送ったティック(連発の下限を測る) */
+  lastFlashTick: number;
+}
+
+/** 受信された臨時報告1件(`[v7.3]`)。UI の表示用で、シムは読まない */
+export interface FlashLogEntry {
+  side: Side;
+  /** 受信したティック */
+  tick: number;
+  /** 送信したティック */
+  sentTick: number;
+  fromEchelon: Echelon;
+  fromUnitId: number;
+  reasons: FlashReason[];
+  /** 載っていた接触の件数 */
+  contacts: number;
 }
 
 /**
@@ -661,6 +710,9 @@ export interface SquadState {
   /** 小隊の側面機動が側面を取り終え、分隊ごと突撃に移った(`[v7.0]`) */
   flankAssault: boolean;
 
+  /** 臨時報告の判定に使う前回の状態(`[v7.3]` ロードマップ A-8) */
+  flashWatch: FlashWatch;
+
   /** 発煙弾の残数(`[v7.2]` ロードマップ S-2)。分隊の装備で、分隊長が投げる */
   smokes: number;
   /** 最後に発煙弾を投げたティック(連投の下限を測る)。投げていなければ -Infinity 相当の負値 */
@@ -716,6 +768,9 @@ export interface PlatoonState {
 
   /** 小隊長が決めた側面攻撃の段取り(`[v7.0]`)。squadId で持つ */
   flank: FlankPlan | null;
+
+  /** 臨時報告の判定に使う前回の状態(`[v7.3]` ロードマップ A-8) */
+  flashWatch: FlashWatch;
 }
 
 /**
@@ -1169,6 +1224,21 @@ export type FxEvent =
       suppressRadius: number;
       victims: number;
     };
+
+/**
+ * そのティックに鳴った銃声・爆発音1つ(`[v7.3]` ロードマップ A-5)。
+ * 戦闘システムが積み、聴覚システム(systems/hearing.ts)が読んで捨てる
+ */
+export interface Gunshot {
+  /** 撃った(投げた)者。爆発は投げた者 */
+  sourceId: number;
+  side: Side;
+  pos: Vec2;
+  /** 聞こえる距離 m(武器ごと、constants `HEARING.RANGE`) */
+  range: number;
+  /** 足音(`HEARING.FOOTSTEP`)。壁越しでも聞こえる距離が縮まない */
+  footstep?: boolean;
+}
 
 /**
  * 防衛陣地の種類(`[v7.2]` ロードマップ S-1)。

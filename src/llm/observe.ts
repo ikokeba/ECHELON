@@ -57,6 +57,7 @@ function contactsOf(world: World, belief: Iterable<Contact>): ObsContact[] {
     confidence: Math.round(c.confidence * 100) / 100,
     ageSec: r1((world.tick - c.lastSeenTick) / SIM_HZ),
     ...(c.count !== undefined ? { count: c.count } : {}),
+    ...(c.heard ? { heard: true } : {}),
   }));
 }
 

@@ -201,7 +201,7 @@ export function runCqb(
       });
       // 室内に把握している敵が残っている間は掃討を続ける
       const threatInRoom = [...ft.memory.values()].some(
-        (c) => c.confidence > 0.3 && insideBounds(room.bounds, c.pos),
+        (c) => c.confidence > 0.3 && !c.heard && insideBounds(room.bounds, c.pos),
       );
       if ((allSet && !threatInRoom) || stuck) setStage(ft, "reorg", world.tick);
       return;
