@@ -20,7 +20,7 @@ same orders the AI would give, and the rest of the force keeps fighting around y
 to send your unit somewhere; hand control back whenever you like. Picking a squad opens its fire
 teams and soldiers underneath, so you can also drop down to a team leader or a single rifleman.
 
-![Taking control of a squad: the banner reads MANUAL, and right-click orders send the squad along a route.](docs/media/hotswap.gif)
+![Taking a seat as a squad leader, then as a fire team leader, then as a single soldier. The banner names the seat, and a right-click sends that team or soldier to a new spot.](docs/media/hotswap.gif)
 
 ### From the whole battlefield down to a single soldier
 
@@ -52,6 +52,37 @@ A soldier sees what is in front of them. A squad leader sees what their fire tea
 that, everything arrives by radio — late, less certain, and vaguer at every step up. A company
 commander's picture of the battle is measurably older than a platoon leader's. Switch between the
 company, platoon and squad viewpoints and watch the enemy picture change.
+
+### Rewrite the plan before the shooting starts
+
+Every battle opens with time stopped and the company commander's plan on screen. Sit in the company
+commander's seat and you can change it: which platoon makes the main effort, each platoon's task and
+start time, a route through waypoints, a phase line the platoons line up on, and pre-planned mortar
+fire. The AI then fights the plan you wrote.
+
+![The planning panel in the company commander's seat. One platoon is made the main effort, another gets a route through two waypoints, and a phase line and a mortar target are drawn on the map.](docs/media/plan.gif)
+
+### A drone that only the company commander hears from
+
+The company radio operator flies a small drone. It sees a narrow circle from above (not under roofs or
+through smoke), and what it sees goes to the company commander late, over the radio. The commander's
+picture gets fresher; the forward squads' does not.
+
+![From the company commander's viewpoint, a drone, drawn as a cross inside a pale circle, flies out past the central objective; enemy marks appear in the company picture under it.](docs/media/drone.gif)
+
+### Defenders who wait
+
+In attack/defence the defender digs in from the terrain alone. An L-shaped ambush keeps still until
+the attackers are inside its kill zone, then opens fire all at once.
+
+![An ambush springs: red defenders hidden beside a street open fire when blue soldiers walk into the kill zone.](docs/media/defense.gif)
+
+### Rockets that break positions
+
+One gunner per rifle squad carries two anti-armour rounds. A hit kills or wounds the people around the
+impact and destroys the fighting position or machine-gun post it lands on, cover and all.
+
+![A rocket hits a red fighting position next to an objective. A fireball and a dust ring appear, and the defenders around it are wounded.](docs/media/antiarmor.gif)
 
 ## Play it
 
@@ -175,8 +206,7 @@ Two invariants are enforced by the tests:
 
 ### Not yet built
 
-Everything that is planned but not built — defensive tactics, editing the operation plan, drones,
-armoured vehicles and more — is collected, with priorities, in [`docs/ロードマップ.md`](docs/ロードマップ.md)
+Everything that is planned but not built — armoured vehicles and more — is collected, with priorities, in [`docs/ロードマップ.md`](docs/ロードマップ.md)
 (Japanese). The spec holds only what has been decided and built.
 
 ## License

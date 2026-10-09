@@ -637,6 +637,16 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
   let lastLlmConfig: unknown = null;
   let llmStatusKey = "";
 
+  // 開発用の撮影フック(`[v7.3]`)。README の GIF を撮るスクリプトが、世界を読み、カメラを置き、
+  // 止めたまま決まったティック数だけ進めるのに使う。本番ビルドには入らない
+  if (import.meta.env.DEV) {
+    (window as unknown as { __echelon?: unknown }).__echelon = {
+      world,
+      renderer,
+      advance: (n: number) => requestSteps(clock, n),
+      store: useSimStore,
+    };
+  }
   const onResize = () => renderer.resize();
   window.addEventListener("resize", onResize);
 

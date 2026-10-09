@@ -10,7 +10,7 @@ import * as THREE from "three";
 import type { World } from "@sim/world.ts";
 import type { FxEvent, Side, Soldier, Vec2 } from "@sim/types.ts";
 import type { ViewResult } from "@sim/viewpoint.ts";
-import { DEFENSE, DRONE, LITTER, MORTAR, SIM_HZ, SOLDIER_RADIUS } from "@sim/constants.ts";
+import { ANTI_ARMOR, DEFENSE, DRONE, LITTER, MORTAR, SIM_HZ, SOLDIER_RADIUS } from "@sim/constants.ts";
 import { smokeRadius } from "@sim/systems/smoke.ts";
 import { collidesWall, hasLineOfSight } from "@sim/geometry.ts";
 import { coverBonus } from "@sim/cover.ts";
@@ -471,6 +471,10 @@ export interface Renderer {
   resize(): void;
   /** 画面ピクセル下のワールド座標(将来の選択・命令発行用) */
   screenToWorld(clientX: number, clientY: number): { x: number; z: number };
+  /** ワールド座標の画面ピクセル位置(`[v7.3]` 開発用の撮影スクリプトが使う) */
+  worldToScreen(p: Vec2): { x: number; y: number };
+  /** カメラを置く(中心と、画面の高さに収めるワールドの長さ m)。`[v7.3]` 開発用 */
+  setCamera(center: Vec2, span: number): void;
   dispose(): void;
 }
 
@@ -2127,7 +2131,9 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
               }),
             );
           }
-          const mortar = f.kind === "mortar";
+          // 対戦車火器の着弾は迫撃砲と同じ「別格の出来事」の描き方にする(破片と制圧の輪)。
+          // 擲弾と同じ小さな円では、陣地が吹き飛ぶ出来事に見えない
+          const mortar = f.kind === "mortar" || f.kind === "rocket";
           blasts.push({
             x: f.at.x,
             z: f.at.z,
@@ -2135,7 +2141,8 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
             side: f.side,
             life: mortar ? MORTAR_BLAST_LIFE : BLAST_LIFE,
             mortar,
-            suppressRadius: f.kind === "mortar" ? f.suppressRadius : f.radius,
+            suppressRadius:
+              f.kind === "mortar" ? f.suppressRadius : f.kind === "rocket" ? ANTI_ARMOR.SUPPRESS_RADIUS : f.radius,
             flash: f.kind === "flashbang",
           });
           // 迫撃砲だけ破片を飛ばす。擲弾にも付けると盤面が線だらけになり、
@@ -2624,6 +2631,21 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     render,
     resize,
     screenToWorld,
+    worldToScreen(p: Vec2) {
+      const rect = canvas.getBoundingClientRect();
+      const halfH = viewSpan / 2;
+      const halfW = halfH * (rect.width / Math.max(1, rect.height));
+      return {
+        x: rect.left + ((p.x - target.x) / halfW + 1) * 0.5 * rect.width,
+        y: rect.top + ((p.z - target.z) / halfH + 1) * 0.5 * rect.height,
+      };
+    },
+    setCamera(center: Vec2, span: number) {
+      target.x = center.x;
+      target.z = center.z;
+      viewSpan = THREE.MathUtils.clamp(span, 12, 220);
+      updateCamera();
+    },
     dispose() {
       canvas.removeEventListener("pointerdown", onDown);
       canvas.removeEventListener("pointermove", onMove);
