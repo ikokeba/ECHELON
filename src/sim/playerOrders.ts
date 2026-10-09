@@ -16,6 +16,7 @@ import type { Mission, Vec2 } from "./types.ts";
 import type { World } from "./world.ts";
 import { callReinforcement, topCommandOf } from "./systems/reinforcement.ts";
 import { requestFireMission, type FireMissionResult } from "./systems/indirect.ts";
+import { throwSmoke, type SmokeResult } from "./systems/smoke.ts";
 
 /*
  * `[v7.0]` どの命令も**座席**(`seat`)を引数に取る。既定は人間の操作枠
@@ -240,4 +241,23 @@ export function orderFireMission(
   const co = world.companies.find((x) => x.side === c.side && x.companyId === c.unitId);
   if (!co) return null;
   return requestFireMission(world, co, target);
+}
+
+/**
+ * 発煙弾を焚く(`[v7.2]` ロードマップ S-2)。
+ *
+ * 焚けるのは**分隊長の座席**だけ(投げるのは分隊長本人)。AIの分隊長と同じ `throwSmoke` を
+ * 通るので、残数・間隔・投げられる距離は同じに掛かる(仕様 §4/§13)。違いは「どこへ・いつ」を
+ * 自分で選ぶことだけ。
+ */
+export function orderSmoke(
+  world: World,
+  target: Vec2,
+  seat: ControlState | null = world.control,
+): SmokeResult | null {
+  const c = seat;
+  if (!c || c.echelon !== "squad") return null;
+  const sq = world.squads.find((s) => s.side === c.side && s.squadId === c.unitId);
+  if (!sq) return null;
+  return throwSmoke(world, sq, target);
 }

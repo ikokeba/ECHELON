@@ -21,7 +21,7 @@
 import type { Echelon, MissionKind, Side, Vec2 } from "../sim/types.ts";
 
 /** プロトコルの版。形を変えたら上げる。エージェント側はこれを見て解釈を切り替えられる */
-export const PROTOCOL_VERSION = "echelon-llm/0.2";
+export const PROTOCOL_VERSION = "echelon-llm/0.3";
 
 /** エージェントが座れる階層。兵士・FTは毎ティックの反射が要るので対象外(設計書 §3) */
 export type AgentEchelon = Extract<Echelon, "company" | "platoon" | "squad">;
@@ -142,6 +142,20 @@ export interface Observation {
     dangerClose: number;
     timeOfFlightSec: number;
   };
+  /**
+   * 発煙弾(`[v7.2]`)。分隊長の座席だけに載る。left = 残数 / cooldownSec = 次に焚けるまでの秒数 /
+   * thrower = 投げる分隊長の位置(戦えなければ null)/ throwRange = 投げられる距離 m /
+   * active = 盤上の煙(双方に見える)。煙は半径 radius の円の中を通る視線を遮る
+   */
+  smoke?: {
+    left: number;
+    cooldownSec: number;
+    thrower: Vec2 | null;
+    throwRange: number;
+    radius: number;
+    durationSec: number;
+    active: { pos: Vec2; leftSec: number }[];
+  };
   commands: CommandSpec[];
   /** 前回の応答をどう処理したか。エージェントが自分の誤りを直すための手がかり */
   lastResult: string[];
@@ -181,13 +195,19 @@ export interface FireMissionCommand {
   type: "fire_mission";
   target: Vec2;
 }
+/** 発煙弾を地点へ焚く(分隊長の座席のみ、`[v7.2]`)。煙は視線だけを遮る */
+export interface SmokeCommand {
+  type: "smoke";
+  target: Vec2;
+}
 export type AgentCommand =
   | MoveCommand
   | AssignCommand
   | CasevacCommand
   | HoldCommand
   | ReinforceCommand
-  | FireMissionCommand;
+  | FireMissionCommand
+  | SmokeCommand;
 
 export interface AgentResponse {
   commands: AgentCommand[];
@@ -212,7 +232,7 @@ export const RESPONSE_SCHEMA = {
       items: {
         type: "object",
         properties: {
-          type: { type: "string", enum: ["move", "assign", "casevac", "hold", "reinforce", "fire_mission"] },
+          type: { type: "string", enum: ["move", "assign", "casevac", "hold", "reinforce", "fire_mission", "smoke"] },
           unit: { type: "integer", description: "assign の対象(subordinates[].unit)" },
           mission: { type: "string", enum: ["seize", "support_by_fire", "screen"] },
           target: {

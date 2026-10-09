@@ -655,6 +655,11 @@ export interface SquadState {
   flankGoal: Vec2 | null;
   /** 小隊の側面機動が側面を取り終え、分隊ごと突撃に移った(`[v7.0]`) */
   flankAssault: boolean;
+
+  /** 発煙弾の残数(`[v7.2]` ロードマップ S-2)。分隊の装備で、分隊長が投げる */
+  smokes: number;
+  /** 最後に発煙弾を投げたティック(連投の下限を測る)。投げていなければ -Infinity 相当の負値 */
+  lastSmokeTick: number;
 }
 
 /**
@@ -1157,6 +1162,24 @@ export type FxEvent =
       suppressRadius: number;
       victims: number;
     };
+
+/**
+ * 発煙の煙幕1つ(`[v7.2]` ロードマップ S-2)。
+ *
+ * **視線だけを遮る円**。壁と違って人も弾も通る — 遮るのは「見えるか」(索敵、仕様 §5)で、
+ * 見えなければ撃てない(射撃は `sees` に載った相手にしか向かない)。煙は双方に見える
+ * 出来事なので、情報の階層には掛けない(隠すのは煙の向こうの部隊)。
+ */
+export interface Smoke {
+  id: number;
+  /** 投げた陣営(描画の色と記録のため。遮る効果は陣営を見ない) */
+  side: Side;
+  pos: Vec2;
+  /** 投げたティック。半径はここから `SMOKE.BUILD_SEC` かけて広がる */
+  sinceTick: number;
+  /** 消えるティック */
+  untilTick: number;
+}
 
 /**
  * 進行中の火力支援任務(仕様 §10/§11)。`[v6.9]`

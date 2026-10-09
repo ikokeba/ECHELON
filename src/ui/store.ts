@@ -174,6 +174,20 @@ export interface HudSnapshot {
   reinforcement: Record<Side, HudReinforcement | null>;
   /** 迫撃砲(`[v7.2]`)。中隊が無い・火力支援を持たない陣営は null */
   fireSupport: Record<Side, HudFireSupport | null>;
+  /** 発煙弾(`[v7.2]`)。分隊長を操作していなければ null */
+  smoke: HudSmoke | null;
+}
+
+/** 地点を選んで出す命令(`[v7.2]`) */
+export type ArmedOrder = "fire" | "smoke";
+
+/** 発煙弾の表示(`[v7.2]` ロードマップ S-2)。人間が分隊長を操作しているときだけ */
+export interface HudSmoke {
+  left: number;
+  total: number;
+  cooldownSec: number;
+  /** 投げられる分隊長がいる */
+  canThrow: boolean;
 }
 
 /** 迫撃砲の表示(`[v7.2]` ロードマップ S-5) */
@@ -360,14 +374,15 @@ interface UiState extends HudSnapshot {
   /** 直近に出した移動命令(OrderToast 用)。tick は発行時のシムtick */
   lastOrder: { target: Vec2; tick: number; echelon: Echelon } | null;
   /**
-   * 迫撃砲の照準待ち(`[v7.2]`)。true の間、盤面の左クリックは選択ではなく射撃要請になる。
-   * 要請を出したら(通っても却下されても)解ける
+   * 地点を選ぶ命令の照準待ち(`[v7.2]`)。fire = 迫撃砲(中隊長)/ smoke = 発煙(分隊長)。
+   * null でない間、盤面の左クリックは選択ではなくその命令になる。出したら(通っても
+   * 却下されても)解ける
    */
-  fireMissionArmed: boolean;
-  armFireMission: (on: boolean) => void;
-  /** 直近の射撃要請の結果(OrderToast 用)。seq は表示の更新キー */
-  lastFireResult: { text: string; ok: boolean; seq: number } | null;
-  setLastFireResult: (r: { text: string; ok: boolean }) => void;
+  armed: ArmedOrder | null;
+  arm: (kind: ArmedOrder | null) => void;
+  /** 直近の地点命令の結果(OrderToast 用)。seq は表示の更新キー */
+  lastOrderResult: { text: string; ok: boolean; seq: number } | null;
+  setLastOrderResult: (r: { text: string; ok: boolean }) => void;
   /** 表示側の思考・状態の要約(ThinkingPanel 用) */
   thinking: ThinkingSnapshot;
   /** デバッグ表示トグル */
@@ -499,6 +514,7 @@ export const useSimStore = create<UiState>((set, get) => ({
   victory: null,
   reinforcement: { blue: null, red: null },
   fireSupport: { blue: null, red: null },
+  smoke: null,
   reinforceNonce: 0,
 
   paused: false,
@@ -529,11 +545,11 @@ export const useSimStore = create<UiState>((set, get) => ({
   deployOpen: false,
 
   lastOrder: null,
-  fireMissionArmed: false,
-  armFireMission: (on) => set({ fireMissionArmed: on }),
-  lastFireResult: null,
-  setLastFireResult: (r) =>
-    set((s) => ({ lastFireResult: { ...r, seq: (s.lastFireResult?.seq ?? 0) + 1 } })),
+  armed: null,
+  arm: (kind) => set({ armed: kind }),
+  lastOrderResult: null,
+  setLastOrderResult: (r) =>
+    set((s) => ({ lastOrderResult: { ...r, seq: (s.lastOrderResult?.seq ?? 0) + 1 } })),
   thinking: { fireteams: [], squads: [], selected: null },
   debug: {
     panelOpen: false,

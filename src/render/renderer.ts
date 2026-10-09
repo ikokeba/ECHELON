@@ -11,6 +11,7 @@ import type { World } from "@sim/world.ts";
 import type { FxEvent, Side, Soldier, Vec2 } from "@sim/types.ts";
 import type { ViewResult } from "@sim/viewpoint.ts";
 import { LITTER, MORTAR, SIM_HZ, SOLDIER_RADIUS } from "@sim/constants.ts";
+import { smokeRadius } from "@sim/systems/smoke.ts";
 import { collidesWall, hasLineOfSight } from "@sim/geometry.ts";
 import { coverBonus } from "@sim/cover.ts";
 import { MAP } from "../theme.ts";
@@ -1253,6 +1254,32 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
     return { fill, ring };
   });
 
+  // ── 煙幕(`[v7.2]` ロードマップ S-2)──
+  // 灰色の円を2枚重ねる(芯と外縁)。煙は双方に見える出来事なので霧には掛けない。
+  // 兵士より上に描いて、中にいる者が見えにくくなる — シムでも視線が通らない
+  const MAX_SMOKES = 24;
+  const smokePool = Array.from({ length: MAX_SMOKES }, () => {
+    const make = (r: number): THREE.Mesh => {
+      const g = new THREE.CircleGeometry(r, 32);
+      g.rotateX(-Math.PI / 2);
+      const m = new THREE.Mesh(
+        g,
+        new THREE.MeshBasicMaterial({
+          color: 0xc9c6bd,
+          transparent: true,
+          opacity: 0,
+          side: THREE.DoubleSide,
+          depthTest: false,
+        }),
+      );
+      m.renderOrder = 22;
+      m.visible = false;
+      scene.add(m);
+      return m;
+    };
+    return { outer: make(1), core: make(0.62) };
+  });
+
   // ── 迫撃砲の着弾(`[v6.9]`)──
   //
   // 擲弾と同じ2層(火球+衝撃波)に、外側の**土煙**を1枚足して3層にしてある。
@@ -2209,6 +2236,29 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       slot.ring.visible = true;
     }
 
+    // ── 煙幕(`[v7.2]`)──
+    for (let j = 0; j < MAX_SMOKES; j++) {
+      const slot = smokePool[j]!;
+      const s = j < world.smokes.length ? world.smokes[j]! : null;
+      const r = s ? smokeRadius(s, world.tick) : 0;
+      if (!s || r <= 0) {
+        slot.outer.visible = false;
+        slot.core.visible = false;
+        continue;
+      }
+      // 消える前の数秒で薄れる
+      const fade = Math.min(1, (s.untilTick - world.tick) / (5 * SIM_HZ));
+      for (const [m, op] of [
+        [slot.outer, 0.38],
+        [slot.core, 0.32],
+      ] as const) {
+        m.position.set(s.pos.x, 0.08, s.pos.z);
+        m.scale.set(r, 1, r);
+        (m.material as THREE.MeshBasicMaterial).opacity = op * fade;
+        m.visible = true;
+      }
+    }
+
     // ── デバッグ: 視界扇形(FOV) ──
     if (world.tuning.fovHalfRad !== coneHalf || world.tuning.detectRange !== coneRange) {
       coneHalf = world.tuning.fovHalfRad;
@@ -2469,6 +2519,10 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       for (const b of blastPool) {
         b.fill.geometry.dispose();
         b.ring.geometry.dispose();
+      }
+      for (const s of smokePool) {
+        s.outer.geometry.dispose();
+        s.core.geometry.dispose();
       }
       coneGeo.dispose();
       fovMesh.dispose();

@@ -37,6 +37,8 @@ export function ForcePanel() {
   const reinf = s.reinforcement[viewSide];
   // 迫撃砲(`[v7.2]`)。要請できるのは中隊長を操作しているときだけ(仕様 §4)
   const fire = s.fireSupport[viewSide];
+  // 発煙弾(`[v7.2]`)。分隊長を操作しているときだけ
+  const smoke = s.smoke;
 
   return (
     <div className="panel">
@@ -97,16 +99,36 @@ export function ForcePanel() {
           )}
           <button
             type="button"
-            className={`seg-btn${s.fireMissionArmed ? " seg-on" : ""}`}
+            className={`seg-btn${s.armed === "fire" ? " seg-on" : ""}`}
             disabled={!fire.canCall || fire.roundsLeft <= 0}
-            onClick={() => s.armFireMission(!s.fireMissionArmed)}
+            onClick={() => s.arm(s.armed === "fire" ? null : "fire")}
             title={
               fire.canCall
                 ? "押してから盤面をクリックした地点へ射撃を要請する(もう一度押すと取り消し)"
                 : "中隊長を操作しているときだけ要請できる。AIの中隊長は自分で要請する"
             }
           >
-            {s.fireMissionArmed ? "照準中…" : "射撃要請"}
+            {s.armed === "fire" ? "照準中…" : "射撃要請"}
+          </button>
+        </div>
+      )}
+      {smoke && (
+        <div
+          className="force-detail force-reinf"
+          title="発煙弾(`[v7.2]`)。円の中を通る視線を遮る。敵に見られながら開けた場所を渡るときに、敵と自分のあいだへ焚く"
+        >
+          <span>
+            発煙 {smoke.left}/{smoke.total}
+          </span>
+          {smoke.cooldownSec > 0 && <span>次まで {Math.ceil(smoke.cooldownSec)}秒</span>}
+          <button
+            type="button"
+            className={`seg-btn${s.armed === "smoke" ? " seg-on" : ""}`}
+            disabled={!smoke.canThrow || smoke.left <= 0}
+            onClick={() => s.arm(s.armed === "smoke" ? null : "smoke")}
+            title="押してから盤面をクリックした地点へ焚く(分隊長から30m以内。もう一度押すと取り消し)"
+          >
+            {s.armed === "smoke" ? "地点を選択…" : "発煙"}
           </button>
         </div>
       )}

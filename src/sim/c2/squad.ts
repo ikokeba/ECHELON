@@ -25,6 +25,7 @@ import { buildingAt, doorById, insideBounds, selectAssaultDoor } from "../cqb.ts
 import { commandFactor } from "./succession.ts";
 import { activateBuildingNav, sideDoctrine } from "../world.ts";
 import { exitCqb } from "./cqbDrill.ts";
+import { decideSmoke } from "../systems/smoke.ts";
 import { objectiveCoveringPoint, occupySlots } from "./objectiveHold.ts";
 import type { Contact, Door, Soldier, SquadState, Vec2 } from "../types.ts";
 
@@ -534,6 +535,8 @@ export function squadAI(world: World): void {
     // ただし踏み込まない任務(support_by_fire / screen)では突入しない。
     if (sq.mission.kind === "seize") directBuildingAssault(world, sq, idx);
     decideCasevac(world, sq);
+    // `[v7.2]` 煙で隠して渡る(ロードマップ S-2)。判断は分隊長の belief だけで行う
+    decideSmoke(world, sq);
   }
 
   // ── 分隊長自身の位置取り ──

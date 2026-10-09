@@ -21,6 +21,7 @@ import {
   type WallIndex,
 } from "../wallIndex.ts";
 import { isOffField } from "./litter.ts";
+import { smokeBlocks } from "./smoke.ts";
 import { sightRangeOf } from "../weapons.ts";
 import type { World } from "../world.ts";
 import type { Soldier, Vec2 } from "../types.ts";
@@ -55,6 +56,7 @@ export function canSee(
  * ここだけ壁の全数走査をやめる。**判定結果は `canSee` と厳密に同一**。
  */
 function canSeeIndexed(
+  world: World,
   idx: WallIndex,
   viewer: Soldier,
   target: Soldier,
@@ -67,7 +69,11 @@ function canSeeIndexed(
   if (d2 > range * range || d2 < 1e-6) return false;
   const inv = 1 / Math.sqrt(d2);
   if (viewer.facing.x * dx * inv + viewer.facing.z * dz * inv < Math.cos(fovHalfRad)) return false;
-  return hasLineOfSightIndexed(idx, viewer.eye.x, viewer.eye.z, target.eye.x, target.eye.z);
+  if (!hasLineOfSightIndexed(idx, viewer.eye.x, viewer.eye.z, target.eye.x, target.eye.z)) {
+    return false;
+  }
+  // `[v7.2]` 煙は視線だけを遮る(systems/smoke.ts)。煙が無ければ素通り
+  return !smokeBlocks(world, viewer.eye.x, viewer.eye.z, target.eye.x, target.eye.z);
 }
 
 /**
@@ -166,7 +172,9 @@ export function perceptionSystem(world: World): void {
     const seen: number[] = [];
     forEachNear(hash, s.pos, nearRange, (other) => {
       if (other.side === s.side) return;
-      if (canSeeIndexed(world.wallIndex, s, other, nearRange, fovHalfRad)) seen.push(other.id);
+      if (canSeeIndexed(world, world.wallIndex, s, other, nearRange, fovHalfRad)) {
+        seen.push(other.id);
+      }
     });
 
     if (scanFar) {
@@ -177,7 +185,7 @@ export function perceptionSystem(world: World): void {
         const dx = other.eye.x - s.eye.x;
         const dz = other.eye.z - s.eye.z;
         if (dx * dx + dz * dz <= nearRange * nearRange) return;
-        if (canSeeIndexed(world.wallIndex, s, other, range, fovHalfRad)) far.push(other.id);
+        if (canSeeIndexed(world, world.wallIndex, s, other, range, fovHalfRad)) far.push(other.id);
       });
       s.seesFar = far;
     } else if (s.seesFar.length > 0) {
