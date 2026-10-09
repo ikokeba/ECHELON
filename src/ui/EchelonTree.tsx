@@ -32,6 +32,23 @@ export function EchelonTree() {
 
   const companies = roster.filter((r) => r.side === viewSide);
 
+  /**
+   * この分隊の中(分隊長・FT・隊員のどれか)を操作しているか(`[v7.3]` A-7)。
+   * FTと隊員のノードは、いま触っている分隊の下にだけ開く — 全分隊ぶん並べると長すぎる
+   */
+  const inSquad = (
+    sq: (typeof companies)[number]["platoons"][number]["squads"][number],
+  ): boolean => {
+    if (!control || control.side !== viewSide) return false;
+    if (control.echelon === "squad") return control.unitId === sq.squadId;
+    if (control.echelon === "fireteam" || control.echelon === "soldier") {
+      return sq.fireteams.some(
+        (ft) => ft.leaderId === control.unitId || ft.members.some((m) => m.id === control.unitId),
+      );
+    }
+    return false;
+  };
+
   return (
     <div className="panel panel-scroll">
       <div className="panel-cap">
@@ -125,27 +142,83 @@ export function EchelonTree() {
 
                   <div className={pl.structural ? "et-sub" : undefined}>
                     {pl.squads.map((sq) => (
-                      <button
-                        key={sq.squadId}
-                        type="button"
-                        className={
-                          control?.echelon === "squad" && control.unitId === sq.squadId
-                            ? "et-node et-leaf et-on"
-                            : "et-node et-leaf"
-                        }
-                        onClick={() =>
-                          pick(
-                            { echelon: "squad", side: viewSide, unitId: sq.squadId },
-                            sq.commanderId,
-                          )
-                        }
-                      >
-                        <span className="et-name">{sq.squadId}分隊</span>
-                        {sq.degraded && <span className="et-deg" title="指揮継承直後(仕様 §12)" />}
-                        <span className="et-strength">
-                          {sq.effective}/{sq.total}
-                        </span>
-                      </button>
+                      <div key={sq.squadId} className="et-list">
+                        <button
+                          type="button"
+                          className={
+                            control?.echelon === "squad" && control.unitId === sq.squadId
+                              ? "et-node et-leaf et-on"
+                              : "et-node et-leaf"
+                          }
+                          onClick={() =>
+                            pick(
+                              { echelon: "squad", side: viewSide, unitId: sq.squadId },
+                              sq.commanderId,
+                            )
+                          }
+                        >
+                          <span className="et-name">{sq.squadId}分隊</span>
+                          {sq.degraded && (
+                            <span className="et-deg" title="指揮継承直後(仕様 §12)" />
+                          )}
+                          <span className="et-strength">
+                            {sq.effective}/{sq.total}
+                          </span>
+                        </button>
+                        {/* `[v7.3]` FTリーダー・一兵卒の座席(A-7)。いま触っている分隊だけ開く */}
+                        {inSquad(sq) && (
+                          <div className="et-sub">
+                            {sq.fireteams.map((ft) => (
+                              <div key={ft.ftIndex} className="et-team">
+                                <button
+                                  type="button"
+                                  disabled={ft.leaderId === null}
+                                  className={
+                                    control?.echelon === "fireteam" &&
+                                    control.unitId === ft.leaderId
+                                      ? "et-node et-leaf et-on"
+                                      : "et-node et-leaf"
+                                  }
+                                  onClick={() =>
+                                    ft.leaderId !== null &&
+                                    pick(
+                                      { echelon: "fireteam", side: viewSide, unitId: ft.leaderId },
+                                      ft.leaderId,
+                                    )
+                                  }
+                                  title="FTリーダーとして4名を動かす(右クリックで移動)"
+                                >
+                                  <RankBars level="fireteam" />
+                                  <span className="et-name">FT{ft.ftIndex}</span>
+                                </button>
+                                <div className="et-members">
+                                  {ft.members.map((m) => (
+                                    <button
+                                      key={m.id}
+                                      type="button"
+                                      disabled={!m.ok}
+                                      className={
+                                        control?.echelon === "soldier" && control.unitId === m.id
+                                          ? "et-chip et-on"
+                                          : "et-chip"
+                                      }
+                                      onClick={() =>
+                                        pick(
+                                          { echelon: "soldier", side: viewSide, unitId: m.id },
+                                          m.id,
+                                        )
+                                      }
+                                      title={`#${m.id} 一兵卒として操作する(右クリックで移動)`}
+                                    >
+                                      {m.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     ))}
                   </div>
                 </div>

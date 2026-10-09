@@ -18,6 +18,8 @@ import type { OrderFn } from "./replay.ts";
 import { callReinforcement, topCommandOf } from "./systems/reinforcement.ts";
 import { requestFireMission, type FireMissionResult } from "./systems/indirect.ts";
 import { throwSmoke, type SmokeResult } from "./systems/smoke.ts";
+import { commandSoldier } from "./c2/fireteam.ts";
+import type { Soldier } from "./types.ts";
 
 /*
  * `[v7.0]` どの命令も**座席**(`seat`)を引数に取る。既定は人間の操作枠
@@ -136,6 +138,117 @@ function orderCasevacImpl(
   return true;
 }
 
+/**
+ * `[v7.3]` FTリーダー・一兵卒の座席(ロードマップ A-7)が動かす兵士。
+ * FTの座席は「リーダー本人の兵士ID」で持つ(control.ts)。リーダーが倒れたら座席は空になる。
+ */
+function seatedFireteam(world: World, c: ControlState): { leader: Soldier; members: Soldier[] } | null {
+  const leader = world.soldierById.get(c.unitId);
+  if (!leader || leader.side !== c.side || leader.status !== "ok" || leader.fireteamId < 0) return null;
+  const members = world.soldiers.filter(
+    (s) =>
+      s.side === leader.side &&
+      s.squadId === leader.squadId &&
+      s.fireteamId === leader.fireteamId &&
+      s.status === "ok",
+  );
+  // リーダーを先頭に(隊列の先頭が目的地そのものへ向かう)
+  members.sort((a, b) => (a.id === leader.id ? -1 : b.id === leader.id ? 1 : 0));
+  return { leader, members };
+}
+
+/**
+ * FTリーダーとして、自分のFTを「ここへ」動かす(`[v7.3]` A-7)。
+ *
+ * AIのFTリーダーが4名に出しているのと同じ兵士単位の `move` 命令を、同じ書き込み
+ * (`commandSoldier`)で出す。リーダーが目的地へ、残りは進行方向に直交して1.6m間隔で
+ * 横に並ぶ(AIの躍進の並びと同じ)。交戦は各員が自分の目で見た相手に自動で行う —
+ * 狙いを個別に付けるのは一兵卒の直接操作(ロードマップ C-7)の範囲。
+ * FTの任務目標も書き換えるので、座席を離れたあとAIはそこから引き継ぐ(仕様 §4)。
+ */
+function orderFireteamToImpl(
+  world: World,
+  target: Vec2,
+  seat: ControlState | null = world.control,
+): boolean {
+  const c = seat;
+  if (!c || c.echelon !== "fireteam") return false;
+  const team = seatedFireteam(world, c);
+  if (!team) return false;
+  const ft = world.fireteams.find(
+    (f) => f.side === c.side && f.squadId === team.leader.squadId && f.ftIndex === team.leader.fireteamId,
+  );
+  if (ft) ft.objective = { ...target };
+  const dx = target.x - team.leader.pos.x;
+  const dz = target.z - team.leader.pos.z;
+  const d = Math.hypot(dx, dz) || 1;
+  const dir = { x: dx / d, z: dz / d };
+  const perp = { x: -dir.z, z: dir.x };
+  const n = team.members.length;
+  team.members.forEach((u, i) => {
+    // 横並びの位置。0 番(リーダー)を中央に置くため、並び順を中央から左右へ振り分ける
+    const k = i === 0 ? 0 : i % 2 === 1 ? Math.ceil(i / 2) : -Math.ceil(i / 2);
+    const slot = n > 1 ? k * 1.6 : 0;
+    commandSoldier(world, u, "move", { x: target.x + perp.x * slot, z: target.z + perp.z * slot }, dir);
+  });
+  return true;
+}
+
+/** 一兵卒として、自分の身体を「ここへ」動かす(`[v7.3]` A-7)。AIと同じ兵士単位の `move` */
+function orderSoldierToImpl(
+  world: World,
+  target: Vec2,
+  seat: ControlState | null = world.control,
+): boolean {
+  const c = seat;
+  if (!c || c.echelon !== "soldier") return false;
+  const s = world.soldierById.get(c.unitId);
+  if (!s || s.side !== c.side || s.status !== "ok") return false;
+  const dx = target.x - s.pos.x;
+  const dz = target.z - s.pos.z;
+  const d = Math.hypot(dx, dz) || 1;
+  commandSoldier(world, s, "move", target, { x: dx / d, z: dz / d });
+  return true;
+}
+
+/**
+ * その場で止まって構える(`[v7.3]` A-7)。FTの座席なら4名全員、一兵卒なら本人。
+ * `toward` を渡せばそちらを向いて警戒する(AIの `hold` と同じ命令)。
+ */
+function orderHoldImpl(
+  world: World,
+  toward: Vec2 | null,
+  seat: ControlState | null = world.control,
+): boolean {
+  const c = seat;
+  if (!c) return false;
+  let men: Soldier[];
+  if (c.echelon === "fireteam") {
+    const team = seatedFireteam(world, c);
+    if (!team) return false;
+    men = team.members;
+  } else if (c.echelon === "soldier") {
+    const s = world.soldierById.get(c.unitId);
+    if (!s || s.side !== c.side || s.status !== "ok") return false;
+    men = [s];
+  } else {
+    return false;
+  }
+  for (const u of men) {
+    let look = u.facing;
+    if (toward) {
+      const dx = toward.x - u.pos.x;
+      const dz = toward.z - u.pos.z;
+      const d = Math.hypot(dx, dz);
+      if (d > 1e-6) look = { x: dx / d, z: dz / d };
+    }
+    commandSoldier(world, u, "hold", null, look);
+    u.path = [];
+    u.pathIdx = 0;
+  }
+  return true;
+}
+
 /** 操作中の階層に応じて、目的地指示を適切な経路へ振り分ける。 */
 function orderControlledToImpl(
   world: World,
@@ -147,6 +260,8 @@ function orderControlledToImpl(
   if (c.echelon === "company") return orderCompanyTo(world, target, c);
   if (c.echelon === "platoon") return orderPlatoonTo(world, target, c);
   if (c.echelon === "squad") return orderSquadTo(world, target, c);
+  if (c.echelon === "fireteam") return orderFireteamTo(world, target, c);
+  if (c.echelon === "soldier") return orderSoldierTo(world, target, c);
   return false;
 }
 
@@ -302,6 +417,15 @@ export function orderPlatoonTo(world: World, target: Vec2, seat: ControlState | 
 export function orderCompanyTo(world: World, target: Vec2, seat: ControlState | null = world.control): boolean {
   return recorded(world, "orderCompanyTo", seat, [target], () => orderCompanyToImpl(world, target, seat));
 }
+export function orderFireteamTo(world: World, target: Vec2, seat: ControlState | null = world.control): boolean {
+  return recorded(world, "orderFireteamTo", seat, [target], () => orderFireteamToImpl(world, target, seat));
+}
+export function orderSoldierTo(world: World, target: Vec2, seat: ControlState | null = world.control): boolean {
+  return recorded(world, "orderSoldierTo", seat, [target], () => orderSoldierToImpl(world, target, seat));
+}
+export function orderHold(world: World, toward: Vec2 | null = null, seat: ControlState | null = world.control): boolean {
+  return recorded(world, "orderHold", seat, [toward], () => orderHoldImpl(world, toward, seat));
+}
 export function orderCasevac(
   world: World,
   patientId?: number,
@@ -360,6 +484,15 @@ export function replayOrder(world: World, fn: OrderFn, seat: ControlState | null
       return;
     case "orderCompanyTo":
       orderCompanyTo(world, v(0), seat);
+      return;
+    case "orderFireteamTo":
+      orderFireteamTo(world, v(0), seat);
+      return;
+    case "orderSoldierTo":
+      orderSoldierTo(world, v(0), seat);
+      return;
+    case "orderHold":
+      orderHold(world, (args[0] as Vec2 | null) ?? null, seat);
       return;
     case "orderCasevac":
       orderCasevac(world, (args[0] as number | null) ?? undefined, seat);

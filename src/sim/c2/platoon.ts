@@ -14,7 +14,7 @@
  */
 
 import { SIM_HZ } from "../constants.ts";
-import { aiSuppressed } from "../control.ts";
+import { aiSuppressed, soldierSeated } from "../control.ts";
 import { commandFactor } from "./succession.ts";
 import { flotFrom } from "./flot.ts";
 import { nextBuildingNearObjective } from "./clearInZone.ts";
@@ -300,7 +300,8 @@ function postPlatoonHq(world: World, pl: PlatoonState, anchor: Vec2, forward: Ve
   const right = { x: -forward.z, z: forward.x };
   hq.forEach((s, i) => {
     // 小隊長本人を人間が操作している間はAIの位置取りを止める(仕様 §4)
-    if (s.hqRole === "pl" && aiSuppressed(world, "soldier", s.side, s.id)) return;
+    // `[v7.3]` 無線手も含め、本部要員に一兵卒として座っている間は止める(A-7)
+    if (soldierSeated(world, s)) return;
     const post = {
       x: anchor.x - forward.x * PLATOON_HQ_TRAIL + right.x * (i * 1.8 - 0.9),
       z: anchor.z - forward.z * PLATOON_HQ_TRAIL + right.z * (i * 1.8 - 0.9),

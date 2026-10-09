@@ -21,6 +21,7 @@ import {
   SIM_DT,
   SIM_HZ,
 } from "../constants.ts";
+import { soldierSeated } from "../control.ts";
 import type { Soldier } from "../types.ts";
 import type { World } from "../world.ts";
 
@@ -108,6 +109,8 @@ export function casualtiesSystem(world: World): void {
       if (cand.status !== "ok" || cand.treating !== null) continue;
       // 担架搬送に就いている隊員は手当に回せない(仕様 §9: 搬送要員は搬送に専念)
       if (cand.bearing !== null) continue;
+      // 一兵卒として人間が座っている隊員は自動では割り当てない(`[v7.3]` A-7)
+      if (soldierSeated(world, cand)) continue;
       const d = dist2(cand, patient);
       if (d < bestD) {
         bestD = d;

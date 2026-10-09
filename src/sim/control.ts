@@ -13,7 +13,7 @@
  * この構造だからこそ、敵軍も自軍とまったく同じロジックで動かせる(仕様 §2/§13)。
  */
 
-import type { Echelon, Side } from "./types.ts";
+import type { Echelon, Side, Soldier } from "./types.ts";
 import type { World } from "./world.ts";
 
 /**
@@ -96,4 +96,13 @@ export function aiSuppressed(
     if (isControlled(seat, echelon, side, unitId)) return true;
   }
   return false;
+}
+
+/**
+ * この兵士に人間(またはエージェント)が一兵卒として座っているか(`[v7.3]` ロードマップ A-7)。
+ * 座っている兵士には、FTリーダーAI・本部の位置取りが命令を出さない。応急手当・担架の
+ * 自動の割り当てにも選ばない — 自分の足で動いている人を勝手に担架に就けない。
+ */
+export function soldierSeated(world: World, s: Soldier): boolean {
+  return aiSuppressed(world, "soldier", s.side, s.id);
 }

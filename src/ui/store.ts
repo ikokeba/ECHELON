@@ -83,6 +83,22 @@ export interface RosterSquad {
   total: number;
   /** 指揮継承直後で判断が鈍っている(仕様 §12) */
   degraded: boolean;
+  /** 麾下のFTと隊員(`[v7.3]` A-7)。FTリーダー・一兵卒の座席を選ぶため */
+  fireteams: RosterFireteam[];
+}
+
+/** 階層ツリーのFT1つ(`[v7.3]` ロードマップ A-7) */
+export interface RosterFireteam {
+  ftIndex: number;
+  /** FTリーダーの兵士id。倒れていれば null(座席は選べない) */
+  leaderId: number | null;
+  members: RosterMember[];
+}
+export interface RosterMember {
+  id: number;
+  /** 職の略称(例: "SAW") */
+  label: string;
+  ok: boolean;
 }
 
 export interface RosterPlatoon {
@@ -181,7 +197,7 @@ export interface HudSnapshot {
 }
 
 /** 地点を選んで出す命令(`[v7.2]`) */
-export type ArmedOrder = "fire" | "smoke";
+export type ArmedOrder = "fire" | "smoke" | "hold";
 
 /** 発煙弾の表示(`[v7.2]` ロードマップ S-2)。人間が分隊長を操作しているときだけ */
 export interface HudSmoke {

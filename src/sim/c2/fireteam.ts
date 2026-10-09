@@ -37,7 +37,7 @@ import {
 } from "../constants.ts";
 import { formationSlots } from "../formation.ts";
 import { meanTraits, traitMul } from "../traits.ts";
-import { aiSuppressed } from "../control.ts";
+import { aiSuppressed, soldierSeated } from "../control.ts";
 import { objectiveCoveringPoint } from "./objectiveHold.ts";
 import { bestWindowPost, manWindows } from "../systems/windows.ts";
 import { isCommittedToAid } from "../systems/casualties.ts";
@@ -127,8 +127,31 @@ function offsetPerp(i: number, n: number, spacing: number, dir: Vec2): Vec2 {
   return { x: perp.x * k * spacing, z: perp.z * k * spacing };
 }
 
-/** 兵士1名へ命令を出す。`[v7.2]` 防衛陣地(c2/defense.ts)も同じ経路で出すので export する */
+/**
+ * 兵士1名へ命令を出す。`[v7.2]` 防衛陣地(c2/defense.ts)も同じ経路で出すので export する。
+ *
+ * `[v7.3]` 一兵卒として人間が座っている兵士(ロードマップ A-7)には出さない。AIの命令は
+ * すべてここを通るので、この1か所で「座った兵士はAIの命令から外れる」が成り立つ。
+ * 人間の命令は `commandSoldier` から入る(同じ書き込み)。
+ */
 export function issue(
+  world: World,
+  u: Soldier,
+  kind: Soldier["order"]["kind"],
+  target: Vec2 | null,
+  look: Vec2,
+  suppressWhileFollowing = false,
+  anchor?: SoldierOrderAnchor,
+): void {
+  if (soldierSeated(world, u)) return;
+  commandSoldier(world, u, kind, target, look, suppressWhileFollowing, anchor);
+}
+
+/**
+ * 兵士1名への命令の書き込みそのもの。AI(`issue`)と人間の座席(playerOrders.ts)の
+ * 両方がここを通る — 応急手当・担架の拘束もここで同じに効く(仕様 §4/§9)。
+ */
+export function commandSoldier(
   world: World,
   u: Soldier,
   kind: Soldier["order"]["kind"],

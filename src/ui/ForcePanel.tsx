@@ -63,7 +63,10 @@ export function ForcePanel() {
         <span>戦死 {own.kia}</span>
       </div>
       {reinf && (
-        <div className="force-detail force-reinf" title="後援部隊(暫定仕様)。最上位の指揮官が要請し、時間をおいて後方に現れる">
+        <div
+          className="force-detail force-reinf"
+          title="後援部隊(暫定仕様)。最上位の指揮官が要請し、時間をおいて後方に現れる"
+        >
           <span>
             後援 {reinf.callsLeft}/{reinf.calls}回({reinf.size === "squad" ? "分隊" : "小隊"})
           </span>
@@ -129,6 +132,22 @@ export function ForcePanel() {
             title="押してから盤面をクリックした地点へ焚く(分隊長から30m以内。もう一度押すと取り消し)"
           >
             {s.armed === "smoke" ? "地点を選択…" : "発煙"}
+          </button>
+        </div>
+      )}
+      {/* `[v7.3]` FTリーダー・一兵卒の座席(A-7)。移動は右クリック、止まって構えるのはここから */}
+      {(s.control?.echelon === "fireteam" || s.control?.echelon === "soldier") && (
+        <div
+          className="force-detail force-reinf"
+          title="その場で止まり、クリックした方向を警戒する(AIの「保持」と同じ命令)"
+        >
+          <span>{s.control.echelon === "fireteam" ? "FTリーダー" : "一兵卒"}</span>
+          <button
+            type="button"
+            className={`seg-btn${s.armed === "hold" ? " seg-on" : ""}`}
+            onClick={() => s.arm(s.armed === "hold" ? null : "hold")}
+          >
+            {s.armed === "hold" ? "向きを選択…" : "停止・警戒"}
           </button>
         </div>
       )}
