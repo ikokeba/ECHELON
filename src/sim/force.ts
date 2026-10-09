@@ -45,6 +45,12 @@ export interface ForceSpec {
    */
   shield?: boolean;
   /**
+   * 対戦車・対構造物火器(`[v7.3]` ロードマップ A-3)。小銃分隊に1名(アルファ組の
+   * 衛生要員を兼ねるライフルマン)が射手になり、`ANTI_ARMOR.ROUNDS_PER_SQUAD` 発を持つ。
+   * 頭数は変わらない(資格と弾の追加)。画面の既定はあり、テストの既定(`DEFAULT_FORCE`)はなし
+   */
+  antiArmor?: boolean;
+  /**
    * 後援部隊(`[v7.0]`)。未指定・`calls: 0` なら後援なし。数・規模・出現位置は暫定。
    * 盤上の初期の駒ではないが、戦闘の初期条件の一部なので編成に持たせる
    * (初期条件コード `setupCode.ts` にもそのまま畳まれる)。
@@ -147,8 +153,8 @@ export function defaultForce(): Record<Side, ForceSpec> {
  */
 export function playForce(): Record<Side, ForceSpec> {
   return {
-    blue: { ...DEFAULT_FORCE, reinforcement: { ...DEFAULT_REINFORCEMENT } },
-    red: { ...DEFAULT_FORCE, reinforcement: { ...DEFAULT_REINFORCEMENT } },
+    blue: { ...DEFAULT_FORCE, antiArmor: true, reinforcement: { ...DEFAULT_REINFORCEMENT } },
+    red: { ...DEFAULT_FORCE, antiArmor: true, reinforcement: { ...DEFAULT_REINFORCEMENT } },
   };
 }
 

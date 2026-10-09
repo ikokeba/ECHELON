@@ -39,6 +39,8 @@ export function ForcePanel() {
   const fire = s.fireSupport[viewSide];
   // 発煙弾(`[v7.2]`)。分隊長を操作しているときだけ
   const smoke = s.smoke;
+  // 対戦車・対構造物火器(`[v7.3]` A-3)。分隊長を操作していて射手がいるときだけ
+  const at = s.antiArmor;
 
   return (
     <div className="panel">
@@ -132,6 +134,24 @@ export function ForcePanel() {
             title="押してから盤面をクリックした地点へ焚く(分隊長から30m以内。もう一度押すと取り消し)"
           >
             {s.armed === "smoke" ? "地点を選択…" : "発煙"}
+          </button>
+        </div>
+      )}
+      {at && (
+        <div
+          className="force-detail force-reinf"
+          title="対戦車・対構造物火器(`[v7.3]`)。射手から見えている点へ撃つ。爆風は遮蔽・窓・壕の補正を受けず、射撃壕・機関銃陣地を壊す"
+        >
+          <span>対戦車 {at.left}発</span>
+          {at.cooldownSec > 0 && <span>次まで {Math.ceil(at.cooldownSec)}秒</span>}
+          <button
+            type="button"
+            className={`seg-btn${s.armed === "at" ? " seg-on" : ""}`}
+            disabled={!at.canFire || at.left <= 0}
+            onClick={() => s.arm(s.armed === "at" ? null : "at")}
+            title="押してから盤面をクリックした地点へ撃つ(射手から10〜200m、射線が通ること。もう一度押すと取り消し)"
+          >
+            {s.armed === "at" ? "照準中…" : "対戦車"}
           </button>
         </div>
       )}

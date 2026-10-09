@@ -2097,6 +2097,21 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
         if (f.kind === "shot") {
           if (tracers.length < MAX_TRACERS) tracers.push(makeTracer(f));
         } else if (blasts.length < MAX_BLASTS) {
+          // 対戦車火器(`[v7.3]` A-3): 射手から着弾点への弾道も1本引く
+          if (f.kind === "rocket" && tracers.length < MAX_TRACERS) {
+            tracers.push(
+              makeTracer({
+                kind: "shot",
+                from: f.from,
+                to: f.at,
+                side: f.side,
+                hit: true,
+                shooterId: -1,
+                targetId: -1,
+                weapon: "mg",
+              }),
+            );
+          }
           const mortar = f.kind === "mortar";
           blasts.push({
             x: f.at.x,

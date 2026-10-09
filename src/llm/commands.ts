@@ -16,7 +16,9 @@ import {
   orderFireMission,
   orderReinforcement,
   orderSmoke,
+  orderAntiArmor,
 } from "../sim/playerOrders.ts";
+import { ANTI_ARMOR_BLOCK_TEXT } from "../sim/systems/antiArmor.ts";
 import { SMOKE_BLOCK_TEXT } from "../sim/systems/smoke.ts";
 import { FIRE_MISSION_BLOCK_TEXT } from "../sim/systems/indirect.ts";
 import { editPlan, PLAN_EDIT_BLOCK_TEXT } from "../sim/c2/planEdit.ts";
@@ -196,6 +198,12 @@ export function parseResponse(raw: unknown): ParsedResponse {
         else commands.push({ type: "fire_mission", target });
         return;
       }
+      case "anti_armor": {
+        const target = vecOf(c.target);
+        if (!target) errors.push(`commands[${i}] anti_armor: target {x,z} が無い`);
+        else commands.push({ type: "anti_armor", target });
+        return;
+      }
       case "plan": {
         const p = parsePlan(c);
         if (typeof p === "string") errors.push(`commands[${i}] plan: ${p}`);
@@ -309,6 +317,23 @@ export function applyResponse(world: World, seat: AgentSeat, resp: AgentResponse
             : r.ok
               ? `#${i} smoke ${at}: 受理`
               : `#${i} smoke ${at}: 却下 — ${SMOKE_BLOCK_TEXT[r.reason]}`,
+        );
+        return;
+      }
+      case "anti_armor": {
+        if (seat.echelon !== "squad") {
+          out.push(`#${i} anti_armor: 分隊長だけが出せる`);
+          return;
+        }
+        const t = clampToBounds(world, c.target);
+        const r = orderAntiArmor(world, t, seat);
+        const at = `(${t.x.toFixed(0)},${t.z.toFixed(0)})`;
+        out.push(
+          !r
+            ? `#${i} anti_armor: 却下`
+            : r.ok
+              ? `#${i} anti_armor ${at}: 発射(${r.hit ? "命中" : "外れ"}、${r.victims}名)`
+              : `#${i} anti_armor ${at}: 却下 — ${ANTI_ARMOR_BLOCK_TEXT[r.reason]}`,
         );
         return;
       }

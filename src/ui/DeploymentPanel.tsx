@@ -176,6 +176,17 @@ export function DeploymentPanel() {
                 </label>
                 <label
                   className="dbg-chk"
+                  title="対戦車・対構造物火器(`[v7.3]`)。小銃分隊に1名の射手が2発持つ。窓・射撃壕・機関銃陣地にこもった敵を崩す"
+                >
+                  <input
+                    type="checkbox"
+                    checked={spec.antiArmor === true}
+                    onChange={(e) => setForce(side, { antiArmor: e.target.checked })}
+                  />
+                  <span>対戦車火器</span>
+                </label>
+                <label
+                  className="dbg-chk"
                   title="後援部隊(暫定仕様)。最上位の指揮官が要請すると、時間をおいて後方に分隊/小隊が現れる"
                 >
                   <input

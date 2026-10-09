@@ -78,6 +78,7 @@ step (in Japanese, for Windows).
 | Give a move order | Right-click on the map |
 | Call a mortar mission (company commander) | **射撃要請** at the top right, then click the target |
 | Throw smoke (squad leader) | **発煙** at the top right, then click the spot |
+| Fire the anti-armour weapon (squad leader) | **対戦車** at the top right, then click the target |
 | Stop and cover a direction (team leader, soldier) | **停止・警戒** at the top right, then click the direction |
 | Rewrite the plan (company commander, while planning) | Pick mission, main effort and start time in the planning panel / **経路を描く**, **調整線を引く**, **射撃計画を足す**, then click the map |
 | Move a defensive position (defending company commander, while planning) | Pick it in the planning panel, then click the map |
@@ -121,6 +122,9 @@ barbed wire, a forward position and an ambush.
   line when pressed, and a lost objective draws a counterattack.
 - **Morale and victory.** Fire teams can break, command succession is handled, and objectives
   decide the battle.
+- **Anti-armour weapons.** One gunner per rifle squad carries two rounds that break enemies dug in
+  behind windows, fighting positions and machine-gun posts, cover and all (the position is destroyed).
+  AI, humans and LLMs fire them under the same rules.
 - **Company assets.** A 60 mm mortar that fires at what the company commander *believes*, not at
   where the enemy really is (the AI, a human and an LLM all request it under the same rules), and
   evacuation vehicles the commander has to share out.

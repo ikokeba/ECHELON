@@ -10,11 +10,12 @@
  * 人間がその座席でホットスワップしたときに画面で見られる範囲と同じ、という基準。
  */
 
+import { antiArmorCooldownLeft, antiArmorRoundsOf, gunnerOf } from "../sim/systems/antiArmor.ts";
 import { platoonName } from "../sim/c2/planning.ts";
 import { reinforcementsLeft, topCommandOf } from "../sim/systems/reinforcement.ts";
 import { isOffField } from "../sim/systems/litter.ts";
 import { fireMissionCooldownLeft, mortarMagazine } from "../sim/systems/indirect.ts";
-import { MORTAR, SIM_HZ, SMOKE } from "../sim/constants.ts";
+import { ANTI_ARMOR, MORTAR, SIM_HZ, SMOKE } from "../sim/constants.ts";
 import { smokeCooldownLeft, smokeThrower } from "../sim/systems/smoke.ts";
 import { sideDoctrine } from "../sim/world.ts";
 import type { Contact, Side, Vec2 } from "../sim/types.ts";
@@ -133,6 +134,12 @@ function baseSpecs(seat: AgentSeat): CommandSpec[] {
       description:
         "発煙弾を target {x,z} へ焚く(observation.smoke を見る)。煙は円の中を通る視線を遮る — " +
         "敵に見られながら開けた場所を渡るとき、敵と自分のあいだへ焚く。分隊長から throwRange m 以内だけ",
+    },
+    {
+      type: "anti_armor",
+      description:
+        "対戦車・対構造物火器を target {x,z} へ撃たせる(observation.antiArmor があるときだけ)。" +
+        "射手から見えている点へ。爆風は遮蔽・窓・壕の補正を受けず、射撃壕・機関銃陣地を壊す。弾は少ない",
     },
     {
       type: "casevac",
@@ -340,8 +347,22 @@ export function buildObservation(
     });
   }
   const thrower = smokeThrower(world, sq);
+  // 対戦車・対構造物火器(`[v7.3]` A-3)。分隊に射手がいるときだけ
+  const hasGunner = world.soldiers.some((s) => s.side === own && s.squadId === sq.squadId && s.quals.antiArmor);
+  const gunner = gunnerOf(world, sq);
   return {
     ...base,
+    ...(hasGunner
+      ? {
+          antiArmor: {
+            left: antiArmorRoundsOf(world, sq),
+            cooldownSec: r1(antiArmorCooldownLeft(world, sq) / SIM_HZ),
+            gunner: gunner ? rv(gunner.pos) : null,
+            minRange: ANTI_ARMOR.MIN_RANGE,
+            maxRange: ANTI_ARMOR.MAX_RANGE,
+          },
+        }
+      : {}),
     smoke: {
       left: sq.smokes,
       cooldownSec: r1(smokeCooldownLeft(world, sq) / SIM_HZ),

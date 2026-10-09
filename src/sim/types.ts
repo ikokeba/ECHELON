@@ -262,6 +262,8 @@ export interface SoldierQualifications {
   medicalCrossTrained: boolean;
   /** 選抜射手。制圧時の命中率低下が −40% ではなく −10% に留まる(仕様 §8.6 [v5], §14) */
   designatedMarksman: boolean;
+  /** `[v7.3]` 対戦車・対構造物火器の射手(ロードマップ A-3)。弾は `Soldier.atRounds` */
+  antiArmor?: boolean;
 }
 
 export interface SoldierOrder {
@@ -348,6 +350,8 @@ export interface Soldier {
   holdFireUntilTick: number;
   /** 擲弾の残数(仕様 §14 — 3発/戦闘)。擲弾手以外は0 */
   grenades: number;
+  /** 対戦車・対構造物火器の残弾(`[v7.3]` A-3)。射手以外は 0(未指定も 0) */
+  atRounds?: number;
   /**
    * 潰走中(仕様 §12)。所属FTが崩壊判定を受けている状態。
    * 潰走中の兵士は交戦対象にはなるが、自分からは撃たない(武装放棄)。
@@ -770,6 +774,8 @@ export interface SquadState {
   smokes: number;
   /** 最後に発煙弾を投げたティック(連投の下限を測る)。投げていなければ -Infinity 相当の負値 */
   lastSmokeTick: number;
+  /** 最後に対戦車・対構造物火器を撃ったティック(`[v7.3]` A-3) */
+  lastAntiArmorTick?: number;
 }
 
 /**
@@ -1279,6 +1285,8 @@ export type FxEvent =
       weapon: "rifle" | "dm" | "pistol" | "saw" | "mg";
     }
   | { kind: "grenade"; at: Vec2; side: Side; radius: number; victims: number }
+  /** 対戦車・対構造物火器の発射と着弾(`[v7.3]` A-3) */
+  | { kind: "rocket"; from: Vec2; at: Vec2; side: Side; radius: number; victims: number; hit: boolean }
   /** フラッシュバンの炸裂(`[v7.2]`)。`radius` は部屋を覆う半径(描画用)、`stunned` は制圧した人数 */
   | { kind: "flashbang"; at: Vec2; side: Side; radius: number; stunned: number }
   /** 迫撃砲の着弾(`[v6.9]`)。`radius` は殺傷半径、`suppressRadius` は制圧が及ぶ範囲 */

@@ -18,6 +18,7 @@ import type { OrderFn } from "./replay.ts";
 import { callReinforcement, topCommandOf } from "./systems/reinforcement.ts";
 import { requestFireMission, type FireMissionResult } from "./systems/indirect.ts";
 import { throwSmoke, type SmokeResult } from "./systems/smoke.ts";
+import { fireAntiArmor, type AntiArmorResult } from "./systems/antiArmor.ts";
 import { commandSoldier } from "./c2/fireteam.ts";
 import type { Soldier } from "./types.ts";
 
@@ -378,6 +379,24 @@ function orderSmokeImpl(
   return throwSmoke(world, sq, target);
 }
 
+/**
+ * 対戦車・対構造物火器を撃たせる(`[v7.3]` ロードマップ A-3)。
+ *
+ * 撃たせられるのは**分隊長の座席**だけ(射手は分隊の1名)。AIの射手と同じ `fireAntiArmor` を
+ * 通るので、弾数・間隔・射程・射線は同じに掛かる(仕様 §4/§13)。違うのは狙う点を自分で選ぶことだけ。
+ */
+function orderAntiArmorImpl(
+  world: World,
+  target: Vec2,
+  seat: ControlState | null = world.control,
+): AntiArmorResult | null {
+  const c = seat;
+  if (!c || c.echelon !== "squad") return null;
+  const sq = world.squads.find((s) => s.side === c.side && s.squadId === c.unitId);
+  if (!sq) return null;
+  return fireAntiArmor(world, sq, target);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // `[v7.2]` 命令の記録(ロードマップ S-4 振り返り・リプレイ)
 //
@@ -472,6 +491,14 @@ export function orderSmoke(world: World, target: Vec2, seat: ControlState | null
   return recorded(world, "orderSmoke", seat, [target], () => orderSmokeImpl(world, target, seat));
 }
 
+export function orderAntiArmor(
+  world: World,
+  target: Vec2,
+  seat: ControlState | null = world.control,
+): AntiArmorResult | null {
+  return recorded(world, "orderAntiArmor", seat, [target], () => orderAntiArmorImpl(world, target, seat));
+}
+
 /** 記録された命令を同じ引数でもう一度出す(再生用。`world.log` が null なら記録はしない) */
 export function replayOrder(world: World, fn: OrderFn, seat: ControlState | null, args: unknown[]): void {
   const v = (i: number) => args[i] as Vec2;
@@ -514,6 +541,9 @@ export function replayOrder(world: World, fn: OrderFn, seat: ControlState | null
       return;
     case "orderSmoke":
       orderSmoke(world, v(0), seat);
+      return;
+    case "orderAntiArmor":
+      orderAntiArmor(world, v(0), seat);
       return;
   }
 }
