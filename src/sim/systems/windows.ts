@@ -12,10 +12,11 @@
  * 窓の状態を見るようにするため。
  */
 
-import { WINDOW } from "../constants.ts";
+import { DEFENSE, WINDOW } from "../constants.ts";
 import { insideBounds } from "../cqb.ts";
 import { isOffField } from "./litter.ts";
 import { hasLineOfSightIndexed } from "../wallIndex.ts";
+import { atFightingPosition } from "../c2/defense.ts";
 import type { Building, Soldier, Vec2, WindowPort } from "../types.ts";
 import type { World } from "../world.ts";
 
@@ -60,6 +61,16 @@ export function windowPost(w: WindowPort): Vec2 {
 export function windowsSystem(world: World): void {
   for (const s of world.soldiers) {
     s.atWindow = windowPostOf(world, s) !== null;
+    // `[v7.2]` 射撃壕・土嚢(S-1)は屋外の窓。就いていれば同じ補正を受ける(新しい倍率は作らない)
+    if (
+      !s.atWindow &&
+      world.defense.length > 0 &&
+      s.status === "ok" &&
+      !isOffField(s) &&
+      atFightingPosition(world, s.pos, WINDOW.POST_RADIUS)
+    ) {
+      s.atWindow = true;
+    }
   }
 }
 
@@ -88,7 +99,8 @@ export function bestWindowPost(
   taken: readonly Vec2[] = [],
 ): Vec2 | null {
   const b = buildingContaining(world.buildings, u.pos);
-  if (!b || b.windows.length === 0) return null;
+  if (!b) return bestFightingPost(world, u, threat, taken);
+  if (b.windows.length === 0) return null;
 
   let best: Vec2 | null = null;
   let bestD = Infinity;
@@ -110,6 +122,35 @@ export function bestWindowPost(
     if (!hasLineOfSightIndexed(world.wallIndex, w.pos.x, w.pos.z, outX, outZ)) continue;
     bestD = d;
     best = post;
+  }
+  return best;
+}
+
+/**
+ * 屋外にいる兵が就ける射撃壕(`[v7.2]` S-1)。自陣営の壕だけ — 自分で掘った陣地の位置しか
+ * 知らない(攻撃側は敵の壕の場所を知らない、ロードマップ P1)。条件は窓と同じ:
+ * 脅威が壕の正面側にあること・まだ誰も就いていないこと。近い順。
+ */
+function bestFightingPost(
+  world: World,
+  u: Soldier,
+  threat: Vec2 | null,
+  taken: readonly Vec2[],
+): Vec2 | null {
+  let best: Vec2 | null = null;
+  let bestD = Infinity;
+  for (const p of world.defense) {
+    if (p.kind !== "fighting" || p.side !== u.side) continue;
+    const d = Math.hypot(p.pos.x - u.pos.x, p.pos.z - u.pos.z);
+    if (d > DEFENSE.FIGHTING_SEEK || d >= bestD) continue;
+    if (threat) {
+      const ex = threat.x - p.pos.x;
+      const ez = threat.z - p.pos.z;
+      if (ex * p.facing.x + ez * p.facing.z <= 0) continue;
+    }
+    if (taken.some((t) => Math.hypot(t.x - p.pos.x, t.z - p.pos.z) < WINDOW.POST_RADIUS)) continue;
+    bestD = d;
+    best = { ...p.pos };
   }
   return best;
 }

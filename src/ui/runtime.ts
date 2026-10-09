@@ -19,6 +19,11 @@ import {
 } from "@sim/playerOrders.ts";
 import { SMOKE_BLOCK_TEXT, smokeCooldownLeft, smokeThrower } from "@sim/systems/smoke.ts";
 import {
+  DEFENSE_SPOT_TEXT,
+  defenseIndexOf,
+  moveDefensivePosition,
+} from "@sim/c2/defense.ts";
+import {
   FIRE_MISSION_BLOCK_TEXT,
   fireMissionCooldownLeft,
   mortarMagazine,
@@ -157,6 +162,19 @@ function planViewsOf(world: World, side: Side, truth: boolean): {
           missionKind: t.mission.kind,
           order: t.order,
         })),
+      // 防衛陣地(`[v7.2]` S-1)。種類ごとの通し番号で呼ぶ
+      defense: (() => {
+        const n = { mg: 0, fighting: 0, alternate: 0 };
+        const name = { mg: "機関銃", fighting: "射撃壕", alternate: "予備陣地" };
+        return world.defense
+          .filter((p) => p.side === co.side)
+          .map((p) => ({
+            id: p.id,
+            kind: p.kind,
+            label: `${name[p.kind]} ${++n[p.kind]}`,
+            objective: world.objectives.find((o) => o.id === p.objectiveId)?.label ?? "",
+          }));
+      })(),
     });
     for (const t of co.plan.tasks) {
       routes.push({
@@ -525,6 +543,26 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
     // 配置エディタが有効な間は、クリックはユニット選択ではなく配置になる(`[v6.4]`)
     if (ui.setupTool) {
       ui.placeAt(p);
+      return;
+    }
+    // 防衛陣地の置き直し(`[v7.2]` S-1)。AIの陣地選びと同じ規則を通す
+    if (ui.defenseMoveId !== null) {
+      const id = ui.defenseMoveId;
+      ui.setDefenseMove(null);
+      const r = moveDefensivePosition(world, id, p);
+      if (r.ok) {
+        const d = world.defense.find((x) => x.id === id)!;
+        ui.recordDefenseEdit({ side: d.side, idx: defenseIndexOf(world, id), pos: { ...d.pos } });
+        ui.setLastOrderResult({ ok: true, text: `陣地を置き直した (${p.x.toFixed(0)}, ${p.z.toFixed(0)})` });
+      } else {
+        const why =
+          r.reason === "not_planning"
+            ? "置き直せるのは作戦立案中だけ"
+            : r.reason === "not_your_position"
+              ? "防衛側の中隊長に座ると置き直せる(階層ツリーで中隊を選ぶ)"
+              : DEFENSE_SPOT_TEXT[r.reason];
+        ui.setLastOrderResult({ ok: false, text: `置き直せなかった — ${why}` });
+      }
       return;
     }
     // 地点命令の照準待ち(`[v7.2]`)。迫撃砲・発煙とも、AIの指揮官と同じ関数を通す(仕様 §4)

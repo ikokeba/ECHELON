@@ -411,6 +411,11 @@ export interface Soldier {
    */
   alertFrom: Vec2 | null;
   alertUntilTick: number;
+  /**
+   * 機関銃陣地の射界(`[v7.2]` S-1)。陣地に就いている間だけ `defenseSystem` が入れる。
+   * 入っている間は射界の外の敵を撃たない・向かない(陣地を据えた意味がなくなるので)
+   */
+  sector?: { dir: Vec2; cosHalf: number } | null;
 }
 
 export interface SoldierTraits {
@@ -1006,6 +1011,8 @@ export interface Scenario {
   attacker?: Side;
   /** 攻防戦の制限時間(秒)。攻撃側がこの間に落とせなければ防御側の勝ち */
   timeLimitSec?: number;
+  /** 立案時に人間が置き直した防衛陣地(`[v7.2]` S-1)。AI案の上に重ねる */
+  defenseEdits?: DefenseEdit[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1162,6 +1169,41 @@ export type FxEvent =
       suppressRadius: number;
       victims: number;
     };
+
+/**
+ * 防衛陣地の種類(`[v7.2]` ロードマップ S-1)。
+ *   mg        : 機関銃陣地。火器分隊の1班(射手+副射手+弾薬手)が就き、射界の中だけを撃つ。
+ *               撃つ相手がいないときは最終阻止射撃線(FPL)に銃を据える
+ *   fighting  : 射撃壕・土嚢。就いた者は窓と同じ補正を受ける(被命中 −60% / 命中 +30%、§8)
+ *   alternate : 予備陣地。拠点を持つ小隊のFTが、後退・潰走のときに下がる先
+ */
+export type DefenseKind = "mg" | "fighting" | "alternate";
+
+/**
+ * 防衛陣地1つ(`[v7.2]` ロードマップ S-1)。防衛側の中隊長が戦闘前に置く。
+ *
+ * **攻撃側には見えない**(ロードマップ P1)。描画は自陣営と神視点だけに出し、
+ * 攻撃側のAIはこれを読まない。撃てば通常の視認・報告に乗る。
+ */
+export interface DefensivePosition {
+  id: number;
+  side: Side;
+  kind: DefenseKind;
+  pos: Vec2;
+  /** 正面。mg なら最終阻止射撃線(FPL)の向き = 射界の中心 */
+  facing: Vec2;
+  /** 守る拠点(無ければ null) */
+  objectiveId: number | null;
+  /** mg に就く班(火器分隊の squadId と FT 番号)。他の種類は null */
+  crew: { squadId: number; ftIndex: number } | null;
+}
+
+/** 人間が立案時に置き直した陣地(初期条件コードに載る、ロードマップ P3)。`idx` は AI 案での並び順 */
+export interface DefenseEdit {
+  side: Side;
+  idx: number;
+  pos: Vec2;
+}
 
 /**
  * 発煙の煙幕1つ(`[v7.2]` ロードマップ S-2)。

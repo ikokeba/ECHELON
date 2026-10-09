@@ -36,6 +36,7 @@ import type {
   VictoryState,
 } from "@sim/types.ts";
 import type { ControlState } from "@sim/control.ts";
+import type { DefenseEdit } from "@sim/types.ts";
 import { postureFromRisk } from "@sim/tuning.ts";
 import { DOCTRINES, type DoctrineKey } from "@sim/doctrine.ts";
 import { playForce, type ForceSpec } from "@sim/force.ts";
@@ -295,10 +296,22 @@ export interface PlanTaskView {
   missionKind: PlanTask["mission"]["kind"];
   order: string;
 }
+/** 防衛陣地の表示(`[v7.2]` S-1)。立案パネルの一覧と、置き直しの対象選び */
+export interface DefenseView {
+  id: number;
+  kind: "mg" | "fighting" | "alternate";
+  /** 一覧の表示名(例: "機関銃 1") */
+  label: string;
+  /** どの拠点のまわりか */
+  objective: string;
+}
+
 export interface PlanView {
   side: Side;
   intent: string;
   tasks: PlanTaskView[];
+  /** 防衛陣地(攻防戦の防御側だけ) */
+  defense: DefenseView[];
 }
 
 interface UiState extends HudSnapshot {
@@ -380,6 +393,14 @@ interface UiState extends HudSnapshot {
    */
   armed: ArmedOrder | null;
   arm: (kind: ArmedOrder | null) => void;
+  /** 立案中に置き直そうとしている防衛陣地の id(`[v7.2]` S-1)。null なら置き直していない */
+  defenseMoveId: number | null;
+  setDefenseMove: (id: number | null) => void;
+  /**
+   * 置き直しを初期条件へ記録する(`[v7.2]` P3)。世界は作り直さない — 置き直しはもう
+   * ランタイムがシムへ反映済みで、ここは初期条件コードに載せるためだけ
+   */
+  recordDefenseEdit: (e: DefenseEdit) => void;
   /** 直近の地点命令の結果(OrderToast 用)。seq は表示の更新キー */
   lastOrderResult: { text: string; ok: boolean; seq: number } | null;
   setLastOrderResult: (r: { text: string; ok: boolean }) => void;
@@ -547,6 +568,16 @@ export const useSimStore = create<UiState>((set, get) => ({
   lastOrder: null,
   armed: null,
   arm: (kind) => set({ armed: kind }),
+  defenseMoveId: null,
+  setDefenseMove: (id) => set({ defenseMoveId: id }),
+  recordDefenseEdit: (e) =>
+    set((s) => {
+      const base = s.deployment ?? s.deploymentDraft;
+      if (!base) return {};
+      const edits = (base.defense ?? []).filter((x) => !(x.side === e.side && x.idx === e.idx));
+      edits.push({ side: e.side, idx: e.idx, pos: { ...e.pos } });
+      return { deployment: quantizeDeployment({ ...base, defense: edits }) };
+    }),
   lastOrderResult: null,
   setLastOrderResult: (r) =>
     set((s) => ({ lastOrderResult: { ...r, seq: (s.lastOrderResult?.seq ?? 0) + 1 } })),

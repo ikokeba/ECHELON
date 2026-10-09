@@ -36,6 +36,9 @@ export function PlanPanel() {
   const viewSide = useSimStore((s) => s.viewSide);
   const setHovered = useSimStore((s) => s.setHoveredPlan);
   const startBattle = useSimStore((s) => s.startBattle);
+  const defenseMoveId = useSimStore((s) => s.defenseMoveId);
+  const setDefenseMove = useSimStore((s) => s.setDefenseMove);
+  const control = useSimStore((s) => s.control);
 
   if (phase !== "planning") return null;
 
@@ -70,6 +73,29 @@ export function PlanPanel() {
               <span className="plan-order">{t.order}</span>
             </div>
           ))}
+          {p.defense.length > 0 && (
+            <div
+              className="plan-defense"
+              title="防衛陣地(ロードマップ S-1)。攻撃側には見えない。防衛側の中隊長に座ると、選んでから盤面をクリックして置き直せる"
+            >
+              <div className="dbg-k">
+                防衛陣地
+                {!(control?.echelon === "company" && control.side === p.side) &&
+                  "(中隊長に座ると置き直せる)"}
+              </div>
+              {p.defense.map((d) => (
+                <button
+                  key={d.id}
+                  type="button"
+                  className={`seg-btn plan-def-btn${defenseMoveId === d.id ? " seg-on" : ""}`}
+                  disabled={!(control?.echelon === "company" && control.side === p.side)}
+                  onClick={() => setDefenseMove(defenseMoveId === d.id ? null : d.id)}
+                >
+                  {defenseMoveId === d.id ? "地点を選択…" : `${d.label}${d.objective ? `(${d.objective})` : ""}`}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       ))}
 
