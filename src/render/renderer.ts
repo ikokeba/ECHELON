@@ -10,7 +10,7 @@ import * as THREE from "three";
 import type { World } from "@sim/world.ts";
 import type { FxEvent, Side, Soldier, Vec2 } from "@sim/types.ts";
 import type { ViewResult } from "@sim/viewpoint.ts";
-import { ANTI_ARMOR, DEFENSE, DRONE, LITTER, MORTAR, SIM_HZ, SOLDIER_RADIUS } from "@sim/constants.ts";
+import { ANTI_ARMOR, DEFENSE, DRONE, LITTER, MORTAR, SIM_HZ, SOLDIER_RADIUS, VEHICLE } from "@sim/constants.ts";
 import { smokeRadius } from "@sim/systems/smoke.ts";
 import { collidesWall, hasLineOfSight } from "@sim/geometry.ts";
 import { coverBonus } from "@sim/cover.ts";
@@ -114,6 +114,7 @@ const TRACER_HIT_COLOR = 0xfff0a0;
  * 陣営色を白へ寄せた色。色の値そのものは `theme.ts` の1か所
  */
 const TRACER_WEAPON_COLOR: Partial<Record<Extract<FxEvent, { kind: "shot" }>["weapon"], number>> = {
+  vehicle: MAP.tracerMg,
   dm: MAP.tracerDm,
   mg: MAP.tracerMg,
   pistol: MAP.tracerPistol,
@@ -1283,7 +1284,8 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
   // ── 防衛陣地(`[v7.2]` ロードマップ S-1)──
   // 線だけで描く: 機関銃 = 射界の扇と最終阻止射撃線、射撃壕 = 正面の弧つきの小さな四角、
   // 予備陣地 = 円。**自陣営と神視点にだけ出す** — 攻撃側は撃たれるまで陣地の位置を知らない(P1)
-  const MAX_DEF_LINES = 96;
+  // `[v7.7]`/`[v7.8]` トンネルの点線・装甲車の枠も同じ線の束で描くので多めに取る
+  const MAX_DEF_LINES = 320;
   const defLines = Array.from({ length: MAX_DEF_LINES }, () => {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(24 * 3), 3));
@@ -2437,6 +2439,34 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
           }
           draw(ring, c, 0.6);
         }
+      }
+      // 装甲車(`[v7.8]` B-1)。車体の枠と砲塔の線。敵の車両は、自陣営の誰かが見ているときだけ(P1)
+      for (const v of world.vehicles) {
+        const own = opts.truth || v.side === opts.viewSide;
+        if (!own && !world.soldiers.some((s) => s.side === opts.viewSide && s.seesVehicles?.includes(v.id))) continue;
+        const c = SIDE_COLOR[v.side];
+        const f = v.facing;
+        const r = { x: -f.z, z: f.x };
+        const at = (a: number, b: number): Vec2 => ({
+          x: v.pos.x + r.x * a + f.x * b,
+          z: v.pos.z + r.z * a + f.z * b,
+        });
+        const W = VEHICLE.HALF_W;
+        const L = VEHICLE.HALF_L;
+        const op = v.destroyed ? 0.35 : 0.95;
+        draw([at(-W, -L), at(W, -L), at(W, L), at(-W, L), at(-W, -L)], c, op);
+        // 車首の山形(どちらが前か)
+        draw([at(-W * 0.6, L - 0.9), at(0, L), at(W * 0.6, L - 0.9)], c, op);
+        if (v.destroyed) {
+          draw([at(-W, -L), at(W, L)], c, op);
+          draw([at(W, -L), at(-W, L)], c, op);
+          continue;
+        }
+        // 砲塔(撃てなければ短く)
+        const len = v.damage.firepower ? 1.2 : 4.5;
+        draw([{ ...v.pos }, { x: v.pos.x + v.turret.x * len, z: v.pos.z + v.turret.z * len }], c, 0.95);
+        // 足回りをやられた: 車体の後ろに横線
+        if (v.damage.mobility) draw([at(-W - 0.8, -L - 0.8), at(W + 0.8, -L - 0.8)], c, 0.95);
       }
       // トンネル(`[v7.7]` B-4)。両端の出入口を細かい点線で結ぶ。自陣営と神視点だけ
       for (const t of world.tunnels) {

@@ -1039,6 +1039,8 @@ function companyOnField(
     },
     // 迫撃砲(`[v7.6]`)。未指定は「あり」
     mortar: { blue: force.blue.mortar !== false, red: force.red.mortar !== false },
+    // 装甲車(`[v7.8]` B-1)。既定はなし
+    vehicles: { blue: force.blue.vehicles === true, red: force.red.vehicles === true },
     // 編成の型(`[v7.7]` B-4)。仕掛け爆弾・トンネルは混成型の防御側が立案で置く
     forceTemplate: {
       blue: force.blue.template ?? "standard",

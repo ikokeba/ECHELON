@@ -167,6 +167,10 @@ barbed wire, a forward position and an ambush.
   The drone spots movers at once, but takes a few seconds to pick out men lying still. Drones can be
   shot down (rarely with a rifle, readily with a counter-drone kit), but the shots give the shooter away.
   Watching a drone fly home to change batteries gives a rough bearing to its operator.
+- **Armoured vehicles.** One IFV per platoon, carrying a squad along the roads as mobile fire support.
+  Its hull blocks bullets and sight; with the hatches shut the infantry around it become its eyes. It is
+  vulnerable to anti-armour fire from alleys and rooftops, and can lose its tracks, its gun or the whole
+  vehicle. The company commander only decides where it goes.
 - **Loitering munitions (FPV).** The company commander sends an FPV drone to a point picked from
   their own picture; it finds an enemy it can see from above and dives on him. It is far more precise
   than the mortar, but anyone under a roof is safe, and it can be spotted, hidden from and shot down.

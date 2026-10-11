@@ -168,7 +168,7 @@ export function tunnelSystem(world: World): void {
   }
   // ── 入る ──
   for (const s of world.soldiers) {
-    if (s.tunnel || s.status !== "ok" || s.evac !== "none") continue;
+    if (s.tunnel || s.status !== "ok" || s.evac !== "none" || s.mountedIn != null) continue;
     if (s.bearing !== null || s.treating !== null) continue;
     const mine = world.tunnels.filter((t) => t.side === s.side);
     if (mine.length === 0) continue;

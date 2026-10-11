@@ -21,6 +21,7 @@ import { throwSmoke, type SmokeResult } from "./systems/smoke.ts";
 import { fireAntiArmor, type AntiArmorResult } from "./systems/antiArmor.ts";
 import { taskDrone, type DroneResult } from "./systems/drone.ts";
 import { launchFpv, type FpvResult } from "./systems/fpv.ts";
+import { taskVehicle, type VehicleResult } from "./systems/vehicle.ts";
 import { reactToUas, releaseUasReaction } from "./c2/uasReact.ts";
 import type { UasReaction } from "./types.ts";
 import { commandSoldier } from "./c2/fireteam.ts";
@@ -568,6 +569,34 @@ export function orderFpv(world: World, target: Vec2, seat: ControlState | null =
   return recorded(world, "orderFpv", seat, [target], () => orderFpvImpl(world, target, seat));
 }
 
+/**
+ * 装甲車の行き先を決める(`[v7.8]` ロードマップ B-1)。中隊長の座席だけ。`target` が null なら
+ * 自分の小隊の護衛へ戻す。AI の中隊長と同じ `taskVehicle` を通る(P4)。車両そのものは操縦しない
+ */
+function orderVehicleImpl(
+  world: World,
+  vehicleId: number,
+  target: Vec2 | null,
+  seat: ControlState | null = world.control,
+): VehicleResult | null {
+  const c = seat;
+  if (!c || c.echelon !== "company") return null;
+  const co = world.companies.find((x) => x.side === c.side && x.companyId === c.unitId);
+  if (!co) return null;
+  return taskVehicle(world, co, vehicleId, target);
+}
+
+export function orderVehicle(
+  world: World,
+  vehicleId: number,
+  target: Vec2 | null,
+  seat: ControlState | null = world.control,
+): VehicleResult | null {
+  return recorded(world, "orderVehicle", seat, [vehicleId, target], () =>
+    orderVehicleImpl(world, vehicleId, target, seat),
+  );
+}
+
 export function orderUasReact(
   world: World,
   on: boolean,
@@ -627,6 +656,9 @@ export function replayOrder(world: World, fn: OrderFn, seat: ControlState | null
       return;
     case "orderFpv":
       orderFpv(world, v(0), seat);
+      return;
+    case "orderVehicle":
+      orderVehicle(world, args[0] as number, (args[1] as Vec2 | null) ?? null, seat);
       return;
     case "orderUasReact":
       orderUasReact(world, args[0] === true, seat);

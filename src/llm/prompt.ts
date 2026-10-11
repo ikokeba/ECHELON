@@ -35,6 +35,7 @@ export const DEFAULT_SYSTEM_PROMPT = `あなたは見下ろし型の戦術シミ
 - {"type":"smoke","target":{"x":数値,"z":数値}} … 発煙弾を焚く(分隊長のみ。observation.smoke があるときだけ)。
     煙は円の中を通る視線を遮る。敵に見られながら開けた場所を渡るときは、敵と自分のあいだへ焚く。分隊長から throwRange m 以内だけ
 - {"type":"drone","target":{"x":数値,"z":数値}} … 観測ドローンを地点の上へ飛ばす(中隊長のみ。observation.drone があるときだけ)。
+- {"type":"vehicle","unit":数値,"target":{"x":数値,"z":数値}} … 装甲車の行き先を決める(中隊長のみ。observation.vehicles があるときだけ。target を省くと護衛へ戻す)。
 - {"type":"fpv","target":{"x":数値,"z":数値}} … 自爆ドローンを1機、地点へ飛ばす(中隊長のみ。observation.fpv があるときだけ)。上から見えた敵を自分で捉えて突っ込む。建物の中の敵は狙えない。
     見たものは操縦手から無線で遅れて contacts に入る。古くなった像を新しくしたいところ・迫撃砲で撃ちたいところへ
 - {"type":"uas_cover"} … 敵ドローンから身を隠す(分隊長のみ)。近くの建物へ入る・伏せる・煙を焚いて渡るのどれかを分隊が選ぶ。

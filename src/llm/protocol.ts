@@ -21,7 +21,7 @@
 import type { Echelon, MissionKind, Side, Vec2 } from "../sim/types.ts";
 
 /** プロトコルの版。形を変えたら上げる。エージェント側はこれを見て解釈を切り替えられる */
-export const PROTOCOL_VERSION = "echelon-llm/0.11";
+export const PROTOCOL_VERSION = "echelon-llm/0.12";
 
 /** エージェントが座れる階層。兵士・FTは毎ティックの反射が要るので対象外(設計書 §3) */
 export type AgentEchelon = Extract<Echelon, "company" | "platoon" | "squad">;
@@ -189,6 +189,23 @@ export interface Observation {
    * airframesLeft = 残りの機体(飛んでいるものを含む)、ready = すぐ飛ばせる班の数、
    * flying = 飛んでいる機体(locked = 標的を捉えて突入中)、operators = 操縦手の位置(倒れていれば null)
    */
+  /**
+   * 自軍の装甲車(`[v7.8]` B-1)。中隊長の座席で、中隊が装甲車を持つときだけ載る。
+   * task = escort(自分の小隊に付く)/ move / hold。mounted = 乗っている兵の数。
+   * damage = 足回り(mobility)・砲塔(firepower)。destroyed なら撃破
+   */
+  vehicles?: Array<{
+    id: number;
+    platoon: number;
+    pos: Vec2;
+    task: string;
+    target: Vec2 | null;
+    mounted: number;
+    hatch: string;
+    mobility: boolean;
+    firepower: boolean;
+    destroyed: boolean;
+  }>;
   fpv?: {
     airframesLeft: number;
     ready: number;
@@ -301,6 +318,12 @@ export interface DroneCommand {
   type: "drone";
   target: Vec2;
 }
+/** 装甲車の行き先を決める(中隊長の座席のみ、`[v7.8]` B-1)。target が無ければ護衛へ戻す */
+export interface VehicleCommand {
+  type: "vehicle";
+  unit: number;
+  target?: Vec2;
+}
 /** 自爆ドローンを地点へ1機飛ばす(中隊長の座席のみ、`[v7.7]` B-2) */
 export interface FpvCommand {
   type: "fpv";
@@ -333,6 +356,7 @@ export type AgentCommand =
   | AntiArmorCommand
   | DroneCommand
   | FpvCommand
+  | VehicleCommand
   | UasCoverCommand;
 
 export interface AgentResponse {
@@ -372,6 +396,7 @@ export const RESPONSE_SCHEMA = {
               "anti_armor",
               "drone",
               "fpv",
+              "vehicle",
               "uas_cover",
             ],
           },

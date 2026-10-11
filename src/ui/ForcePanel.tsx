@@ -47,6 +47,8 @@ export function ForcePanel() {
   const drone = s.drone;
   // 自爆ドローン(`[v7.7]` B-2)。中隊長を操作しているときだけ
   const fpv = s.fpv;
+  // 装甲車(`[v7.8]` B-1)。中隊長を操作しているときだけ
+  const vehicles = s.vehicles;
 
   return (
     <div className="panel">
@@ -181,6 +183,27 @@ export function ForcePanel() {
           </button>
         </div>
       )}
+      {vehicles.map((v) => (
+        <div
+          key={v.id}
+          className="force-detail force-reinf"
+          title="装甲車(`[v7.8]`)。中隊長は行き先を決めるだけで、操縦はしない。既定は自分の小隊の後ろに付く護衛"
+        >
+          <span>
+            装甲車 {v.platoon}・{v.state}
+          </span>
+          {v.mounted > 0 && <span>乗車 {v.mounted}名</span>}
+          <button
+            type="button"
+            className={`seg-btn${s.armed === "vehicle" && s.armedVehicleId === v.id ? " seg-on" : ""}`}
+            disabled={!v.canTask}
+            onClick={() => s.armVehicle(s.armed === "vehicle" && s.armedVehicleId === v.id ? null : v.id)}
+            title="押してから盤面をクリックした地点へ向かわせる(道路しか走れない。もう一度押すと取り消し)"
+          >
+            {s.armed === "vehicle" && s.armedVehicleId === v.id ? "行き先を選択…" : "行き先"}
+          </button>
+        </div>
+      ))}
       {fpv && (
         <div
           className="force-detail force-reinf"

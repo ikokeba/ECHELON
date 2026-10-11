@@ -213,10 +213,25 @@ export interface HudSnapshot {
   drone: HudDrone | null;
   /** `[v7.7]` 自爆ドローン。人間が中隊長を操作していて、中隊が FPV を持つときだけ */
   fpv: HudFpv | null;
+  /** `[v7.8]` 装甲車。人間が中隊長を操作していて、中隊が装甲車を持つときだけ(空配列なら出さない) */
+  vehicles: HudVehicle[];
 }
 
 /** 地点を選んで出す命令(`[v7.2]`) */
-export type ArmedOrder = "fire" | "smoke" | "hold" | "at" | "drone" | "fpv";
+export type ArmedOrder = "fire" | "smoke" | "hold" | "at" | "drone" | "fpv" | "vehicle";
+
+/** 装甲車1両の表示(`[v7.8]` ロードマップ B-1) */
+export interface HudVehicle {
+  id: number;
+  /** 付いている小隊の呼称 */
+  platoon: string;
+  /** 状態の日本語(護衛 / 移動中 / 停止 / 動けない / 撃てない / 撃破) */
+  state: string;
+  /** 乗っている兵の数 */
+  mounted: number;
+  /** 行き先を決められる(撃破・足回りの損傷でない) */
+  canTask: boolean;
+}
 
 /** 自爆ドローン(FPV)の表示(`[v7.7]` ロードマップ B-2) */
 export interface HudFpv {
@@ -495,6 +510,9 @@ interface UiState extends HudSnapshot {
    */
   armed: ArmedOrder | null;
   arm: (kind: ArmedOrder | null) => void;
+  /** `[v7.8]` 行き先を決めようとしている装甲車(`armed === "vehicle"` のとき) */
+  armedVehicleId: number | null;
+  armVehicle: (id: number | null) => void;
   /**
    * 振り返り・リプレイ(`[v7.2]` S-4)。`replay` がある間に世界を作り直すと、その記録を
    * 流し込みながら同じ戦闘を最初から再生する。`replaying` は記録の終わりまで true
@@ -671,6 +689,8 @@ export const useSimStore = create<UiState>((set, get) => ({
   antiArmor: null,
   drone: null,
   fpv: null,
+  vehicles: [],
+  armedVehicleId: null,
   reinforceNonce: 0,
   uasCoverNonce: 0,
   uasCoverOn: false,
@@ -705,6 +725,7 @@ export const useSimStore = create<UiState>((set, get) => ({
   lastOrder: null,
   armed: null,
   arm: (kind) => set({ armed: kind }),
+  armVehicle: (id) => set({ armed: id === null ? null : "vehicle", armedVehicleId: id }),
   replay: null,
   replaying: false,
   replayNonce: 0,

@@ -13,6 +13,7 @@
 
 import { hasLineOfSight } from "../geometry.ts";
 import { DETECT_RANGE, FOV_HALF_RAD, PEEK, SCAN } from "../constants.ts";
+import { vehicleBlocks } from "./vehicle.ts";
 import { clearHash, createSpatialHash, forEachNear, insert } from "../spatial.ts";
 import {
   castRayIndexed,
@@ -73,7 +74,9 @@ function canSeeIndexed(
     return false;
   }
   // `[v7.2]` 煙は視線だけを遮る(systems/smoke.ts)。煙が無ければ素通り
-  return !smokeBlocks(world, viewer.eye.x, viewer.eye.z, target.eye.x, target.eye.z);
+  if (smokeBlocks(world, viewer.eye.x, viewer.eye.z, target.eye.x, target.eye.z)) return false;
+  // `[v7.8]` 装甲車の車体も視線を遮る(B-1 ②: 歩兵は車体の陰に隠れて進む)
+  return world.vehicles.length === 0 || !vehicleBlocks(world, viewer.eye, target.eye);
 }
 
 /**

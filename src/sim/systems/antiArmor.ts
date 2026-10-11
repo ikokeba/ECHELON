@@ -26,6 +26,7 @@ import { insideBounds } from "../cqb.ts";
 import { aiSuppressed, soldierSeated } from "../control.ts";
 import { isOffField } from "./litter.ts";
 import { smokeBlocks } from "./smoke.ts";
+import { applyVehicleHit, insideHull } from "./vehicle.ts";
 import type { Soldier, SquadState, Vec2 } from "../types.ts";
 import type { World } from "../world.ts";
 
@@ -131,6 +132,11 @@ function launch(world: World, sq: SquadState, target: Vec2): Launched {
 function detonate(world: World, shot: Launched): number {
   const rng = world.rngBySide[shot.side];
   const at = shot.at;
+  // `[v7.8]` 装甲車(B-1)。当たって車体に落ちれば、向き(正面・側面・上面)で損傷を決める(③)
+  if (shot.hit) {
+    const v = world.vehicles.find((x) => x.side !== shot.side && !x.destroyed && insideHull(x, at, 0.6));
+    if (v) applyVehicleHit(world, v, shot.from, shot.side);
+  }
   // 殺傷・制圧(敵だけ — 同士討ちは「撃たない判断」で表す、仕様 §8.2)
   let victims = 0;
   for (const t of world.soldiers) {
@@ -221,10 +227,20 @@ export function antiArmorSystem(world: World): void {
         bestScore = score;
       }
     }
-    if (!best || bestScore === 0) continue;
+    // `[v7.8]` 見えている敵の装甲車(B-1)は何より先に狙う(対戦車火器の本来の目標)
+    let aim: Vec2 | null = best && bestScore > 0 ? best.pos : null;
+    for (const vid of g.seesVehicles ?? []) {
+      const v = world.vehicles.find((x) => x.id === vid);
+      if (!v || v.destroyed) continue;
+      const d = dist(g.pos, v.pos);
+      if (d < ANTI_ARMOR.MIN_RANGE || d > ANTI_ARMOR.MAX_RANGE) continue;
+      aim = { ...v.pos };
+      break;
+    }
+    if (!aim) continue;
     if (!chance(world.rngBySide[sq.side], ratePerTick(ANTI_ARMOR.ATTEMPT_RATE_PER_SEC, SIM_DT))) continue;
-    if (antiArmorBlocker(world, sq, best.pos) !== null) continue;
-    shots.push(launch(world, sq, best.pos));
+    if (antiArmorBlocker(world, sq, aim) !== null) continue;
+    shots.push(launch(world, sq, aim));
   }
   // **2フェーズで解決する**(combat.ts と同じ)。全分隊が撃ってから、まとめて着弾させる。
   // 撃つたびに着弾させると、走査順が先の陣営のロケットが相手の射手を先に倒し、

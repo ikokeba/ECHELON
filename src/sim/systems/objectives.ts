@@ -132,10 +132,14 @@ export function objectivesSystem(world: World): void {
   if (world.victory) return;
 
   // 殲滅: 戦闘可能な兵士が尽きた側の負け。拠点がないシナリオでも決着がつく。
-  // `[v7.7]` トンネルの中の兵(B-4)は盤上にいないが戦える — 尽きたことにはしない
+  // `[v7.7]` トンネルの中の兵(B-4)・`[v7.8]` 装甲車に乗っている兵(B-1)は盤上にいないが
+  // 戦える — 尽きたことにはしない
   const effective = (side: Side): number =>
-    world.soldiers.filter((s) => s.side === side && (counts(s) || (s.status === "ok" && s.tunnel != null)))
-      .length;
+    world.soldiers.filter(
+      (s) =>
+        s.side === side &&
+        (counts(s) || (s.status === "ok" && (s.tunnel != null || s.mountedIn != null))),
+    ).length;
   const blueLeft = effective("blue");
   const redLeft = effective("red");
   if (blueLeft === 0 || redLeft === 0) {

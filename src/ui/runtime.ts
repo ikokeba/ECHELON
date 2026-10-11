@@ -20,9 +20,11 @@ import {
   orderAntiArmor,
   orderDrone,
   orderFpv,
+  orderVehicle,
   orderUasReact,
 } from "@sim/playerOrders.ts";
 import { FPV_BLOCK_TEXT, fpvsOf } from "@sim/systems/fpv.ts";
+import { VEHICLE_BLOCK_TEXT, vehiclesOf } from "@sim/systems/vehicle.ts";
 import { SMOKE_BLOCK_TEXT, smokeCooldownLeft, smokeThrower } from "@sim/systems/smoke.ts";
 import { DRONE_BLOCK_TEXT } from "@sim/systems/drone.ts";
 import {
@@ -491,6 +493,33 @@ function fpvHud(world: World): HudSnapshot["fpv"] {
   };
 }
 
+/** 装甲車の表示(`[v7.8]` B-1)。人間が中隊長を操作しているときだけ */
+function vehicleHud(world: World): HudSnapshot["vehicles"] {
+  const c = world.control;
+  if (!c || c.echelon !== "company") return [];
+  const co = world.companies.find((x) => x.side === c.side && x.companyId === c.unitId);
+  if (!co) return [];
+  return vehiclesOf(world, co).map((v) => ({
+    id: v.id,
+    platoon: platoonName(v.platoonId),
+    state: v.destroyed
+      ? "撃破"
+      : v.damage.mobility && v.damage.firepower
+        ? "動けず撃てない"
+        : v.damage.mobility
+          ? "動けない"
+          : v.damage.firepower
+            ? "撃てない"
+            : v.task.kind === "escort"
+              ? "護衛"
+              : v.task.kind === "move"
+                ? "移動中"
+                : "停止",
+    mounted: v.mounted.length,
+    canTask: !v.destroyed && !v.damage.mobility,
+  }));
+}
+
 function hudOf(world: World, view: ViewResult): HudSnapshot {
   let blueAlive = 0;
   let redAlive = 0;
@@ -566,6 +595,7 @@ function hudOf(world: World, view: ViewResult): HudSnapshot {
     antiArmor: antiArmorHud(world),
     drone: droneHud(world),
     fpv: fpvHud(world),
+    vehicles: vehicleHud(world),
   };
 }
 
@@ -846,6 +876,17 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
             : r.ok
               ? { ok: true, text: `ドローンを ${at} へ` }
               : { ok: false, text: `飛ばせない — ${DRONE_BLOCK_TEXT[r.reason]}` },
+        );
+      } else if (kind === "vehicle") {
+        // 装甲車(`[v7.8]` B-1)。AIの中隊長と同じ関数を通す
+        const id = ui.armedVehicleId;
+        const r = id === null ? null : orderVehicle(world, id, p);
+        ui.setLastOrderResult(
+          !r
+            ? { ok: false, text: "装甲車の行き先を決められるのは中隊長だけ" }
+            : r.ok
+              ? { ok: true, text: `装甲車を ${at} へ` }
+              : { ok: false, text: `行かせられない — ${VEHICLE_BLOCK_TEXT[r.reason]}` },
         );
       } else if (kind === "fpv") {
         // 自爆ドローン(`[v7.7]` B-2)。AIの中隊長と同じ関数を通す
