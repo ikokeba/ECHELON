@@ -464,6 +464,12 @@ export interface Soldier {
    */
   seesFar: number[];
   /**
+   * このティックに本人が**目で**捉えている敵ドローンの id(`[v7.5]` ロードマップ S-6)。
+   * 対ドローン探知システムが毎ティック組み直す一時値。音だけで気づいたドローンは入らない。
+   * 撃墜(A-10)は、ここに載っているドローンにしか撃てない
+   */
+  seesUas?: number[];
+  /**
    * 最後に自分を撃ってきた者の位置と、それを覚えている期限(`[v7.1]` 個人の戦闘動作)。
    * 「撃たれたら撃ってきた方を向く」に使う。見えていない敵の位置を知る手段ではなく、
    * 向きを変えるきっかけにだけ使う(そこから先は自分の目で見る、仕様 §5)
@@ -519,6 +525,17 @@ export interface Contact {
   heardError?: number;
 }
 
+/**
+ * 敵ドローンの接触の置き場(`[v7.5]` ロードマップ S-6)。
+ *
+ * 兵士の接触(`memory` / `belief`)とは**別の地図**に持つ。同じ地図に混ぜると、迫撃砲の
+ * 目標選び・擲弾の照準・FTの接敵判定・分隊の機動の向きなど、接触を読むすべての箇所が
+ * ドローンを「敵兵」として扱ってしまう(ロードマップ §6.3 の一線「ドローンの接触は兵士の
+ * 接触と混ぜない」)。キーは `u<ドローンid>`。目で見たときは位置が正確で、音だけのときは
+ * `heard` が立ち、方角と刻んだ距離から組み立てた粗い位置になる
+ */
+export type UasContacts = Map<string, Contact>;
+
 /** 階層コントローラが持つ、報告のみから構築された私的な world picture(仕様 §5)。 */
 export interface Belief {
   contacts: Map<string, Contact>;
@@ -543,6 +560,11 @@ export interface Report {
   deliverTick: number;
   contacts: Contact[];
   /**
+   * 敵ドローンの接触(`[v7.5]` ロードマップ S-6)。兵士の接触(`contacts`)とは別に運ぶ。
+   * 受信側は自分の `uas` へだけ統合する
+   */
+  uas?: Contact[];
+  /**
    * 臨時報告のきっかけ(`[v7.3]` ロードマップ A-8)。定時報告なら無い。
    * 中身(接触・自隊の状況)は定時報告と同じで、違うのは**いつ送られたか**だけ
    */
@@ -566,8 +588,9 @@ export interface Report {
  *   contact   : 接敵(確かな接触が無い状態から、ある状態になった)
  *   commander : 指揮官の交代(負傷・戦死で次席者が継いだ。仕様 §12)
  *   rout      : 麾下FTの潰走が増えた(仕様 §12)
+ *   uas       : `[v7.5]` 敵ドローンの探知(確かなドローンの接触が無い状態から、ある状態になった。S-6)
  */
-export type FlashReason = "contact" | "commander" | "rout";
+export type FlashReason = "contact" | "commander" | "rout" | "uas";
 
 /**
  * 臨時報告を出すかどうかを決めるための、送信元が前回の報告時点で覚えている状態
@@ -576,6 +599,8 @@ export type FlashReason = "contact" | "commander" | "rout";
 export interface FlashWatch {
   /** 確かな接触を持っていたか */
   contact: boolean;
+  /** 確かな敵ドローンの接触を持っていたか(`[v7.5]` S-6) */
+  uas: boolean;
   /** 指揮を執っていた兵士 */
   commanderId: number | null;
   /** 潰走していた麾下FTの数 */
@@ -717,6 +742,8 @@ export interface SquadState {
 
   /** 分隊長の world picture(麾下FT視界の合算) */
   belief: Map<string, Contact>;
+  /** 敵ドローンの接触(`[v7.5]` S-6)。麾下FTの `uas` の合算。兵士の接触(`belief`)とは混ぜない */
+  uas: UasContacts;
 
   /** 小隊長から指示された移動技術(仕様 §6)。麾下FTへそのまま流す */
   technique: MovementTechnique;
@@ -795,6 +822,8 @@ export interface PlatoonState {
 
   /** 小隊長の world picture(無線報告のみ、遅延と確度減衰を伴う) */
   belief: Map<string, Contact>;
+  /** 敵ドローンの接触(`[v7.5]` S-6)。無線で届いた分だけ。兵士の接触(`belief`)とは混ぜない */
+  uas: UasContacts;
 
   /** 麾下分隊へ割り当てた任務目標 */
   squadObjectives: Map<number, Vec2>;
@@ -854,6 +883,8 @@ export interface CompanyState {
 
   /** 中隊長の world picture(小隊長からの報告の集約のみ) */
   belief: Map<string, Contact>;
+  /** 敵ドローンの接触(`[v7.5]` S-6)。無線で届いた分だけ。兵士の接触(`belief`)とは混ぜない */
+  uas: UasContacts;
 
   /** 指揮所(CP)の位置(仕様 §11)。中隊長・XO・RTOが常駐する */
   cp: Vec2;
@@ -978,6 +1009,8 @@ export interface FireteamState {
 
   /** FTリーダーの接触情報の記憶 */
   memory: Map<string, Contact>;
+  /** 隊員が見た・聞いた敵ドローン(`[v7.5]` S-6)。兵士の接触(`memory`)とは混ぜない */
+  uas: UasContacts;
   /** 接敵をロストした後に掃討する地点 */
   searchPoint: Vec2 | null;
 

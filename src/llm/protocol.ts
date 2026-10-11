@@ -21,7 +21,7 @@
 import type { Echelon, MissionKind, Side, Vec2 } from "../sim/types.ts";
 
 /** プロトコルの版。形を変えたら上げる。エージェント側はこれを見て解釈を切り替えられる */
-export const PROTOCOL_VERSION = "echelon-llm/0.7";
+export const PROTOCOL_VERSION = "echelon-llm/0.8";
 
 /** エージェントが座れる階層。兵士・FTは毎ティックの反射が要るので対象外(設計書 §3) */
 export type AgentEchelon = Extract<Echelon, "company" | "platoon" | "squad">;
@@ -140,6 +140,11 @@ export interface Observation {
   };
   subordinates: ObsSubordinate[];
   contacts: ObsContact[];
+  /**
+   * 敵ドローンの像(`[v7.5]` S-6)。兵士の contacts とは別。いれば載る。
+   * 隊員が見た・羽音を聞いたもので、上位の座席には無線で遅れて届く。heard = 羽音だけ(位置が粗い)
+   */
+  uas?: ObsContact[];
   /** 決着していれば勝った側 */
   victory: RelSide | null;
   /**

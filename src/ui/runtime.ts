@@ -119,7 +119,7 @@ function thinkingOf(world: World): ThinkingSnapshot {
     }));
 
   // 受信した臨時報告(`[v7.3]` A-8)。その陣営の小隊長・中隊長が受け取ったもの
-  const FLASH_JP = { contact: "接敵", commander: "指揮官交代", rout: "潰走" } as const;
+  const FLASH_JP = { contact: "接敵", commander: "指揮官交代", rout: "潰走", uas: "敵ドローン" } as const;
   const flashes = world.flashLog
     .filter((f) => f.side === side)
     .slice(0, 5)

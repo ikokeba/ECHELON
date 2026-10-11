@@ -46,6 +46,11 @@ export interface ViewResult {
   enemiesTruth: Soldier[];
   /** 敵陣営(描画色の決定に使う) */
   enemySide: Side;
+  /**
+   * この視点の像に載っている敵ドローン(`[v7.5]` ロードマップ S-6)。兵士の接触と同じく
+   * 最終目撃位置で、確度と不確度円つき。神視点では空(実体はドローンの描画が別に出す)
+   */
+  uas: VisibleEnemy[];
   /** 確度が尽きていない接触の件数 */
   known: number;
   /** 確度0のゴーストの件数 */
@@ -56,27 +61,39 @@ function toVisible(c: Contact): VisibleEnemy {
   return { pos: { ...c.pos }, confidence: c.confidence, posError: c.posError };
 }
 
-/** 指定した視点の belief を取り出す。該当がなければ空。 */
-export function beliefFor(world: World, spec: ViewSpec): Map<string, Contact> {
+/** 視点の階層のコントローラ(分隊・小隊・中隊)。該当がなければ null */
+function nodeFor(
+  world: World,
+  spec: ViewSpec,
+): { belief: Map<string, Contact>; uas: Map<string, Contact> } | null {
   if (spec.echelon === "squad") {
-    const sq =
-      spec.squadId != null
+    return (
+      (spec.squadId != null
         ? world.squads.find((s) => s.side === spec.side && s.squadId === spec.squadId)
-        : world.squads.find((s) => s.side === spec.side);
-    return sq?.belief ?? new Map();
+        : world.squads.find((s) => s.side === spec.side)) ?? null
+    );
   }
   if (spec.echelon === "platoon") {
-    const pl =
-      spec.platoonId != null
+    return (
+      (spec.platoonId != null
         ? world.platoons.find((p) => p.side === spec.side && p.platoonId === spec.platoonId)
-        : world.platoons.find((p) => p.side === spec.side);
-    return pl?.belief ?? new Map();
+        : world.platoons.find((p) => p.side === spec.side)) ?? null
+    );
   }
   if (spec.echelon === "company") {
-    const co = world.companies.find((c) => c.side === spec.side);
-    return co?.belief ?? new Map();
+    return world.companies.find((c) => c.side === spec.side) ?? null;
   }
-  return new Map();
+  return null;
+}
+
+/** 指定した視点の belief を取り出す。該当がなければ空。 */
+export function beliefFor(world: World, spec: ViewSpec): Map<string, Contact> {
+  return nodeFor(world, spec)?.belief ?? new Map();
+}
+
+/** 指定した視点の、敵ドローンの像(`[v7.5]` S-6)。該当がなければ空。 */
+export function uasFor(world: World, spec: ViewSpec): Map<string, Contact> {
+  return nodeFor(world, spec)?.uas ?? new Map();
 }
 
 export function resolveView(world: World, spec: ViewSpec): ViewResult {
@@ -90,7 +107,15 @@ export function resolveView(world: World, spec: ViewSpec): ViewResult {
     const enemiesTruth = world.soldiers.filter(
       (s) => s.side !== spec.side && s.status !== "kia" && !isOffField(s),
     );
-    return { friendly, enemies: [], enemiesTruth, enemySide, known: enemiesTruth.length, stale: 0 };
+    return {
+      friendly,
+      enemies: [],
+      enemiesTruth,
+      enemySide,
+      uas: [],
+      known: enemiesTruth.length,
+      stale: 0,
+    };
   }
 
   const belief = beliefFor(world, spec);
@@ -102,5 +127,6 @@ export function resolveView(world: World, spec: ViewSpec): ViewResult {
     if (c.confidence > 0) known++;
     else stale++;
   }
-  return { friendly, enemies, enemiesTruth: [], enemySide, known, stale };
+  const uas = [...uasFor(world, spec).values()].filter((c) => c.confidence > 0).map(toVisible);
+  return { friendly, enemies, enemiesTruth: [], enemySide, uas, known, stale };
 }

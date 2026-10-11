@@ -16,6 +16,8 @@ export const DEFAULT_SYSTEM_PROMPT = `あなたは見下ろし型の戦術シミ
 - objectives が拠点。owner は "own"(自軍)/ "enemy"(敵)/ null(中立)。拠点の過半数を保持し続けると勝つ。
 - contacts は**あなたが把握している敵**で、真の位置ではない。中隊長・小隊長の情報は無線報告なので数十秒遅れ、
   posError(m)だけずれている。confidence が低いほど古い。heard: true は銃声で聞いただけの接触で、方角しか確かでない。
+- uas は**敵ドローン**の像で、contacts とは別(兵士ではない。迫撃砲や射撃の目標にはならない)。
+  見つけた分隊から無線で上がる。heard: true は羽音だけで気づいたもの。いれば上から見られていると考える。
 - subordinates が麾下の部隊。unit を命令に使う。effective/total は健在/編成の人数。ageSec は報告の古さ。
 - you.advanceDir は自軍の前進方向(敵の方角の目安)。
 - lastResult は前回あなたが出した命令の処理結果。却下された命令があれば直すこと。

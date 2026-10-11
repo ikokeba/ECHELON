@@ -63,6 +63,15 @@ function contactsOf(world: World, belief: Iterable<Contact>): ObsContact[] {
 }
 
 /**
+ * 敵ドローンの像(`[v7.5]` S-6)。兵士の接触とは別の欄に載せる。無ければ欄ごと付けない
+ * (見た接触と同じ形。heard は羽音だけで気づいたもので、位置が粗い)
+ */
+function uasOf(world: World, uas: Iterable<Contact>): { uas?: ObsContact[] } {
+  const list = contactsOf(world, uas);
+  return list.length > 0 ? { uas: list } : {};
+}
+
+/**
  * 座席の階層ごとに、出せる命令の説明。
  * 後援(`canReinforce`)と迫撃砲(`canFire`、`[v7.2]`)は持っている座席にだけ載せる
  */
@@ -310,6 +319,7 @@ export function buildObservation(
       },
       subordinates: subs,
       contacts: contactsOf(world, co.belief.values()),
+      ...uasOf(world, co.uas.values()),
     };
   }
 
@@ -348,6 +358,7 @@ export function buildObservation(
       },
       subordinates: subs,
       contacts: contactsOf(world, pl.belief.values()),
+      ...uasOf(world, pl.uas.values()),
     };
   }
 
@@ -422,5 +433,6 @@ export function buildObservation(
     },
     subordinates: subs,
     contacts: contactsOf(world, sq.belief.values()),
+    ...uasOf(world, sq.uas.values()),
   };
 }
