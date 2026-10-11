@@ -459,7 +459,7 @@ function droneHud(world: World): HudSnapshot["drone"] {
   const d = world.drones.find((x) => x.side === c.side && x.companyId === c.unitId);
   if (!d) return null;
   return {
-    state: DRONE_STATE_JP[d.state] ?? d.state,
+    state: d.shotDown ? "撃墜された" : (DRONE_STATE_JP[d.state] ?? d.state),
     batteriesLeft: d.batteriesLeft,
     flightSec: d.state === "flying" || d.state === "returning" ? d.flightTicksLeft * SIM_DT : null,
     canTask: d.state === "ready" || d.state === "flying",

@@ -193,7 +193,7 @@ export type DroneBlock = "no_drone" | "lost" | "spent" | "swapping" | "out_of_ra
 
 export const DRONE_BLOCK_TEXT: Record<DroneBlock, string> = {
   no_drone: "この中隊は観測ドローンを持たない",
-  lost: "操縦手が倒れ、ドローンは失われた",
+  lost: "ドローンは失われた(撃ち落とされた、または操縦手が倒れた)",
   spent: "電池を使い切った",
   swapping: "電池を替えている(または戻っている途中)",
   out_of_range: `遠すぎる(操縦手から ${DRONE.MAX_RANGE}m 以内)`,

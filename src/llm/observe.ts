@@ -255,6 +255,7 @@ export function buildObservation(
             state: drone.state,
             pos: rv(drone.pos),
             batteriesLeft: drone.batteriesLeft,
+            ...(drone.shotDown ? { shotDown: true } : {}),
             flightSec:
               drone.state === "flying" || drone.state === "returning" ? r1(drone.flightTicksLeft / SIM_HZ) : null,
             viewRadius: DRONE.VIEW_RADIUS,

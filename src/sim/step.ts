@@ -14,6 +14,7 @@ import { hearingSystem } from "./systems/hearing.ts";
 import { antiArmorSystem } from "./systems/antiArmor.ts";
 import { droneSystem } from "./systems/drone.ts";
 import { uasDetectionSystem } from "./systems/uasDetect.ts";
+import { uasShootSystem } from "./systems/uasShoot.ts";
 import { indirectSystem } from "./systems/indirect.ts";
 import { windowsSystem } from "./systems/windows.ts";
 import { casualtiesSystem } from "./systems/casualties.ts";
@@ -87,6 +88,8 @@ export function stepWorld(world: World): void {
   // 対戦車・対構造物火器(`[v7.3]` A-3)。迫撃砲と同じく戦闘判定の前に着弾させる
   antiArmorSystem(world);
   combatSystem(world);
+  // 8.2 ドローンの撃墜(`[v7.5]` A-10)。捉えているドローンを撃つ。銃声は次の音の判定に乗る
+  uasShootSystem(world);
   // 8.5 音(`[v7.3]` A-5)。このティックの銃声を、見えていない敵の粗い接触としてFTの記憶へ
   hearingSystem(world);
   // 9. 死傷 — 出血タイマーの進行、応急手当(仕様 §9 前半)

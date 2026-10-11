@@ -21,7 +21,7 @@
 import type { Echelon, MissionKind, Side, Vec2 } from "../sim/types.ts";
 
 /** プロトコルの版。形を変えたら上げる。エージェント側はこれを見て解釈を切り替えられる */
-export const PROTOCOL_VERSION = "echelon-llm/0.9";
+export const PROTOCOL_VERSION = "echelon-llm/0.10";
 
 /** エージェントが座れる階層。兵士・FTは毎ティックの反射が要るので対象外(設計書 §3) */
 export type AgentEchelon = Extract<Echelon, "company" | "platoon" | "squad">;
@@ -186,6 +186,8 @@ export interface Observation {
    */
   drone?: {
     state: string;
+    /** `[v7.5]` 撃ち落とされた(A-10。state は lost) */
+    shotDown?: boolean;
     pos: Vec2;
     batteriesLeft: number;
     flightSec: number | null;

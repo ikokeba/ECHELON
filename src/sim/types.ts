@@ -266,6 +266,11 @@ export interface SoldierQualifications {
   antiArmor?: boolean;
   /** `[v7.3]` 観測ドローンの操縦手(ロードマップ A-2)。中隊本部の無線手が兼ねる */
   droneOperator?: boolean;
+  /**
+   * `[v7.5]` 対ドローン装備(ロードマップ A-10。散弾銃と対ドローン弾など)。小銃より近い距離で
+   * 高い確率でドローンを撃ち落とせる。小銃分隊に1名、ブラボー組のFTリーダーが持つ
+   */
+  counterUas?: boolean;
 }
 
 export interface SoldierOrder {
@@ -1410,6 +1415,8 @@ export interface Drone {
   lastReportTick: number;
   /** 臨時報告(A-8)の判定 */
   flashWatch: FlashWatch;
+  /** `[v7.5]` 撃ち落とされた(A-10)。`state` は lost になる。操縦手が倒れて落ちたのとの区別 */
+  shotDown?: boolean;
 }
 
 /**

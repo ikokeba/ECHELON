@@ -150,6 +150,7 @@ export function makeSoldier(seed: SoldierSeed): Soldier {
       designatedMarksman: seed.quals?.designatedMarksman ?? false,
       ...(seed.quals?.antiArmor ? { antiArmor: true } : {}),
       ...(seed.quals?.droneOperator ? { droneOperator: true } : {}),
+      ...(seed.quals?.counterUas ? { counterUas: true } : {}),
     },
     assignedAider: null,
     treating: null,
@@ -333,6 +334,8 @@ function makeSquad(
             designatedMarksman: spec.marksman && ft === 1 && m === qualSlot,
             // `[v7.3]` 対戦車・対構造物火器の射手はアルファ組の同じ枠(A-3)
             ...(spec.antiArmor && ft === 0 && m === qualSlot ? { antiArmor: true } : {}),
+            // `[v7.5]` 対ドローン装備はブラボー組のFTリーダー(A-10)。他の資格と重ならない枠
+            ...(spec.counterUas && ft === 1 && m === 0 ? { counterUas: true } : {}),
           },
         }),
       );

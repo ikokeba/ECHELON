@@ -79,7 +79,7 @@ export function nearUasThreat(world: World, sq: SquadState, at: Vec2): Contact |
 }
 
 /** 分隊は陣地に就いているか(機関銃陣地の班・前進陣地・待ち伏せ) */
-function onPost(world: World, sq: SquadState): boolean {
+export function onPost(world: World, sq: SquadState): boolean {
   return world.defense.some(
     (p) =>
       p.side === sq.side &&
@@ -263,6 +263,8 @@ export function aiReactToUas(world: World, sq: SquadState): boolean {
   if (men.length === 0) return false;
   if (!nearUasThreat(world, sq, centroid(men))) return false;
   if (onPost(world, sq) || assaulting(world, sq, men)) return false;
+  // `[v7.5]` 対ドローン装備(A-10)を持つ者が戦えるなら、隠れずに撃ち落としにかかる
+  if (men.some((m) => m.quals.counterUas === true && !m.routed)) return false;
   const fts = world.fireteams.filter((f) => f.side === sq.side && f.squadId === sq.squadId);
   if (fts.some((f) => f.mode === "CONTACT" || f.mode === "FALLBACK" || f.mode === "ROUT"))
     return false;

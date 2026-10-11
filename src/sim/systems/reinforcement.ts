@@ -181,6 +181,7 @@ function spawn(world: World, side: Side, size: "squad" | "platoon"): void {
     grenadier: world.soldiers.some((s) => s.side === side && s.role === "grenadier"),
     shield: world.soldiers.some((s) => s.side === side && s.role === "shield"),
     antiArmor: world.soldiers.some((s) => s.side === side && s.quals.antiArmor === true),
+    counterUas: world.soldiers.some((s) => s.side === side && s.quals.counterUas === true),
   };
   const unit = makeReinforcementUnit({
     side,
