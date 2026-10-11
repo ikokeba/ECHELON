@@ -21,7 +21,7 @@
 import type { Echelon, MissionKind, Side, Vec2 } from "../sim/types.ts";
 
 /** プロトコルの版。形を変えたら上げる。エージェント側はこれを見て解釈を切り替えられる */
-export const PROTOCOL_VERSION = "echelon-llm/0.10";
+export const PROTOCOL_VERSION = "echelon-llm/0.11";
 
 /** エージェントが座れる階層。兵士・FTは毎ティックの反射が要るので対象外(設計書 §3) */
 export type AgentEchelon = Extract<Echelon, "company" | "platoon" | "squad">;
@@ -184,6 +184,19 @@ export interface Observation {
    * state = ready / flying / returning / swapping / lost / spent。ドローンが見たものは
    * 操縦手から無線で届く(contacts に遅れて入る)。真下 viewRadius m だけ、屋根の下と煙の中は見えない
    */
+  /**
+   * 自爆ドローン(`[v7.7]` B-2)。中隊長の座席で、中隊が FPV を持つときだけ載る。
+   * airframesLeft = 残りの機体(飛んでいるものを含む)、ready = すぐ飛ばせる班の数、
+   * flying = 飛んでいる機体(locked = 標的を捉えて突入中)、operators = 操縦手の位置(倒れていれば null)
+   */
+  fpv?: {
+    airframesLeft: number;
+    ready: number;
+    flying: Array<{ pos: Vec2; target: Vec2 | null; locked: boolean }>;
+    operators: Array<Vec2 | null>;
+    maxRange: number;
+    seekRadius: number;
+  };
   drone?: {
     state: string;
     /** `[v7.5]` 撃ち落とされた(A-10。state は lost) */
@@ -288,6 +301,11 @@ export interface DroneCommand {
   type: "drone";
   target: Vec2;
 }
+/** 自爆ドローンを地点へ1機飛ばす(中隊長の座席のみ、`[v7.7]` B-2) */
+export interface FpvCommand {
+  type: "fpv";
+  target: Vec2;
+}
 /** 対戦車・対構造物火器を地点へ撃たせる(分隊長の座席のみ、`[v7.3]` A-3) */
 export interface AntiArmorCommand {
   type: "anti_armor";
@@ -314,6 +332,7 @@ export type AgentCommand =
   | PlanCommand
   | AntiArmorCommand
   | DroneCommand
+  | FpvCommand
   | UasCoverCommand;
 
 export interface AgentResponse {
@@ -352,6 +371,7 @@ export const RESPONSE_SCHEMA = {
               "plan",
               "anti_armor",
               "drone",
+              "fpv",
               "uas_cover",
             ],
           },

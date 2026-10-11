@@ -219,6 +219,17 @@ export function DeploymentPanel() {
                 </label>
                 <label
                   className="dbg-chk"
+                  title="自爆ドローン(FPV)班(`[v7.7]`)。中隊本部の副中隊長が操縦手を兼ね、3機を持つ。中隊長の像の地点へ飛び、上から見えた敵を自分で捉えて突っ込む。建物の中の敵は狙えない(中隊規模のみ。既定はなし)"
+                >
+                  <input
+                    type="checkbox"
+                    checked={spec.fpv === true}
+                    onChange={(e) => setForce(side, { fpv: e.target.checked })}
+                  />
+                  <span>自爆ドローン</span>
+                </label>
+                <label
+                  className="dbg-chk"
                   title="中隊の60mm迫撃砲(`[v7.6]`)。中隊長が前線の報告をもとに射撃を要請する。外すとAI・人間・LLMのどの中隊長も迫撃砲を使えない"
                 >
                   <input

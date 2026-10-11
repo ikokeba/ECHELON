@@ -64,6 +64,7 @@ function plainRifleman(s: Soldier): boolean {
     !s.quals.designatedMarksman &&
     !s.quals.antiArmor &&
     !s.quals.droneOperator &&
+    !s.quals.fpvOperator &&
     !s.quals.counterUas
   );
 }

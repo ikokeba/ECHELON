@@ -20,6 +20,7 @@ import { requestFireMission, type FireMissionResult } from "./systems/indirect.t
 import { throwSmoke, type SmokeResult } from "./systems/smoke.ts";
 import { fireAntiArmor, type AntiArmorResult } from "./systems/antiArmor.ts";
 import { taskDrone, type DroneResult } from "./systems/drone.ts";
+import { launchFpv, type FpvResult } from "./systems/fpv.ts";
 import { reactToUas, releaseUasReaction } from "./c2/uasReact.ts";
 import type { UasReaction } from "./types.ts";
 import { commandSoldier } from "./c2/fireteam.ts";
@@ -420,6 +421,19 @@ function orderDroneImpl(
 }
 
 /**
+ * 自爆ドローン(FPV)を地点へ飛ばす(`[v7.7]` ロードマップ B-2)。中隊長の座席だけ。
+ * AI の中隊長と同じ `launchFpv` を通るので、機体の数・準備の時間・届く距離は同じに掛かる(P4)。
+ * 地点は人間の画面(=中隊長の像)から選ぶ。FPV はそこへ飛び、上から見えた敵を自分で捉える
+ */
+function orderFpvImpl(world: World, target: Vec2, seat: ControlState | null = world.control): FpvResult | null {
+  const c = seat;
+  if (!c || c.echelon !== "company") return null;
+  const co = world.companies.find((x) => x.side === c.side && x.companyId === c.unitId);
+  if (!co) return null;
+  return launchFpv(world, co, target);
+}
+
+/**
  * 対ドローンの隠蔽行動を命じる・取り消す(`[v7.5]` ロードマップ S-7)。
  *
  * 命じられるのは**分隊長の座席**だけ。AIの分隊長と同じ `reactToUas` を通るので、建物・伏せ・
@@ -550,6 +564,10 @@ export function orderDrone(world: World, target: Vec2, seat: ControlState | null
   return recorded(world, "orderDrone", seat, [target], () => orderDroneImpl(world, target, seat));
 }
 
+export function orderFpv(world: World, target: Vec2, seat: ControlState | null = world.control): FpvResult | null {
+  return recorded(world, "orderFpv", seat, [target], () => orderFpvImpl(world, target, seat));
+}
+
 export function orderUasReact(
   world: World,
   on: boolean,
@@ -606,6 +624,9 @@ export function replayOrder(world: World, fn: OrderFn, seat: ControlState | null
       return;
     case "orderDrone":
       orderDrone(world, v(0), seat);
+      return;
+    case "orderFpv":
+      orderFpv(world, v(0), seat);
       return;
     case "orderUasReact":
       orderUasReact(world, args[0] === true, seat);

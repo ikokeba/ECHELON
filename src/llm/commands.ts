@@ -19,8 +19,10 @@ import {
   orderAntiArmor,
   orderUasReact,
   orderDrone,
+  orderFpv,
 } from "../sim/playerOrders.ts";
 import { DRONE_BLOCK_TEXT } from "../sim/systems/drone.ts";
+import { FPV_BLOCK_TEXT } from "../sim/systems/fpv.ts";
 
 /** 隠蔽行動の結果の文言(`[v7.5]` S-7) */
 const UAS_COVER_TEXT = { shelter: "建物へ入る", prone: "その場で伏せる", smoke: "煙を焚いて渡る" } as const;
@@ -210,6 +212,12 @@ export function parseResponse(raw: unknown): ParsedResponse {
         else commands.push({ type: "drone", target });
         return;
       }
+      case "fpv": {
+        const target = vecOf(c.target);
+        if (!target) errors.push(`commands[${i}] fpv: target {x,z} が無い`);
+        else commands.push({ type: "fpv", target });
+        return;
+      }
       case "uas_cover": {
         commands.push(c.cancel === true ? { type: "uas_cover", cancel: true } : { type: "uas_cover" });
         return;
@@ -350,6 +358,23 @@ export function applyResponse(world: World, seat: AgentSeat, resp: AgentResponse
             : r.ok
               ? `#${i} drone ${at}: 受理`
               : `#${i} drone ${at}: 却下 — ${DRONE_BLOCK_TEXT[r.reason]}`,
+        );
+        return;
+      }
+      case "fpv": {
+        if (seat.echelon !== "company") {
+          out.push(`#${i} fpv: 中隊長だけが出せる`);
+          return;
+        }
+        const t = clampToBounds(world, c.target);
+        const r = orderFpv(world, t, seat);
+        const at = `(${t.x.toFixed(0)},${t.z.toFixed(0)})`;
+        out.push(
+          !r
+            ? `#${i} fpv: 却下`
+            : r.ok
+              ? `#${i} fpv ${at}: 受理`
+              : `#${i} fpv ${at}: 却下 — ${FPV_BLOCK_TEXT[r.reason]}`,
         );
         return;
       }

@@ -19,8 +19,10 @@ import {
   orderHold,
   orderAntiArmor,
   orderDrone,
+  orderFpv,
   orderUasReact,
 } from "@sim/playerOrders.ts";
+import { FPV_BLOCK_TEXT, fpvsOf } from "@sim/systems/fpv.ts";
 import { SMOKE_BLOCK_TEXT, smokeCooldownLeft, smokeThrower } from "@sim/systems/smoke.ts";
 import { DRONE_BLOCK_TEXT } from "@sim/systems/drone.ts";
 import {
@@ -44,7 +46,7 @@ import {
 } from "@sim/systems/indirect.ts";
 import { reinforcementsLeft, topCommandOf } from "@sim/systems/reinforcement.ts";
 import { isOffField } from "@sim/systems/litter.ts";
-import { MORTAR, SIM_DT, SIM_HZ, SMOKE, UAS_REACT } from "@sim/constants.ts";
+import { FPV, MORTAR, SIM_DT, SIM_HZ, SMOKE, UAS_REACT } from "@sim/constants.ts";
 import { isDegraded } from "@sim/c2/succession.ts";
 import { applyDeployment, defaultDeploymentOf } from "@sim/deployment.ts";
 import { beginBattle, beginPlanning, platoonName } from "@sim/c2/planning.ts";
@@ -457,13 +459,34 @@ const DRONE_STATE_JP: Record<string, string> = {
 function droneHud(world: World): HudSnapshot["drone"] {
   const c = world.control;
   if (!c || c.echelon !== "company") return null;
-  const d = world.drones.find((x) => x.side === c.side && x.companyId === c.unitId);
+  const d = world.drones.find((x) => x.kind !== "fpv" && x.side === c.side && x.companyId === c.unitId);
   if (!d) return null;
   return {
     state: d.shotDown ? "撃墜された" : (DRONE_STATE_JP[d.state] ?? d.state),
     batteriesLeft: d.batteriesLeft,
     flightSec: d.state === "flying" || d.state === "returning" ? d.flightTicksLeft * SIM_DT : null,
     canTask: d.state === "ready" || d.state === "flying",
+  };
+}
+
+/** 自爆ドローンの表示(`[v7.7]` B-2)。人間が中隊長を操作していて、中隊が FPV を持つときだけ */
+function fpvHud(world: World): HudSnapshot["fpv"] {
+  const c = world.control;
+  if (!c || c.echelon !== "company") return null;
+  const co = world.companies.find((x) => x.side === c.side && x.companyId === c.unitId);
+  if (!co) return null;
+  const teams = fpvsOf(world, co);
+  if (teams.length === 0) return null;
+  const usable = teams.filter((d) => d.state !== "lost");
+  const prep = usable
+    .filter((d) => d.state === "swapping")
+    .map((d) => Math.max(0, FPV.PREP_SEC - (world.tick - d.stateTick) * SIM_DT));
+  return {
+    left: usable.reduce((n, d) => n + d.batteriesLeft, 0),
+    total: teams.length * FPV.AIRFRAMES,
+    ready: usable.filter((d) => d.state === "ready").length,
+    flying: usable.filter((d) => d.state === "flying").length,
+    prepSec: prep.length > 0 ? Math.min(...prep) : null,
   };
 }
 
@@ -540,6 +563,7 @@ function hudOf(world: World, view: ViewResult): HudSnapshot {
     uasCover: uasCoverHud(world),
     antiArmor: antiArmorHud(world),
     drone: droneHud(world),
+    fpv: fpvHud(world),
   };
 }
 
@@ -820,6 +844,16 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
             : r.ok
               ? { ok: true, text: `ドローンを ${at} へ` }
               : { ok: false, text: `飛ばせない — ${DRONE_BLOCK_TEXT[r.reason]}` },
+        );
+      } else if (kind === "fpv") {
+        // 自爆ドローン(`[v7.7]` B-2)。AIの中隊長と同じ関数を通す
+        const r = orderFpv(world, p);
+        ui.setLastOrderResult(
+          !r
+            ? { ok: false, text: "自爆ドローンを飛ばせるのは中隊長だけ" }
+            : r.ok
+              ? { ok: true, text: `自爆ドローンを ${at} へ — 上から見えた敵を捉えて突入する` }
+              : { ok: false, text: `飛ばせない — ${FPV_BLOCK_TEXT[r.reason]}` },
         );
       } else if (kind === "at") {
         // 対戦車・対構造物火器(`[v7.3]` A-3)。AIの射手と同じ関数を通す

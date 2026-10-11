@@ -13,6 +13,7 @@ import { combatSystem } from "./systems/combat.ts";
 import { hearingSystem } from "./systems/hearing.ts";
 import { antiArmorSystem } from "./systems/antiArmor.ts";
 import { droneSystem } from "./systems/drone.ts";
+import { fpvSystem } from "./systems/fpv.ts";
 import { uasDetectionSystem } from "./systems/uasDetect.ts";
 import { uasShootSystem } from "./systems/uasShoot.ts";
 import { indirectSystem } from "./systems/indirect.ts";
@@ -55,6 +56,8 @@ export function stepWorld(world: World): void {
   perceptionSystem(world);
   // 1.5 観測ドローン(`[v7.3]` A-2)。見たものは操縦手の記憶へ入り、次の無線で中隊長へ上がる
   droneSystem(world);
+  // 1.55 自爆ドローン(`[v7.7]` B-2)。目標点で自分のカメラに映った敵を捉えて突っ込む
+  fpvSystem(world);
   // 1.6 地上からドローンに気づく(`[v7.5]` S-6)。動いたあとのドローンを見る・聞く。
   //     気づいたことはFTの記憶(兵士の接触とは別の `uas`)へ入り、このティックの無線に乗る
   uasDetectionSystem(world);

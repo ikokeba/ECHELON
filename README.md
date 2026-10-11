@@ -165,6 +165,9 @@ barbed wire, a forward position and an ambush.
   The drone spots movers at once, but takes a few seconds to pick out men lying still. Drones can be
   shot down (rarely with a rifle, readily with a counter-drone kit), but the shots give the shooter away.
   Watching a drone fly home to change batteries gives a rough bearing to its operator.
+- **Loitering munitions (FPV).** The company commander sends an FPV drone to a point picked from
+  their own picture; it finds an enemy it can see from above and dives on him. It is far more precise
+  than the mortar, but anyone under a roof is safe, and it can be spotted, hidden from and shot down.
 - **Anti-armour weapons.** One gunner per rifle squad carries two rounds that break enemies dug in
   behind windows, fighting positions and machine-gun posts, cover and all (the position is destroyed).
   AI, humans and LLMs fire them under the same rules.

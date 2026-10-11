@@ -2428,6 +2428,23 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
         if (!opts.truth && d.side !== opts.viewSide) continue;
         if (d.state !== "flying" && d.state !== "returning") continue;
         const c = SIDE_COLOR[d.side];
+        if (d.kind === "fpv") {
+          // 自爆ドローン(`[v7.7]` B-2)。進む向きを指す小さな三角。捉えた標的があれば線で結ぶ
+          const t = d.lockId != null ? world.soldierById.get(d.lockId) : undefined;
+          const aim = t ? t.pos : (d.target ?? d.pos);
+          const ax = aim.x - d.pos.x;
+          const az = aim.z - d.pos.z;
+          const al = Math.hypot(ax, az) || 1;
+          const fx = ax / al;
+          const fz = az / al;
+          const s = 2.2;
+          const tip = { x: d.pos.x + fx * s * 1.4, z: d.pos.z + fz * s * 1.4 };
+          const l = { x: d.pos.x - fx * s - fz * s, z: d.pos.z - fz * s + fx * s };
+          const rr = { x: d.pos.x - fx * s + fz * s, z: d.pos.z - fz * s - fx * s };
+          draw([tip, l, rr, tip], c, 0.95);
+          if (t) draw([{ ...d.pos }, { ...t.pos }], c, 0.5);
+          continue;
+        }
         const disc = dn < MAX_DRONES ? droneDiscs[dn++]! : null;
         if (disc) {
           disc.position.set(d.pos.x, 0.06, d.pos.z);

@@ -272,6 +272,8 @@ export interface SoldierQualifications {
   antiArmor?: boolean;
   /** `[v7.3]` 観測ドローンの操縦手(ロードマップ A-2)。中隊本部の無線手が兼ねる */
   droneOperator?: boolean;
+  /** `[v7.7]` 自爆ドローン(FPV)の操縦手(ロードマップ B-2)。中隊本部の副中隊長が兼ねる */
+  fpvOperator?: boolean;
   /**
    * `[v7.5]` 対ドローン装備(ロードマップ A-10。散弾銃と対ドローン弾など)。小銃より近い距離で
    * 高い確率でドローンを撃ち落とせる。小銃分隊に1名、ブラボー組のFTリーダーが持つ
@@ -958,6 +960,8 @@ export interface CompanyState {
   mortarRoundsUsed: number;
   /** 最後に射撃要請を出したティック(連続要請の下限を測る) */
   lastFireMissionTick: number;
+  /** 最後に自爆ドローンを飛ばしたティック(`[v7.7]` B-2。AI の間隔を測る) */
+  lastFpvTick?: number;
 
   /**
    * 逆襲(`[v7.3]` ロードマップ A-4)。攻防戦の防御側の中隊長が、奪われた拠点を取り返しに
@@ -1390,7 +1394,9 @@ export type FxEvent =
       radius: number;
       suppressRadius: number;
       victims: number;
-    };
+    }
+  /** 自爆ドローンの起爆(`[v7.7]` B-2)。`radius` は殺傷半径 */
+  | { kind: "fpv"; at: Vec2; side: Side; radius: number; victims: number };
 
 /**
  * そのティックに鳴った銃声・爆発音1つ(`[v7.3]` ロードマップ A-5)。
@@ -1422,6 +1428,14 @@ export interface Gunshot {
  */
 export interface Drone {
   id: number;
+  /**
+   * `[v7.7]` 種類。`recon` = 観測ドローン(既定、未指定も recon)/ `fpv` = 自爆ドローン(B-2)。
+   * FPV は `batteriesLeft` を「残りの機体の数」に読み替え、`swapping` を「次の機体の準備」に使う。
+   * 地上からの探知・隠蔽・撃墜(S-6・S-7・A-10)は種類を問わず同じに掛かる
+   */
+  kind?: "recon" | "fpv";
+  /** `[v7.7]` FPV が突入している標的の兵士 id(自分のカメラで捉えた敵)。捉えていなければ null */
+  lockId?: number | null;
   side: Side;
   companyId: number;
   /** 操縦手の兵士 id */
