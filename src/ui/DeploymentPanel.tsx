@@ -27,6 +27,27 @@ import type { Side } from "@sim/types.ts";
 
 const SIDE_LABEL: Record<Side, string> = { blue: "BLUE", red: "RED" };
 
+/** 制限時間の表示(`[v7.6]`)。0 は無制限 */
+function timeLimitLabel(sec: number): string {
+  if (sec <= 0) return "無制限";
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) return `${h}時間${m > 0 ? `${m}分` : ""}`;
+  return s > 0 ? `${m}分${String(s).padStart(2, "0")}秒` : `${m}分`;
+}
+
+/** 制限時間に最も近い選択肢の番号(初期条件コードから来た半端な値でもつまみが置ける) */
+function timeLimitIndex(sec: number): number {
+  const steps = OBJECTIVE.TIME_LIMIT_STEPS_SEC;
+  if (sec <= 0) return steps.length - 1;
+  let best = 0;
+  for (let i = 0; i < steps.length; i++) {
+    if (steps[i]! > 0 && Math.abs(steps[i]! - sec) < Math.abs(steps[best]! - sec)) best = i;
+  }
+  return best;
+}
+
 /** 向きベクトル → 度(0° = +Z、時計回り)。UIの表示と入力に使う。 */
 function headingDeg(v: { x: number; z: number }): number {
   const d = (Math.atan2(v.x, v.z) * 180) / Math.PI;
@@ -365,22 +386,25 @@ export function DeploymentPanel() {
             <div className="dbg-slider">
               <div className="dbg-slider-head">
                 <span>制限時間</span>
-                <span className="mono">
-                  {Math.floor(timeLimitSec / 60)}分{String(timeLimitSec % 60).padStart(2, "0")}秒
-                </span>
+                <span className="mono">{timeLimitLabel(timeLimitSec)}</span>
               </div>
+              {/* `[v7.6]` 選択肢の並び(2分〜2時間、最後が無制限)の番号をつまみで選ぶ */}
               <input
                 type="range"
-                min={180}
-                max={1800}
-                step={60}
-                value={timeLimitSec}
-                onChange={(e) => setBattleMode({ timeLimitSec: Number(e.target.value) })}
+                min={0}
+                max={OBJECTIVE.TIME_LIMIT_STEPS_SEC.length - 1}
+                step={1}
+                value={timeLimitIndex(timeLimitSec)}
+                onChange={(e) =>
+                  setBattleMode({ timeLimitSec: OBJECTIVE.TIME_LIMIT_STEPS_SEC[Number(e.target.value)]! })
+                }
               />
             </div>
             <div className="dbg-k">
               <b>{attacker === "blue" ? "RED" : "BLUE"}</b> が防御側で、開始時点で全拠点を
               保有します。攻撃側は制限時間内に過半数を奪って保持しなければ負けです。
+              {timeLimitSec === 0 &&
+                " 無制限では時間切れが無く、攻撃側が過半数を奪って保持するか、どちらかの戦力が尽きるまで続きます。"}
               勝利条件が左右で違う唯一の型なので、点対称の担保(仕様 §2/§13)は
               この型では意味を持ちません。
             </div>

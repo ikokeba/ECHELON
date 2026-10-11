@@ -133,7 +133,7 @@ export function hearingSystem(world: World): void {
       }
     }
   }
-  turnToCloseShots(world);
+  turnToCloseShots(world, sounds);
 }
 
 const ALERT_TICKS = Math.round(INDIVIDUAL.ALERT_SEC * SIM_HZ);
@@ -147,19 +147,24 @@ const ALERT_TICKS = Math.round(INDIVIDUAL.ALERT_SEC * SIM_HZ);
  *
  * 目で何も捉えていない兵士は、`INDIVIDUAL.HEAR_TURN_RANGE` m 以内で鳴った敵の銃声の方を向く。
  * 向くきっかけにだけ使い、そこから先は自分の目で見る(`alertFrom` と同じ扱い、仕様 §5)。
- * 足音には振り向かない(壁越しの気配で持ち場を崩さない)。乱数は引かない(P3)
+ * 足音は、壁に遮られずに足音の届く距離(`HEARING.FOOTSTEP`)まで来た敵だけ(壁越しの気配では
+ * 持ち場を崩さない)。陣地の射界を持つ兵(機関銃陣地)は振り向かない。乱数は引かない(P3)
  */
-function turnToCloseShots(world: World): void {
-  if (world.gunshots.length === 0) return;
+function turnToCloseShots(world: World, sounds: readonly Gunshot[]): void {
   const r2 = INDIVIDUAL.HEAR_TURN_RANGE * INDIVIDUAL.HEAR_TURN_RANGE;
+  const f2 = HEARING.FOOTSTEP * HEARING.FOOTSTEP;
   for (const s of world.soldiers) {
-    if (s.status !== "ok" || isOffField(s) || s.sees.length > 0) continue;
+    if (s.status !== "ok" || isOffField(s) || s.sees.length > 0 || s.sector) continue;
     if (s.alertUntilTick > world.tick) continue;
     let best: Gunshot | null = null;
     let bestD = r2;
-    for (const g of world.gunshots) {
+    for (const g of sounds) {
       if (g.side === s.side) continue;
       const d = (g.pos.x - s.pos.x) ** 2 + (g.pos.z - s.pos.z) ** 2;
+      if (g.footstep) {
+        if (d > f2) continue;
+        if (!hasLineOfSightIndexed(world.wallIndex, s.pos.x, s.pos.z, g.pos.x, g.pos.z)) continue;
+      }
       if (d <= bestD && d > 1e-6) {
         best = g;
         bestD = d;

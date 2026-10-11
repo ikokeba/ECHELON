@@ -145,7 +145,8 @@ export function spots(world: World, d: Drone, s: Soldier, tracked: Contact | und
 /** 空にいる間、真下の範囲を見る。見たものは操縦手の記憶(`belief`)へ */
 function observe(world: World, d: Drone): void {
   for (const s of world.soldiers) {
-    if (s.side === d.side || s.status === "kia" || isOffField(s)) continue;
+    // `[v7.6]` 倒れて動けない敵は脅威として報告しない(地上の索敵と同じ)
+    if (s.side === d.side || s.status !== "ok" || isOffField(s)) continue;
     if (dist(s.pos, d.pos) > DRONE.VIEW_RADIUS) continue;
     if (!visibleFromAbove(world, s)) continue;
     const key = `s${s.id}`;

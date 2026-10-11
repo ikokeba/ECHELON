@@ -88,6 +88,15 @@ describe("初期条件コード(`[v6.18]`)", () => {
     expect(decodeSetup(code, TUNING)).toBeNull();
   });
 
+  it("`[v7.6]` 制限時間の無制限(0)もコードで往復し、世界は時間切れを持たない", () => {
+    const s = sample();
+    s.deployment!.timeLimitSec = 0;
+    const back = decodeSetup(encodeSetup(s, TUNING), TUNING)!;
+    expect(back.deployment!.timeLimitSec).toBe(0);
+    const sc = applyDeployment(SCENARIOS.oldQuarter.make(back.seed, back.force), back.deployment!);
+    expect(createWorld(sc).timeLimitTicks).toBe(0);
+  });
+
   it("1文字でも違えばチェックサムで弾く", () => {
     const code = encodeSetup(sample(), TUNING);
     const body = code.split("-");

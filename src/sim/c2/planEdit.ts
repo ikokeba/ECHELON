@@ -20,7 +20,7 @@ import { MORTAR, PLAN_EDIT, SIM_HZ } from "../constants.ts";
 import type { ControlState } from "../control.ts";
 import { aiSuppressed } from "../control.ts";
 import { requestFireMission } from "../systems/indirect.ts";
-import { applyPlan, isDefender, platoonName, routeTo } from "./planning.ts";
+import { advanceSequels, applyPlan, isDefender, platoonName, routeTo, sequelText } from "./planning.ts";
 import { setupDefense } from "./defense.ts";
 import type {
   CompanyState,
@@ -204,7 +204,10 @@ function orderText(world: World, plan: OperationPlan, t: PlanTask): string {
   const extra: string[] = [];
   if (t.via && t.via.length > 0) extra.push(`経由点${t.via.length}か所を通る`);
   if (t.startSec && t.startSec > 0) extra.push(`H+${t.startSec}秒に発進`);
-  return `${name} — ${role}。${label} ${KIND_JP[t.mission.kind]}${extra.length ? `(${extra.join("、")})` : ""}`;
+  return (
+    `${name} — ${role}。${label} ${KIND_JP[t.mission.kind]}${extra.length ? `(${extra.join("、")})` : ""}` +
+    sequelText(world, t.sequel ?? [])
+  );
 }
 
 /** 経由点を通る接近経路(表示と前進軸)。脚ごとにナビグリッドで引いてつなぐ */
@@ -239,6 +242,8 @@ export function applyPlanEdits(
         const t = taskOf(e.platoonId);
         if (!t) break;
         touched.add(t.platoonId);
+        // `[v7.6]` 任務を書き換えた小隊は、AI が積んだ続く目標も外す(書いた者の任務だけにする)
+        delete t.sequel;
         if (e.mission === "reserve") {
           t.role = "reserve";
           t.objectiveId = null;
@@ -443,6 +448,8 @@ function runPlannedFires(world: World, co: CompanyState): void {
  */
 export function executePlan(world: World, co: CompanyState): void {
   if (!co.plan || world.phase !== "battle") return;
+  // `[v7.6]` いまの目標を取り終えた小隊を、続く目標へ進める
+  advanceSequels(world, co);
   updatePhaseLine(world, co);
   runPlannedFires(world, co);
   if (!aiSuppressed(world, "company", co.side, co.companyId)) return; // AI の中隊長は companyAI が下ろす
