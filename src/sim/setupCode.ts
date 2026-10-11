@@ -120,6 +120,8 @@ export function normalizeSetup(s: BattleSetup): BattleSetup {
 function normalizeForce(f: ForceSpec): ForceSpec {
   const out = { ...f };
   if (out.mortar === true) delete out.mortar;
+  // `[v7.7]` 編成の型は「標準」が既定
+  if (out.template === "standard") delete out.template;
   return out;
 }
 

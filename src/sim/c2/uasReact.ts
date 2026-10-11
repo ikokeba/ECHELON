@@ -294,7 +294,9 @@ function shelterSpotFor(world: World, r: UasReaction, index: number): Vec2 {
     return { x: c.x + ((index % 3) - 1) * s, z: c.z + (Math.floor(index / 3) - 1) * s };
   }
   const spots = roomSpots(world, room);
-  return spots[index % spots.length]!;
+  // `[v7.7]` 分隊の名簿に載っていない隊員(index が -1)でも持ち場を返す。以前は spots[-1] で落ちた
+  // (トンネルの出口で分隊とはぐれた隊員が隠れようとして表に出た)
+  return spots[((index % spots.length) + spots.length) % spots.length]!;
 }
 
 /** 隠れている隊員1人の命令。建物へ向かう(着いたら止まる)か、その場で伏せる */

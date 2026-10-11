@@ -7,6 +7,8 @@ import {
   DEFAULT_REINFORCEMENT,
   FORCE_SCALES,
   FORCE_SCALE_KEYS,
+  FORCE_TEMPLATES,
+  FORCE_TEMPLATE_KEYS,
   forceSize,
 } from "@sim/force.ts";
 import type { ReinforcementSpec } from "@sim/types.ts";
@@ -132,6 +134,20 @@ export function DeploymentPanel() {
                   {SIDE_LABEL[side]}
                 </span>
                 <span className="mono dbg-k">{forceSize(spec)}名</span>
+              </div>
+              {/* `[v7.7]` 編成の型(ロードマップ B-4) */}
+              <div className="seg">
+                {FORCE_TEMPLATE_KEYS.map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    className={(spec.template ?? "standard") === k ? "seg-btn seg-on" : "seg-btn"}
+                    onClick={() => setForce(side, { template: k })}
+                    title={FORCE_TEMPLATES[k].detail}
+                  >
+                    {FORCE_TEMPLATES[k].label}
+                  </button>
+                ))}
               </div>
               <div className="seg">
                 {FORCE_SCALE_KEYS.map((k) => (
@@ -270,6 +286,9 @@ export function DeploymentPanel() {
                 />
               )}
               <div className="dbg-k">{FORCE_SCALES[spec.scale].detail}</div>
+              {(spec.template ?? "standard") !== "standard" && (
+                <div className="dbg-k">{FORCE_TEMPLATES[spec.template!].detail}</div>
+              )}
             </div>
           );
         })}

@@ -93,6 +93,9 @@ function ftControlled(world: World, ft: World["fireteams"][number]): boolean {
  * 移動技術は小隊長の指示をそのまま流す。接敵時のベース・オブ・ファイア/機動役の
  * 割り当ては分隊長の裁量(仕様 §6 Fire and Movement の実行判断は分隊長の責務)。
  */
+/** 分散型のドクトリン(`[v7.7]`)で、2個FTを軸の左右へ離す距離 m(散開の度合い 1 につき) */
+const DISPERSION_FT_OFFSET = 10;
+
 function directFireteams(world: World, sq: SquadState, idx: LivingIndex): void {
   const fireteams = world.fireteams.filter(
     (f) => f.side === sq.side && f.squadId === sq.squadId,
@@ -177,13 +180,30 @@ function directFireteams(world: World, sq: SquadState, idx: LivingIndex): void {
   const occupy = mk === "seize" ? objectiveCoveringPoint(world, ftObjective) : null;
   const occupySeat = occupy ? occupySlots(occupy, { x: 0, z: 1 }, 1)[0]! : null;
 
+  // ── 散開(`[v7.7]` B-4 分散型のドクトリン)──
+  // 2個FTを、目標へ向かう軸の左右へ離して別々に向かわせる(少人数の班が多方向から動く)。
+  // 屋外の目標へ確保に向かうときだけ。占領の持ち場・建物への接近(扉の手前)は動かさない
+  const dispersion = sideDoctrine(world, sq.side).dispersion;
+  const spreadOf = (ftIdx: number): Vec2 => {
+    if (dispersion <= 1 || mk !== "seize" || buildingAt(world.buildings, ftObjective)) return { x: 0, z: 0 };
+    const men = idx.bySquad.get(`${sq.side}:${sq.squadId}`) ?? [];
+    const from = men.length ? centroid(men) : sq.objective;
+    const axis = dirTo(from, ftObjective);
+    const lat = (ftIdx === 0 ? -1 : 1) * DISPERSION_FT_OFFSET * (dispersion - 1);
+    return { x: -axis.z * lat, z: axis.x * lat };
+  };
+
   for (const [ftIdx, ft] of fireteams.entries()) {
     // 人間が操作しているFTには再割り当てを行わない(仕様 §4、小隊長と同じ理由)
     if (ftControlled(world, ft)) continue;
 
     // 任務目標と移動技術は上から下へそのまま伝播する。
     // 占領中の突撃組だけ、判定円の中の持ち場に差し替える(`[v6.9]`)
-    ft.objective = occupySeat && ftIdx === 0 ? { ...occupySeat } : { ...ftObjective };
+    const sp = spreadOf(ftIdx);
+    ft.objective =
+      occupySeat && ftIdx === 0
+        ? { ...occupySeat }
+        : { x: ftObjective.x + sp.x, z: ftObjective.z + sp.z };
     ft.technique = ftTechnique;
     ft.watch = sq.watch ? { ...sq.watch } : null; // 警戒方向(`[v6.16]`)
     // support_by_fire は全FTをベース・オブ・ファイアに固定して踏み込ませない
