@@ -32,6 +32,13 @@ export function ObjectivePanel() {
         <span>OBJECTIVES</span>
         <span>{assault ? `攻防戦 — 攻 ${attacker.toUpperCase()}` : "過半数の保持で勝利"}</span>
       </div>
+      {assault && !mmss && !victory && (
+        // `[v7.6]` 制限時間なし。攻撃側が過半数を奪って保持するか、戦力が尽きるまで続く
+        <div className="obj-clock">
+          <span>時間無制限</span>
+          <span className="hint">決着まで続く</span>
+        </div>
+      )}
       {assault && mmss && (
         // 攻防戦は時間が防御側の武器なので、残り時間は拠点と同じ強さで出す(仕様 §12)
         <div className={timeLeftSec !== null && timeLeftSec < 120 ? "obj-clock obj-clock-low" : "obj-clock"}>
