@@ -188,12 +188,17 @@ function friendlyBlocksFire(world: World, shooter: Soldier, target: Soldier): bo
 }
 
 /**
- * 交戦対象の選択。**戦闘可能な敵を常に優先する**。
+ * 交戦対象の選択。**戦闘可能な敵だけを狙う**。
  *
- * 倒れている敵(WIA)も撃てるが、それは他に撃つべき相手がいない場合に限る。
- * 仕様 §9 の即死ルール(「倒れている兵士を無防備に放置するリスクを明確化」)は
- * この後回しの選択で成立する — 通常の撃ち合いの最中に負傷者へ火力が逸れると、
- * 逆に「倒せば安全」という誤った圧力が生まれてしまう。
+ * `[v7.4]` 倒れている敵(WIA)は直接射撃の目標にしない。行動不能の負傷者は戦闘外
+ * (hors de combat)であり、狙って撃つことは戦時国際法(第1追加議定書41条、
+ * 米国防総省 Law of War Manual §5.9)が禁じている。戦術的にも、弾と位置を晒して
+ * 戦えない相手を撃つ理由はない。以前は「他に撃つ相手がいなければ負傷者を撃つ」
+ * としていたため、戦える敵が見えなくなると負傷者を死ぬまで撃ち続けていた。
+ *
+ * 仕様 §9 の即死ルール(行動不能中の追加被弾は即時戦死)は残る。効くのは、
+ * 正当な目標を狙った擲弾などの範囲攻撃に負傷者が巻き込まれた場合(付随的損害)。
+ * 負傷者の手当てをしている健常な兵士は、これまでどおり正当な目標。
  */
 function nearestVisibleTarget(world: World, shooter: Soldier): Soldier | null {
   // `[v6.3]` FTリーダーが指定した目標を最優先する(火力の配分、ATP 3-21.8)。
@@ -212,25 +217,47 @@ function nearestVisibleTarget(world: World, shooter: Soldier): Soldier | null {
   }
   let best: Soldier | null = null;
   let bestD = Infinity;
-  let downed: Soldier | null = null;
-  let downedD = Infinity;
   for (const id of shooter.sees) {
     const t = world.soldierById.get(id);
-    if (!t || t.status === "kia" || isOffField(t)) continue;
+    if (!t || t.status !== "ok" || isOffField(t)) continue;
     // `[v7.2]` 機関銃陣地に就いている射手は射界の外を撃たない(S-1)
     if (!inSector(shooter, t.pos)) continue;
     const d = Math.hypot(t.pos.x - shooter.pos.x, t.pos.z - shooter.pos.z);
-    if (t.status === "ok") {
-      if (d < bestD) {
-        bestD = d;
-        best = t;
-      }
-    } else if (d < downedD) {
-      downedD = d;
-      downed = t;
+    if (d < bestD) {
+      bestD = d;
+      best = t;
     }
   }
-  return best ?? downed;
+  return best;
+}
+
+/**
+ * 被弾の適用。行動不能中への追加被弾は即死(仕様 §9 の即死ルール)。
+ *
+ * `[v7.4]` 直接射撃は負傷者を狙わない(`nearestVisibleTarget`)ので、`wasDowned` が
+ * 真になるのは擲弾などの範囲攻撃に巻き込まれた場合。テストから規則そのものを
+ * 確かめられるよう、戦闘ループの外に出してある。
+ */
+export function applyHit(world: World, target: Soldier, wasDowned: boolean, lethal: boolean): void {
+  if (wasDowned) {
+    target.status = "kia";
+    target.bleedOutTick = 0;
+    target.assignedAider = null;
+    return;
+  }
+  if (lethal) {
+    target.status = "kia";
+    target.path = [];
+    target.pathIdx = 0;
+    target.bleedOutTick = 0;
+    return;
+  }
+  if (target.status === "ok") {
+    target.status = "wia";
+    target.path = [];
+    target.pathIdx = 0;
+    target.bleedOutTick = world.tick + Math.round(BLEED_OUT_SEC / SIM_DT);
+  }
 }
 
 interface PendingShot {
@@ -415,29 +442,6 @@ export function combatSystem(world: World): void {
   }
 
   // ── 適用フェーズ ──
-  /** 被弾の適用。行動不能中への追加被弾は即死(仕様 §9)。 */
-  const applyHit = (target: Soldier, wasDowned: boolean, lethal: boolean): void => {
-    if (wasDowned) {
-      target.status = "kia";
-      target.bleedOutTick = 0;
-      target.assignedAider = null;
-      return;
-    }
-    if (lethal) {
-      target.status = "kia";
-      target.path = [];
-      target.pathIdx = 0;
-      target.bleedOutTick = 0;
-      return;
-    }
-    if (target.status === "ok") {
-      target.status = "wia";
-      target.path = [];
-      target.pathIdx = 0;
-      target.bleedOutTick = world.tick + Math.round(BLEED_OUT_SEC / SIM_DT);
-    }
-  };
-
   for (const {
     shooter,
     target,
@@ -484,7 +488,7 @@ export function combatSystem(world: World): void {
     if (outcome.hit) {
       // 即死ルール(仕様 §9): 行動不能中の兵士への追加被弾は、安定化・後送状況に
       // 関係なく即時戦死。倒れた味方を無防備に放置するリスクを明確化するための規則。
-      applyHit(target, targetWasDowned, outcome.lethal);
+      applyHit(world, target, targetWasDowned, outcome.lethal);
     }
     // 制圧は、制圧役が目標へ発砲し続けている間だけ持続する(§8.6)。
     // `[v6.3]` かつ有効射程内であること — 遠距離の散発的な射撃は制圧にならない。
@@ -505,7 +509,7 @@ export function combatSystem(world: World): void {
   for (const g of grenades) {
     for (const v of g.victims) {
       const wasDowned = v.status !== "ok";
-      applyHit(v, wasDowned, chance(world.rngBySide[g.side], KIA_ON_HIT_CHANCE));
+      applyHit(world, v, wasDowned, chance(world.rngBySide[g.side], KIA_ON_HIT_CHANCE));
     }
     // 爆発音は着弾点から響く(`[v7.3]` A-5)。投げた者の位置ではない
     world.gunshots.push({
