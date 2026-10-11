@@ -48,6 +48,20 @@ describe("攻防非対称戦(仕様 §12)`[v6.8]`", () => {
     expect(w.victory!.reason).toBe("timeout");
   });
 
+  it("`[v7.6]` 制限時間 0 は無制限 — 時間切れにならず、選択肢は2分〜2時間と無制限", () => {
+    const w = createWorld(assaultScenario(0));
+    expect(w.timeLimitTicks).toBe(0);
+    // 両軍を拠点から遠ざけて、拠点でも殲滅でも決着しない状態で長く回す
+    for (const s of w.soldiers) s.pos = s.side === "blue" ? { x: -100, z: -90 } : { x: 100, z: 90 };
+    w.tick = 4 * 3600 * SIM_HZ; // 4時間たったことにする
+    runTicks(w, 5);
+    expect(w.victory).toBeNull();
+    const steps = OBJECTIVE.TIME_LIMIT_STEPS_SEC;
+    expect(steps[0]).toBe(120);
+    expect(steps[steps.length - 2]).toBe(7200);
+    expect(steps[steps.length - 1]).toBe(0);
+  });
+
   it("防御側は開始直後には勝てない(遭遇戦の規則がそのまま当たらない)", () => {
     const w = createWorld(assaultScenario(600));
     // 遭遇戦の規則なら「過半数を HOLD_TO_WIN_SEC 保持」で防御側が即勝ちしてしまう
