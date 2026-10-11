@@ -161,6 +161,7 @@ barbed wire, a forward position and an ambush.
   kept apart from enemy-soldier contacts and goes up the radio late, like everything else. The ground
   sees farther than the drone does, so the ground usually notices first. A squad that notices one
   ducks into a nearby building, smokes its way across open ground, or goes prone, and stops advancing.
+  The drone spots movers at once, but takes a few seconds to pick out men lying still.
 - **Anti-armour weapons.** One gunner per rifle squad carries two rounds that break enemies dug in
   behind windows, fighting positions and machine-gun posts, cover and all (the position is destroyed).
   AI, humans and LLMs fire them under the same rules.

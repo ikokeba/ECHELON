@@ -17,7 +17,8 @@
  * (ロードマップ P4)。乱数は引かない(P3)、陣営で分岐しない(P2)。
  */
 
-import { DRONE, SIM_HZ } from "../constants.ts";
+import { DRONE, SIM_DT, SIM_HZ } from "../constants.ts";
+import { chance, ratePerTick } from "../rng.ts";
 import { insideBounds } from "../cqb.ts";
 import { isOffField } from "./litter.ts";
 import { smokeRadius } from "./smoke.ts";
@@ -92,6 +93,22 @@ function visibleFromAbove(world: World, s: Soldier): boolean {
   return true;
 }
 
+/**
+ * 視界の中のその兵士を、このティックに見つけるか(`[v7.5]` ロードマップ A-9)。
+ *   - 動いている者は確実に見る(動きは熱線でも可視光でも目立つ)
+ *   - 前のティックから捉え続けている者は見失わない(一度見つけた相手は追い続ける)
+ *   - 止まっている者は毎秒 `SPOT_RATE_STILL`、伏せている者・射撃壕に就いている者は
+ *     `SPOT_RATE_CONCEALED` の確率で見つける。熱線があるので、隠れても数秒で見つかる程度
+ * 乱数はドローン側の陣営の乱数列から引く(P3)。引くのは「止まっていて、まだ捉えていない」ときだけ
+ */
+function spots(world: World, d: Drone, s: Soldier, tracked: Contact | undefined): boolean {
+  if (s.pathIdx < s.path.length) return true;
+  if (tracked && tracked.lastSeenTick >= world.tick - 1) return true;
+  // 屋外で `atWindow` が立つのは射撃壕に就いている者(窓は屋内なので、そもそも上から見えない)
+  const rate = s.prone || s.atWindow ? DRONE.SPOT_RATE_CONCEALED : DRONE.SPOT_RATE_STILL;
+  return chance(world.rngBySide[d.side], ratePerTick(rate, SIM_DT));
+}
+
 /** 空にいる間、真下の範囲を見る。見たものは操縦手の記憶(`belief`)へ */
 function observe(world: World, d: Drone): void {
   for (const s of world.soldiers) {
@@ -100,6 +117,7 @@ function observe(world: World, d: Drone): void {
     if (!visibleFromAbove(world, s)) continue;
     const key = `s${s.id}`;
     const c = d.belief.get(key);
+    if (!spots(world, d, s, c)) continue;
     if (c) {
       c.pos = { x: s.pos.x, z: s.pos.z };
       c.lastSeenTick = world.tick;
