@@ -31,6 +31,8 @@ import type { Contact, Drone, Soldier, UasContacts } from "../types.ts";
 import type { World } from "../world.ts";
 
 const SECTOR_RAD = (Math.PI * 2) / HEARING.BEARING_SECTORS;
+/** 操縦手の方向の接触は、音の接触と同じだけ「前に見た」扱いにする(A-11) */
+const OPERATOR_AGE_TICKS = Math.round(HEARING.AGE_SEC * SIM_HZ);
 
 /** ドローンの接触のキー。1機につき1件(目で見ても、聞いても同じ件を更新する) */
 export function uasKey(droneId: number): string {
@@ -108,6 +110,80 @@ function decay(mem: UasContacts, tick: number): void {
     c.confidence = decayedConfidence(age);
     c.posError = posErrorOf(c, age);
     if (c.confidence < CONFIDENCE_CUTOFF) mem.delete(key);
+  }
+}
+
+/**
+ * その兵士が見た**敵兵**を入れる記憶(`[v7.5]` A-11)。FTの隊員はFTの記憶、FTに属さない分隊長・
+ * 本部要員は本人の指揮官の像。ドローンの接触(`memoryOf`)とは別の地図
+ */
+function soldierMemoryOf(world: World, s: Soldier): Map<string, Contact> | null {
+  if (s.fireteamId >= 0) {
+    const ft = world.fireteams.find(
+      (f) => f.side === s.side && f.squadId === s.squadId && f.ftIndex === s.fireteamId,
+    );
+    if (ft) return ft.memory;
+  }
+  if (s.squadId >= 0) {
+    return world.squads.find((q) => q.side === s.side && q.squadId === s.squadId)?.belief ?? null;
+  }
+  if (s.platoonId >= 0) {
+    return (
+      world.platoons.find((p) => p.side === s.side && p.platoonId === s.platoonId)?.belief ?? null
+    );
+  }
+  return (
+    world.companies.find((c) => c.side === s.side && c.companyId === s.companyId)?.belief ?? null
+  );
+}
+
+/**
+ * 操縦手のいる方向(`[v7.5]` ロードマップ A-11)。
+ *
+ * 電池交換に戻っていくドローンを**目で見た**者は、その進む方向に操縦手がいると分かる。
+ * 進む方向の `OPERATOR_GUESS` m 先に、**方角だけの弱い接触**を敵兵の接触として置く。
+ * 音による察知(A-5)の接触と同じ扱い — 確度は最初から 0.5 未満(`heard`)なので、交戦・擲弾・
+ * 迫撃砲の目標にはならず、警戒の向きと上への報告にだけ効く。操縦手はすでに優先目標
+ * (c2/fireControl.ts)なので、この方向を見に行って見つけられれば叩ける。
+ *
+ * 進む方向は、目に見えるドローンの動き(いまの位置から帰る先への向き)から取る。操縦手の位置
+ * そのものは使わない — 距離は当て推量で、誤差円は `OPERATOR_ERROR` m(ロードマップ P1)。
+ * キーはドローンごとに1件(`hop.<id>` — 兵士のキー `s<id>` と衝突しない)
+ */
+function operatorBearings(world: World): void {
+  for (const d of world.drones) {
+    if (d.state !== "returning") continue;
+    const op = world.soldierById.get(d.operatorId);
+    if (!op) continue;
+    const hx = op.pos.x - d.pos.x;
+    const hz = op.pos.z - d.pos.z;
+    const len = Math.hypot(hx, hz);
+    if (len < 1) continue;
+    const b = world.bounds;
+    const pos = {
+      x: Math.min(b.maxX, Math.max(b.minX, d.pos.x + (hx / len) * UAS_DETECT.OPERATOR_GUESS)),
+      z: Math.min(b.maxZ, Math.max(b.minZ, d.pos.z + (hz / len) * UAS_DETECT.OPERATOR_GUESS)),
+    };
+    const done = new Set<Map<string, Contact>>();
+    for (const s of world.soldiers) {
+      if (!s.seesUas?.includes(d.id)) continue;
+      const mem = soldierMemoryOf(world, s);
+      if (!mem || done.has(mem)) continue;
+      done.add(mem);
+      const key = `hop.${d.id}`;
+      const c: Contact = {
+        key,
+        side: d.side,
+        pos,
+        posError: UAS_DETECT.OPERATOR_ERROR,
+        hopError: 0,
+        heardError: UAS_DETECT.OPERATOR_ERROR,
+        lastSeenTick: world.tick - OPERATOR_AGE_TICKS,
+        confidence: decayedConfidence(HEARING.AGE_SEC),
+        heard: true,
+      };
+      mem.set(key, c);
+    }
   }
 }
 
@@ -192,6 +268,8 @@ export function uasDetectionSystem(world: World): void {
       }
     }
   }
+
+  operatorBearings(world);
 
   // FTの記憶はここで減衰させる(分隊長・小隊長・中隊長の像は無線システムが減衰させる)
   for (const ft of world.fireteams) if (ft.uas.size > 0) decay(ft.uas, world.tick);

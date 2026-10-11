@@ -198,7 +198,7 @@ export function DeploymentPanel() {
                 </label>
                 <label
                   className="dbg-chk"
-                  title="対ドローン装備(`[v7.5]`)。小銃分隊に1名(ブラボー組のFTリーダー)。40m 以内のドローンを高い確率で撃ち落とせる。撃てば銃声で位置が知られる"
+                  title="対ドローン装備(`[v7.5]`)。小銃分隊に1名(ブラボー組のFTリーダー)。近く(高さ込みで40m 以内)のドローンを撃ち落としやすい。撃てば銃声で位置が知られる。既定はなし"
                 >
                   <input
                     type="checkbox"

@@ -35,7 +35,8 @@ export function shootRate(world: World, s: Soldier, d: Drone): number {
   if (!s.seesUas?.includes(d.id)) return 0;
   const sq = world.squads.find((q) => q.side === s.side && q.squadId === s.squadId);
   if (sq?.uasReact) return 0;
-  const r = Math.hypot(d.pos.x - s.pos.x, d.pos.z - s.pos.z);
+  // 斜めの距離(ドローンは高さ `ALTITUDE` を飛んでいる)
+  const r = Math.hypot(d.pos.x - s.pos.x, d.pos.z - s.pos.z, UAS_SHOOT.ALTITUDE);
   const kit = s.quals.counterUas === true;
   if (kit && r <= UAS_SHOOT.KIT_RANGE) return UAS_SHOOT.KIT_RATE;
   if (r > UAS_SHOOT.RIFLE_RANGE) return 0;

@@ -65,10 +65,10 @@ describe("対ドローン装備(`[v7.5]` A-10)— 編成", () => {
 });
 
 describe("撃つ・落とす(`[v7.5]` A-10)", () => {
-  it("対ドローン装備の持ち主は、40m 以内のドローンを高い確率で落とす。撃てば銃声が鳴る", () => {
+  it("対ドローン装備の持ち主は、届く範囲のドローンを高い確率で落とす。撃てば銃声が鳴る", () => {
     for (const seed of [1, 2, 3]) {
       const w = world(seed);
-      const { s, d } = setup(w, (x) => x.quals.counterUas === true, 30);
+      const { s, d } = setup(w, (x) => x.quals.counterUas === true, 20);
       w.tick = seed * 7;
       let shots = 0;
       let downed = -1;
@@ -89,16 +89,21 @@ describe("撃つ・落とす(`[v7.5]` A-10)", () => {
     }
   });
 
-  it("小銃は当たりにくい。毎秒の確率が装備より低く、60m より遠くは撃たない", () => {
+  it("小銃は当たりにくい。毎秒の確率が装備より低く、届かない距離は撃たない(距離は高さを含む)", () => {
     const w = world();
     const { s, d } = setup(w, (x) => x.quals.counterUas === true, 50);
     uasDetectionSystem(w);
     // 装備の距離(40m)の外なので小銃で撃つ
     expect(shootRate(w, s, d)).toBe(UAS_SHOOT.RIFLE_RATE);
     expect(UAS_SHOOT.RIFLE_RATE).toBeLessThan(UAS_SHOOT.KIT_RATE);
-    d.pos = { x: s.pos.x + 30, z: s.pos.z };
+    // 距離は高さを含めた斜めの距離。水平20m なら装備の届く範囲
+    d.pos = { x: s.pos.x + 20, z: s.pos.z };
     uasDetectionSystem(w);
     expect(shootRate(w, s, d)).toBe(UAS_SHOOT.KIT_RATE);
+    d.pos = { x: s.pos.x + 35, z: s.pos.z };
+    uasDetectionSystem(w);
+    expect(Math.hypot(35, UAS_SHOOT.ALTITUDE)).toBeGreaterThan(UAS_SHOOT.KIT_RANGE);
+    expect(shootRate(w, s, d)).toBe(UAS_SHOOT.RIFLE_RATE);
     d.pos = { x: s.pos.x + UAS_SHOOT.RIFLE_RANGE + 5, z: s.pos.z };
     uasDetectionSystem(w);
     expect(shootRate(w, s, d)).toBe(0);

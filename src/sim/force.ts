@@ -57,7 +57,8 @@ export interface ForceSpec {
   drone?: boolean;
   /**
    * 対ドローン装備(`[v7.5]` ロードマップ A-10)。小銃分隊に1名(ブラボー組のFTリーダー)が持つ。
-   * 頭数は変わらない(資格の追加)。画面の既定はあり、テストの既定(`DEFAULT_FORCE`)はなし
+   * 頭数は変わらない(資格の追加)。**既定はなし**(画面・テストとも)。計測では、全分隊に持たせると
+   * 観測ドローンが1分ほどで落ち、ドローン側の優位が逆転した(仕様 §10 `[v7.5]`)
    */
   counterUas?: boolean;
   /**
@@ -167,14 +168,12 @@ export function playForce(): Record<Side, ForceSpec> {
       ...DEFAULT_FORCE,
       antiArmor: true,
       drone: true,
-      counterUas: true,
       reinforcement: { ...DEFAULT_REINFORCEMENT },
     },
     red: {
       ...DEFAULT_FORCE,
       antiArmor: true,
       drone: true,
-      counterUas: true,
       reinforcement: { ...DEFAULT_REINFORCEMENT },
     },
   };
