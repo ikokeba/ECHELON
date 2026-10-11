@@ -505,15 +505,22 @@ export function companyAI(world: World): void {
       if (held && (!allowHolder || held.owner !== co.side)) return;
       const c = plCentroidOf(pl);
       if (!c) return;
-      let best: (typeof unclaimed)[number] | null = null;
-      let bestD = Infinity;
-      for (const o of unclaimed) {
-        if (takenObj.has(o.id)) continue;
-        const d = dist(c, o.pos);
-        if (d >= bestD - 1e-9) continue;
-        bestD = d;
-        best = o;
-      }
+      const nearest = (free: boolean): (typeof unclaimed)[number] | null => {
+        let best: (typeof unclaimed)[number] | null = null;
+        let bestD = Infinity;
+        for (const o of unclaimed) {
+          if (free && takenObj.has(o.id)) continue;
+          const d = dist(c, o.pos);
+          if (d >= bestD - 1e-9) continue;
+          bestD = d;
+          best = o;
+        }
+        return best;
+      };
+      // 誰も受け持っていない拠点が先。残っていなければ、受け持たれている拠点へ加勢する — 作戦の
+      // 任務を持ったまま兵の減った小隊がいると、後から来た小隊(増援など)が「受け持ち済み」として
+      // 何もしなかった(時間無制限の攻防戦で、12名の小隊が拠点の横で10分座っていた)
+      const best = nearest(true) ?? nearest(false);
       if (!best) return;
       takenObj.add(best.id);
       claimed.set(pl.platoonId, { ...best.pos });

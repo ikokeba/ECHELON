@@ -1329,7 +1329,13 @@ export interface VictoryState {
    * `annihilation` 戦力の枯渇
    * `timeout`      攻防戦で制限時間まで持ちこたえた(防御側の勝ち)`[v6.8]`
    */
-  reason: "objectives" | "annihilation" | "timeout";
+  /**
+   * `culmination` `[v7.6]` 攻勢の限界。時間無制限の攻防戦で、拠点も戦力も長く動かないまま攻撃側が
+   *                過半数に届かない(防御側の勝ち)
+   * `adjudication` `[v7.6]` 膠着の裁定。遭遇戦で長く何も動かない — 拠点を多く持つ側、同じなら
+   *                戦える兵の多い側の勝ち
+   */
+  reason: "objectives" | "annihilation" | "timeout" | "culmination" | "adjudication";
   tick: number;
 }
 

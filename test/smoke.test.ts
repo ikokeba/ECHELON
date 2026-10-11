@@ -137,8 +137,14 @@ describe("AIの分隊長は煙で隠して渡る(`[v7.2]` S-2)", () => {
       for (const s of w.smokes) {
         if (before.includes(s.id)) continue;
         thrown++;
-        const sq = w.squads.find((q) => q.side === s.side && q.lastSmokeTick === s.sinceTick)!;
-        expect(sq).toBeDefined();
+        // 同じティックに複数の分隊が焚くことがある。焚いた分隊は、分隊長が煙に最も近いもの
+        const cands = w.squads.filter((q) => q.side === s.side && q.lastSmokeTick === s.sinceTick);
+        expect(cands.length).toBeGreaterThan(0);
+        const near = (q: (typeof cands)[number]) => {
+          const p = w.soldierById.get(q.commanderId!)!.pos;
+          return Math.hypot(p.x - s.pos.x, p.z - s.pos.z);
+        };
+        const sq = [...cands].sort((a, b) => near(a) - near(b))[0]!;
         const sl = w.soldierById.get(sq.commanderId!)!;
         expect(Math.hypot(sl.pos.x - s.pos.x, sl.pos.z - s.pos.z)).toBeLessThanOrEqual(SMOKE.THROW_RANGE + 2);
         // 根拠にした敵の像が分隊長の belief にある(真の敵位置は使っていない)
