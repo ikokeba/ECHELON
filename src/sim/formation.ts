@@ -210,6 +210,8 @@ export function formationSlots(
     coverPoints?: CoverIndex;
     /** 露出回避度(`[v6.1]` 陣営別 coverPref)。既定 1 で現行挙動 */
     coverPref?: number;
+    /** 隊形の間隔の倍率(`[v7.7]` ドクトリンの散開の度合い)。既定 1 で現行挙動 */
+    spread?: number;
   },
 ): FormationSlot[] {
   const tier = decideTier(corridorWidth(walls, leader, dir));
@@ -222,10 +224,11 @@ export function formationSlots(
     // 隊員が4名を超える場合はオフセットを巡回させ、周回ごとに後方へずらす
     const off = offsets[i % offsets.length]!;
     const lap = Math.floor(i / offsets.length);
-    const along = off.along - lap * 2.2;
+    const k = opts?.spread ?? 1;
+    const along = (off.along - lap * 2.2) * k;
     let p: Vec2 = {
-      x: leader.x + dir.x * along + right.x * off.lateral,
-      z: leader.z + dir.z * along + right.z * off.lateral,
+      x: leader.x + dir.x * along + right.x * off.lateral * k,
+      z: leader.z + dir.z * along + right.z * off.lateral * k,
     };
     p = clampToWalkable(walls, p, leader);
     if (opts?.contacts && opts.coverPoints) {

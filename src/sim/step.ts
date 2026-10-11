@@ -21,6 +21,8 @@ import { windowsSystem } from "./systems/windows.ts";
 import { casualtiesSystem } from "./systems/casualties.ts";
 import { litterSystem } from "./systems/litter.ts";
 import { crewServedSystem } from "./systems/crewServed.ts";
+import { trapSystem } from "./systems/traps.ts";
+import { tunnelSystem } from "./systems/tunnel.ts";
 import { objectivesSystem } from "./systems/objectives.ts";
 import { fireteamAI } from "./c2/fireteam.ts";
 import { squadAI } from "./c2/squad.ts";
@@ -78,6 +80,8 @@ export function stepWorld(world: World): void {
   defenseSystem(world);
   // 5. 経路要求 — 移動系の命令をウェイポイント列へ変換する
   pathingSystem(world);
+  // 5.5 トンネル(`[v7.7]` B-4)。地下を出る・入る。入った兵はこのティックから動かない
+  tunnelSystem(world);
   // 6. 移動 — 経路と命令の向きを消費する
   movementSystem(world);
   // 7. 分離 — 兵士同士の重なりをほぐす(移動の直後、戦闘の判定前)
@@ -85,6 +89,8 @@ export function stepWorld(world: World): void {
   // 8. 戦闘 — 交戦・命中判定・制圧の適用
   // 窓に就いているかは位置から決まるので、移動が終わったこの時点で確定する(`[v6.10]`)
   windowsSystem(world);
+  // 仕掛け爆弾(`[v7.7]` B-4)。移動で位置が決まったあと、戦闘の前に踏む・気づく
+  trapSystem(world);
   // 迫撃砲の着弾は**戦闘判定の前**(`[v6.9]`)。着弾の制圧が、その同じティックの
   // 射撃に効くようにするため(仕様 §8.6)。要請もここで出るので、中隊長の判断は
   // 常に「このティックの開始時点の像」に対して行われる。

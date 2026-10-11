@@ -17,13 +17,14 @@
  *      AI の候補選びも人間の置き直しもここを通る
  */
 
-import { DEFENSE, SIM_HZ } from "../constants.ts";
+import { DEFENSE, SIM_HZ, TRAP } from "../constants.ts";
 import { aiSuppressed, type ControlState } from "../control.ts";
 import { insideBounds } from "../cqb.ts";
 import { castRayIndexed, collidesWallIndexed, hasLineOfSightIndexed } from "../wallIndex.ts";
 import { isOffField } from "../systems/litter.ts";
 import { issue } from "./fireteam.ts";
 import { isDefender } from "./planning.ts";
+import { setupTunnels } from "../systems/tunnel.ts";
 import type {
   AABB,
   CompanyState,
@@ -328,6 +329,55 @@ export function planDefense(world: World, co: CompanyState): Omit<DefensivePosit
       }
     }
   }
+
+  // ── `[v7.7]` 仕掛け爆弾(ロードマップ B-4 混成型の編成)。これも既存の陣地のあとに並べる ──
+  if (world.template[co.side] === "hybrid") {
+    for (const t of co.plan.tasks) {
+      if (t.objectiveId === null) continue;
+      const o = world.objectives.find((x) => x.id === t.objectiveId);
+      if (!o) continue;
+      for (const p of trapSpots(world, o.pos, fwd).slice(0, TRAP.PER_OBJECTIVE)) {
+        if (out.some((q) => q.kind === "trap" && dist(q.pos, p) < 2)) continue;
+        out.push({
+          side: co.side,
+          kind: "trap",
+          pos: p,
+          facing: { ...fwd },
+          objectiveId: o.id,
+          crew: null,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * 仕掛け爆弾を置く候補(`[v7.7]`)。拠点が建物の中なら、その建物の外扉の外側(敵の方角に近い扉から)。
+ * 建物の外なら、拠点の前方の接近路に扇状に。置ける場所(`defenseSpotBlocker`)だけ
+ */
+function trapSpots(world: World, at: Vec2, fwd: Vec2): Vec2[] {
+  const ok = (p: Vec2): boolean => defenseSpotBlocker(world, p) === null;
+  const b = world.buildings.find((x) => insideBounds(x.bounds, at));
+  if (b) {
+    return b.doors
+      .filter((d) => d.exterior)
+      .map((d) => ({
+        p: { x: d.pos.x - d.normal.x * TRAP.DOOR_OFFSET, z: d.pos.z - d.normal.z * TRAP.DOOR_OFFSET },
+        // 敵の方角(前方)を向いた扉ほど先。同じなら扉の id の順(決定論)
+        score: -(d.normal.x * fwd.x + d.normal.z * fwd.z),
+        id: d.id,
+      }))
+      .filter((c) => ok(c.p))
+      .sort((a, b2) => b2.score - a.score || a.id - b2.id)
+      .map((c) => c.p);
+  }
+  const out: Vec2[] = [];
+  for (const ang of TRAP.OPEN_ANGLES_DEG) {
+    const ray = rotate(fwd, ang);
+    const p = { x: at.x + ray.x * TRAP.OPEN_R, z: at.z + ray.z * TRAP.OPEN_R };
+    if (ok(p)) out.push(p);
+  }
   return out;
 }
 
@@ -478,6 +528,8 @@ export function setupDefense(world: World): void {
   applyAlternates(world);
   applyWire(world);
   occupyPositions(world);
+  // `[v7.7]` トンネル(B-4 混成型の編成)。陣地と同じく立案のたびに掘り直す
+  setupTunnels(world);
 }
 
 /**

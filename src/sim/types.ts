@@ -493,6 +493,11 @@ export interface Soldier {
    */
   seesUas?: number[];
   /**
+   * トンネルの中を移動している(`[v7.7]` B-4 混成型の編成)。入っている間は盤上にいない扱いで
+   * (`isOffField`)、見えず撃たれず撃てない。`arriveTick` に `exit` へ出る
+   */
+  tunnel?: { id: number; exit: Vec2; arriveTick: number } | null;
+  /**
    * 最後に自分を撃ってきた者の位置と、それを覚えている期限(`[v7.1]` 個人の戦闘動作)。
    * 「撃たれたら撃ってきた方を向く」に使う。見えていない敵の位置を知る手段ではなく、
    * 向きを変えるきっかけにだけ使う(そこから先は自分の目で見る、仕様 §5)
@@ -1212,6 +1217,8 @@ export interface Scenario {
    * (従来どおり)。持たない陣営は射撃要請が `no_mortar` で通らない
    */
   mortar?: Partial<Record<Side, boolean>>;
+  /** 編成の型(`[v7.7]` B-4)。未指定の陣営は標準 */
+  forceTemplate?: Partial<Record<Side, "standard" | "drone" | "hybrid">>;
   ccp?: Record<Side, Vec2>;
   /** 建物(仕様 §7)。屋外と屋内はシームレスな1つのマップとして扱う */
   buildings?: Building[];
@@ -1396,7 +1403,9 @@ export type FxEvent =
       victims: number;
     }
   /** 自爆ドローンの起爆(`[v7.7]` B-2)。`radius` は殺傷半径 */
-  | { kind: "fpv"; at: Vec2; side: Side; radius: number; victims: number };
+  | { kind: "fpv"; at: Vec2; side: Side; radius: number; victims: number }
+  /** 仕掛け爆弾の炸裂(`[v7.7]` B-4)。`side` は仕掛けた側 */
+  | { kind: "trap"; at: Vec2; side: Side; radius: number; victims: number };
 
 /**
  * そのティックに鳴った銃声・爆発音1つ(`[v7.3]` ロードマップ A-5)。
@@ -1470,8 +1479,10 @@ export interface Drone {
  *               撃ち合いながら敵を遅らせ、押されたら拠点(第2線)へ下がる
  *   ambush    : `[v7.3]` 待ち伏せ(A-4、L字型)。1個分隊が接近路の脇に伏せ、敵が殺傷地帯に
  *               入るまで撃たない。`pos` は側面の組(長辺)の位置、`killZone` が殺傷地帯の中心
+ *   trap      : `[v7.7]` 仕掛け爆弾(B-4 混成型の編成)。拠点の建物の入口の外・接近路に置き、
+ *               敵が踏めば炸裂する1回きりの罠。気づかれれば外される(stage released)
  */
-export type DefenseKind = "mg" | "fighting" | "alternate" | "wire" | "forward" | "ambush";
+export type DefenseKind = "mg" | "fighting" | "alternate" | "wire" | "forward" | "ambush" | "trap";
 
 /**
  * 防衛陣地1つ(`[v7.2]` ロードマップ S-1)。防衛側の中隊長が戦闘前に置く。
@@ -1502,6 +1513,21 @@ export interface DefensivePosition {
   stage?: "set" | "sprung" | "withdraw" | "released";
   /** stage に入ったティック */
   stageTick?: number;
+}
+
+/**
+ * トンネル(`[v7.7]` ロードマップ B-4 混成型の編成)。防御側の中隊長が立案のときに、拠点の建物と
+ * 後方(または別の拠点)の建物を結ぶ。**攻撃側には見えない**(陣地と同じ、P1)。
+ * 自軍の兵は、いる建物と目指す建物がトンネルで結ばれていれば、地下を通って移動する(誰が操っていても同じ)
+ */
+export interface Tunnel {
+  id: number;
+  side: Side;
+  /** 両端。`pos` は建物の中の出入口 */
+  a: { buildingId: number; pos: Vec2 };
+  b: { buildingId: number; pos: Vec2 };
+  /** 地下の道のりの長さ m(移動にかかる時間を決める) */
+  length: number;
 }
 
 /** 人間が立案時に置き直した陣地(初期条件コードに載る、ロードマップ P3)。`idx` は AI 案での並び順 */

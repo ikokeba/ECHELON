@@ -56,7 +56,8 @@ export function isCommittedToLitter(s: Soldier): boolean {
  * どちらも生存者としてカウントされるが、描画・索敵・戦闘の対象からは外れる。
  */
 export function isOffField(s: Soldier): boolean {
-  return s.evac === "evacuated" || s.evac === "collected";
+  // `[v7.7]` トンネルの中(B-4)も盤上にいない扱い: 見えず、撃たれず、撃てず、拠点に数えない
+  return s.evac === "evacuated" || s.evac === "collected" || (s.tunnel != null);
 }
 
 /** この負傷者の後送に必要な担架要員数(仕様 §9: 50m超は4名編成を要する)。 */

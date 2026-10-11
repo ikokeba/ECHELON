@@ -56,6 +56,12 @@ export interface Doctrine {
    * 反応するだけなので、後方の砲へ要請が上る経路そのものが無い。
    */
   fireSupport: number;
+  /**
+   * 散開の度合い(`[v7.7]` B-4)。1 = 従来。FTの隊形の間隔と、分隊の2個FTの離れ方に掛かる。
+   * 大きいほど少人数の班がばらばらに動く — 迫撃砲・自爆ドローンの1発で巻き込まれる人数が減る代わりに、
+   * 相互支援が薄くなる。**能力ではなく動き方**の差
+   */
+  dispersion: number;
 }
 
 export const DOCTRINES = {
@@ -69,6 +75,7 @@ export const DOCTRINES = {
     initiative: 0,
     riskTolerance: 0.5,
     fireSupport: 1,
+    dispersion: 1,
   },
   /**
    * 非正規軍。上位の統制は緩いが、現場は勝手に戦える。
@@ -84,6 +91,7 @@ export const DOCTRINES = {
     riskTolerance: 0.42,
     // 呼べるが遅い。要請が上るのにも許可が下りるのにも時間が掛かる
     fireSupport: 0.5,
+    dispersion: 1,
   },
   /**
    * 各兵士が自己判断する陣営。指揮系統は名目上あるが、ほとんど機能しない。
@@ -99,6 +107,38 @@ export const DOCTRINES = {
     riskTolerance: 0.62,
     // 後方の砲へ要請が上る経路そのものが無い(仕様 §13)
     fireSupport: 0,
+    dispersion: 1,
+  },
+  /**
+   * `[v7.7]` 分散型(ロードマップ B-4)。ドローンを目にした少人数の突撃班が、広く散らばって
+   * 多方向から動く。データ網で報告は速く頻繁だが、班は自分の判断で動き(自主性が高い)、
+   * 隊形の間隔と班どうしの距離が広い。重い砲は少ない(ドローン中心の編成と組み合わせる想定)
+   */
+  distributed: {
+    label: "分散型",
+    detail: "少人数の班が広く散らばって動く。報告は速いが、班は自分の判断で動く。重い砲は少ない",
+    decideMul: { company: 1, platoon: 0.8, squad: 0.8 },
+    radioLatencyMul: 0.7,
+    reportIntervalMul: 0.7,
+    initiative: 0.35,
+    riskTolerance: 0.55,
+    fireSupport: 0.5,
+    dispersion: 1.8,
+  },
+  /**
+   * `[v7.7]` 混成型(ロードマップ B-4)。正規の指揮系統と現場の自主性の中間。守りでは陣地に
+   * こだわり(仕掛け爆弾・トンネルの編成と組み合わせる想定)、上位の判断は遅めだが現場は粘る
+   */
+  hybrid: {
+    label: "混成型",
+    detail: "正規の指揮系統と現場の自主性の中間。上位の判断は遅めで、現場がそれを補う",
+    decideMul: { company: 1.6, platoon: 1.3, squad: 1 },
+    radioLatencyMul: 1.6,
+    reportIntervalMul: 1.4,
+    initiative: 0.25,
+    riskTolerance: 0.45,
+    fireSupport: 0.75,
+    dispersion: 1.2,
   },
 } as const satisfies Record<string, Doctrine>;
 
