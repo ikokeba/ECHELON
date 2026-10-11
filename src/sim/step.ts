@@ -19,6 +19,7 @@ import { indirectSystem } from "./systems/indirect.ts";
 import { windowsSystem } from "./systems/windows.ts";
 import { casualtiesSystem } from "./systems/casualties.ts";
 import { litterSystem } from "./systems/litter.ts";
+import { crewServedSystem } from "./systems/crewServed.ts";
 import { objectivesSystem } from "./systems/objectives.ts";
 import { fireteamAI } from "./c2/fireteam.ts";
 import { squadAI } from "./c2/squad.ts";
@@ -94,6 +95,9 @@ export function stepWorld(world: World): void {
   hearingSystem(world);
   // 9. 死傷 — 出血タイマーの進行、応急手当(仕様 §9 前半)
   casualtiesSystem(world);
+  // 9.5 機関銃の射手の交代(`[v7.6]`)。このティックに倒れた射手の銃を、副射手・弾薬手
+  //     (陣地なら近くの小銃手)が受け継ぐ
+  crewServedSystem(world);
   // 10. 後送 — 担架班の編成と搬送(仕様 §9 後半)。分離のあとに走らせて、
   //     担架班を剛体として最終位置へ貼り直す
   litterSystem(world);

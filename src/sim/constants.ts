@@ -793,6 +793,21 @@ export const CQB = {
  * 新しい倍率は作らない(ロードマップ P2)。射撃壕は窓と同じ補正(`WINDOW`)、
  * 機関銃は既存の機関銃(`MG`)を射界の中に据えるだけ。
  */
+/**
+ * 機関銃の射手の交代(`[v7.6]` systems/crewServed.ts。ATP 3-21.8 / FM 3-22.68 の機関銃班)。
+ * 射手が倒れたら副射手 → 弾薬手が銃に就き、班が尽きても陣地の銃には近くの小銃手が就く
+ */
+export const CREW_SERVED = {
+  /** 班の隊員が倒れた射手の銃を受け継げる距離 m(班は射手の斜め後ろ 1.7m に就く) */
+  TAKEOVER_RANGE: 20,
+  /** 銃を構え直すまで自分から撃たない秒数 */
+  TAKEOVER_SEC: 4,
+  /** 射手が「陣地で倒れた」とみなす、陣地からの距離 m */
+  POST_RADIUS: 6,
+  /** 班が尽きたとき、陣地の銃に就く小銃手を探す距離 m(陣地から) */
+  POST_REPLACE_RANGE: 40,
+} as const;
+
 export const DEFENSE = {
   /** 機関銃の射界の半角 rad(±35°) */
   MG_SECTOR_HALF_RAD: (35 * Math.PI) / 180,

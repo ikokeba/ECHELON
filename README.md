@@ -149,6 +149,7 @@ barbed wire, a forward position and an ambush.
   they are being watched over.
 - **Defensive planning.** In attack/defence the defending company commander sites positions from
   terrain alone, without knowing where the attacker is. Machine guns fire only inside their sector,
+  and when a gunner falls the assistant gunner or ammo bearer (at a post, a nearby rifleman) takes over the gun;
   fighting positions give the same cover as windows, and wire stops people but not sight. An L-shaped
   ambush holds its fire until the enemy is in the kill zone, a forward position falls back to the main
   line when pressed, and a lost objective draws a counterattack.
