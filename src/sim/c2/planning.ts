@@ -29,6 +29,7 @@
 
 import { COVER_SEEK, PLANNING } from "../constants.ts";
 import { assembleForBattle } from "./assembly.ts";
+import { placeVehicles } from "../systems/vehicle.ts";
 import { setupDefense } from "./defense.ts";
 import { applyPlanEdits, planLeg } from "./planEdit.ts";
 import { findPathSet } from "../navgrid.ts";
@@ -451,6 +452,8 @@ export function beginPlanning(world: World): void {
   // 計算されてしまい、命令書と部隊の居場所が食い違う。実際に一度そう書いて、
   // 34m前進したのに命令が「南へ143m」のままになった。
   assembleForBattle(world);
+  // `[v7.8]` 装甲車(B-1)を集結した小隊の後ろへ置き直す
+  placeVehicles(world);
   for (const co of world.companies) {
     // `[v7.3]` AI の案を取っておき、人間・LLM の書き換え(初期条件)をその上に重ねる(A-1)
     co.basePlan = planOperation(world, co);

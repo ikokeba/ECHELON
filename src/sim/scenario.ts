@@ -1031,6 +1031,8 @@ function companyOnField(
     },
     // 迫撃砲(`[v7.6]`)。未指定は「あり」
     mortar: { blue: force.blue.mortar !== false, red: force.red.mortar !== false },
+    // 装甲車(`[v7.8]` B-1)。既定はなし
+    vehicles: { blue: force.blue.vehicles === true, red: force.red.vehicles === true },
     // 拠点は盤面が決める(`[v6.11]`)。中央 → 側面の順に呼称を割り当てる。
     // 過半数(3つなら2つ)の維持で勝利(仕様 §12)
     objectives: field.objectives.map((o, i) => ({

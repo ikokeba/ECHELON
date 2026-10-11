@@ -493,6 +493,16 @@ export interface Soldier {
    */
   seesUas?: number[];
   /**
+   * 乗っている装甲車の id(`[v7.8]` ロードマップ B-1 ④)。乗っている間は盤上にいない扱いで
+   * (`isOffField`)、位置は車両と一緒に動く。降車すると null
+   */
+  mountedIn?: number | null;
+  /**
+   * このティックに本人が目で捉えている敵の装甲車の id(`[v7.8]` B-1)。索敵が毎ティック組み直す一時値。
+   * 対戦車火器の射手はここに載った車両を狙う(ロードマップ P1)
+   */
+  seesVehicles?: number[];
+  /**
    * 最後に自分を撃ってきた者の位置と、それを覚えている期限(`[v7.1]` 個人の戦闘動作)。
    * 「撃たれたら撃ってきた方を向く」に使う。見えていない敵の位置を知る手段ではなく、
    * 向きを変えるきっかけにだけ使う(そこから先は自分の目で見る、仕様 §5)
@@ -1212,6 +1222,8 @@ export interface Scenario {
    * (従来どおり)。持たない陣営は射撃要請が `no_mortar` で通らない
    */
   mortar?: Partial<Record<Side, boolean>>;
+  /** 装甲車を持つか(`[v7.8]` B-1。編成オプション `ForceSpec.vehicles`)。未指定の陣営は持たない */
+  vehicles?: Partial<Record<Side, boolean>>;
   ccp?: Record<Side, Vec2>;
   /** 建物(仕様 §7)。屋外と屋内はシームレスな1つのマップとして扱う */
   buildings?: Building[];
@@ -1379,7 +1391,7 @@ export type FxEvent =
        * `[v7.6]` 描画の色分けに使う。`at` は対戦車・対構造物火器の弾道、`cuas` は
        * 対ドローン装備の射撃(どちらも描画専用で、シムの判断には使わない)
        */
-      weapon: "rifle" | "dm" | "pistol" | "saw" | "mg" | "at" | "cuas";
+      weapon: "rifle" | "dm" | "pistol" | "saw" | "mg" | "at" | "cuas" | "vehicle";
     }
   | { kind: "grenade"; at: Vec2; side: Side; radius: number; victims: number }
   /** 対戦車・対構造物火器の発射と着弾(`[v7.3]` A-3) */
@@ -1394,6 +1406,15 @@ export type FxEvent =
       radius: number;
       suppressRadius: number;
       victims: number;
+    }
+  /** 装甲車の被弾(`[v7.8]` B-1)。`damage` は当たったあとの状態 */
+  | {
+      kind: "vehicle";
+      at: Vec2;
+      side: Side;
+      /** 描画の閃光の半径 m */
+      radius: number;
+      damage: "none" | "mobility" | "firepower" | "both" | "destroyed";
     }
   /** 自爆ドローンの起爆(`[v7.7]` B-2)。`radius` は殺傷半径 */
   | { kind: "fpv"; at: Vec2; side: Side; radius: number; victims: number };
@@ -1457,6 +1478,48 @@ export interface Drone {
   flashWatch: FlashWatch;
   /** `[v7.5]` 撃ち落とされた(A-10)。`state` は lost になる。操縦手が倒れて落ちたのとの区別 */
   shotDown?: boolean;
+}
+
+/**
+ * 装甲車(IFV、`[v7.8]` ロードマップ B-1、systems/vehicle.ts)。中隊長が使う資源で、プレイヤーは
+ * 直接操作しない(行き先を決めるだけ)。小隊に1両ずつ付き、その小隊の1個分隊を乗せて始まる。
+ *
+ *   damage.mobility  : 足回りをやられた(動けない)
+ *   damage.firepower : 砲塔をやられた(撃てない)
+ *   destroyed        : 撃破(乗員・乗っている兵も巻き込まれる)
+ */
+export interface Vehicle {
+  id: number;
+  side: Side;
+  companyId: number;
+  /** 付いている小隊 */
+  platoonId: number;
+  pos: Vec2;
+  /** 車体の向き(単位ベクトル)。装甲の正面・側面・後面を決める */
+  facing: Vec2;
+  /** 砲塔の向き */
+  turret: Vec2;
+  damage: { mobility: boolean; firepower: boolean };
+  destroyed: boolean;
+  /**
+   * ハッチ(`[v7.8]` B-1 ②)。開ければ車長が周りを広く見られるが撃たれうる。閉めると見えるのは
+   * 前方の狭い範囲だけ — そのとき目になるのはまわりの歩兵
+   */
+  hatch: "open" | "closed";
+  /** 最後にハッチを閉める理由(撃たれた・見える敵がいる)があったティック */
+  hatchThreatTick: number;
+  /** 行き先。escort = 自分の小隊について行く / move = 指定の地点へ / hold = 止まる */
+  task: { kind: "escort" | "move" | "hold"; target: Vec2 | null };
+  /** いまの経路(車両用の航行グリッド上)と、その目的地 */
+  route: Vec2[];
+  routeIdx: number;
+  routeGoal: Vec2 | null;
+  /** 乗っている兵士の id(④) */
+  mounted: number[];
+  /** 最後に撃ったティック(発射の見た目の間引き用) */
+  lastFireTick: number;
+  /** このティックに捉えている敵兵(自分の目 + まわりの歩兵の目) */
+  sees: number[];
 }
 
 /**

@@ -17,6 +17,7 @@ import { isOffField } from "../sim/systems/litter.ts";
 import { fireMissionCooldownLeft, hasMortar, mortarMagazine } from "../sim/systems/indirect.ts";
 import { ANTI_ARMOR, DRONE, FPV, MORTAR, SIM_HZ, SMOKE, UAS_REACT } from "../sim/constants.ts";
 import { fpvsOf } from "../sim/systems/fpv.ts";
+import { vehiclesOf } from "../sim/systems/vehicle.ts";
 import { smokeCooldownLeft, smokeThrower } from "../sim/systems/smoke.ts";
 import { sideDoctrine } from "../sim/world.ts";
 import type { Contact, Side, Vec2 } from "../sim/types.ts";
@@ -83,6 +84,7 @@ export function commandSpecs(
   canPlan = false,
   canDrone = false,
   canFpv = false,
+  canVehicle = false,
 ): CommandSpec[] {
   // 立案中の中隊長は作戦の書き換えだけ(`[v7.3]` A-1)。時間が止まっているので他の命令は意味が無い
   if (canPlan) return [PLAN_SPEC, { type: "hold", description: "書き換えずに AI の作戦のまま戦闘を始める" }];
@@ -91,6 +93,7 @@ export function commandSpecs(
     ...(canFire ? [FIRE_MISSION_SPEC] : []),
     ...(canDrone ? [DRONE_SPEC] : []),
     ...(canFpv ? [FPV_SPEC] : []),
+    ...(canVehicle ? [VEHICLE_SPEC] : []),
     ...(canReinforce ? [REINFORCE_SPEC] : []),
   ];
   if (extra.length === 0) return list;
@@ -127,6 +130,14 @@ const FPV_SPEC: CommandSpec = {
     "自爆ドローン(FPV)を1機 target {x,z} へ飛ばす(observation.fpv を見る)。目標点のまわり " +
     "seekRadius m で、上から見えた敵を自分のカメラで捉えて突っ込む。建物の中・煙の中の敵は見えないので狙えない。" +
     "操縦手から maxRange m 以内。1機飛ばすごとに機体が1つ減り、次の機体の準備に時間がかかる",
+};
+
+const VEHICLE_SPEC: CommandSpec = {
+  type: "vehicle",
+  description:
+    "装甲車 unit(observation.vehicles[].id)の行き先を target {x,z} にする。target を省くと自分の小隊の護衛へ戻す。" +
+    "車両は道路(屋外の広いところ)しか走れない。乗っている分隊は目的地の手前・敵が近い・損傷したときに降りる。" +
+    "歩兵から離れた車両は路地や建物の上からの対戦車火器に弱い",
 };
 
 const REINFORCE_SPEC: CommandSpec = {
@@ -229,6 +240,8 @@ export function buildObservation(
     : null;
   // 自爆ドローン(`[v7.7]` B-2)。中隊長の座席で、中隊が FPV を持つときだけ
   const fpvTeams = planCo ? fpvsOf(world, planCo) : [];
+  // 装甲車(`[v7.8]` B-1)。中隊長の座席で、中隊が持つときだけ
+  const ownVehicles = planCo ? vehiclesOf(world, planCo) : [];
   const plan = planCo?.plan;
   const base = {
     protocol: PROTOCOL_VERSION,
@@ -265,7 +278,24 @@ export function buildObservation(
       world.phase === "planning" && plan !== undefined,
       drone !== null,
       fpvTeams.length > 0,
+      ownVehicles.length > 0,
     ),
+    ...(ownVehicles.length > 0
+      ? {
+          vehicles: ownVehicles.map((v) => ({
+            id: v.id,
+            platoon: v.platoonId,
+            pos: rv(v.pos),
+            task: v.task.kind,
+            target: v.task.target ? rv(v.task.target) : null,
+            mounted: v.mounted.length,
+            hatch: v.hatch,
+            mobility: v.damage.mobility,
+            firepower: v.damage.firepower,
+            destroyed: v.destroyed,
+          })),
+        }
+      : {}),
     ...(fpvTeams.length > 0
       ? {
           fpv: {

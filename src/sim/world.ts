@@ -9,6 +9,7 @@ import { appendBuildingNav, buildNavSet, type NavSet } from "./navgrid.ts";
 import { buildCoverIndex, buildCoverPoints, type CoverIndex, type CoverPoint } from "./cover.ts";
 import { successionSystem } from "./c2/succession.ts";
 import { buildDrones } from "./systems/drone.ts";
+import { buildVehicles } from "./systems/vehicle.ts";
 import { NO_FLOT } from "./c2/flot.ts";
 import { clamp } from "./geometry.ts";
 import { createRng, type Rng } from "./rng.ts";
@@ -62,6 +63,7 @@ import type {
   SquadState,
   Tuning,
   Vec2,
+  Vehicle,
   VictoryState,
 } from "./types.ts";
 
@@ -231,6 +233,10 @@ export interface World {
    * 持たない陣営は射撃要請が通らない(systems/indirect.ts `hasMortar`)
    */
   mortar: Record<Side, boolean>;
+  /** 装甲車(`[v7.8]` systems/vehicle.ts、ロードマップ B-1) */
+  vehicles: Vehicle[];
+  /** 車両用の航行グリッド(装甲車がいるときだけ、初めて要るときに張る) */
+  vehicleNav: NavSet | null;
   /**
    * そのティックの描画用エフェクトイベント(`[v6.1]`)。`stepWorld` 先頭で空にし、
    * `combatSystem` が発砲・擲弾着弾を push する。**シムの結果には影響しない**。
@@ -520,6 +526,10 @@ function defaultCcp(soldiers: readonly Soldier[], side: Side): Vec2 {
 
 export function createWorld(scenario: Scenario): World {
   const world = buildWorld(scenario);
+  // `[v7.8]` 装甲車(B-1)。小隊のコントローラができてから、小隊ごとに1両を置いて分隊を乗せる
+  if (scenario.vehicles && (scenario.vehicles.blue || scenario.vehicles.red)) {
+    buildVehicles(world, scenario.vehicles);
+  }
   // 各C2ノードの初期指揮官を席に着かせる(仕様 §12)。tick 0 の割り当ては
   // 「継承」ではないので判断の質は落ちない — successionSystem 側で区別している。
   successionSystem(world);
@@ -747,6 +757,8 @@ function buildWorld(scenario: Scenario): World {
       red: { spec: activeReinforcement(scenario, "red"), callsUsed: 0, pending: [], arrived: 0 },
     },
     mortar: { blue: scenario.mortar?.blue ?? true, red: scenario.mortar?.red ?? true },
+    vehicles: [],
+    vehicleNav: null,
     fx: [],
     tuning: defaultTuning(),
     posture: defaultPosture(),

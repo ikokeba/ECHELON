@@ -230,6 +230,17 @@ export function DeploymentPanel() {
                 </label>
                 <label
                   className="dbg-chk"
+                  title="装甲車(IFV、`[v7.8]`)。小隊ごとに1両、最初の小銃分隊を乗せて始まる。道路しか走れず、機関砲で歩兵を支援する。路地や建物の上からの対戦車火器に弱い(小隊・中隊規模。既定はなし)"
+                >
+                  <input
+                    type="checkbox"
+                    checked={spec.vehicles === true}
+                    onChange={(e) => setForce(side, { vehicles: e.target.checked })}
+                  />
+                  <span>装甲車</span>
+                </label>
+                <label
+                  className="dbg-chk"
                   title="中隊の60mm迫撃砲(`[v7.6]`)。中隊長が前線の報告をもとに射撃を要請する。外すとAI・人間・LLMのどの中隊長も迫撃砲を使えない"
                 >
                   <input
@@ -404,7 +415,7 @@ export function DeploymentPanel() {
               <b>{attacker === "blue" ? "RED" : "BLUE"}</b> が防御側で、開始時点で全拠点を
               保有します。攻撃側は制限時間内に過半数を奪って保持しなければ負けです。
               {timeLimitSec === 0 &&
-                " 無制限では時間切れが無く、攻撃側が過半数を奪って保持するか、どちらかの戦力が尽きるまで続きます。"}
+                " 無制限では時間切れが無く、攻撃側が過半数を奪って保持するか、どちらかの戦力が尽きるまで続きます(10分間なにも動かなければ攻撃の行き詰まりとして防御側の勝ち)。"}
               勝利条件が左右で違う唯一の型なので、点対称の担保(仕様 §2/§13)は
               この型では意味を持ちません。
             </div>

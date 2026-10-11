@@ -868,6 +868,69 @@ export const CREW_SERVED = {
   POST_REPLACE_RANGE: 40,
 } as const;
 
+/**
+ * 装甲車(IFV、`[v7.8]` ロードマップ B-1、systems/vehicle.ts)。数値は暫定(調整対象)
+ */
+export const VEHICLE = {
+  /** 車体の半幅・半長 m(当たり判定・視線を遮る箱) */
+  HALF_W: 1.6,
+  HALF_L: 3.3,
+  /** 走る速さ m/s(市街地なので控えめ) */
+  SPEED: 4.5,
+  /** 旋回の速さ rad/s */
+  TURN_RATE: 1.2,
+  /** 車両の航行グリッドの刻み m と、壁から離す距離 m(通るのに幅が要る) */
+  NAV_STEP: 2,
+  NAV_MARGIN: 2.2,
+  /** ハッチを開けているときに見える距離 m(全周) */
+  SIGHT_OPEN: 150,
+  /** ハッチを閉めているときに見える距離 m と、砲塔の正面からの半角(ペリスコープ) */
+  SIGHT_CLOSED: 70,
+  SIGHT_CLOSED_HALF_RAD: (35 * Math.PI) / 180,
+  /** 歩兵が目になる距離 m。この内側の味方が見ている敵も撃てる(車外電話で伝える) */
+  INFANTRY_LINK: 30,
+  /** ハッチを閉め続ける秒数(最後に脅威があってから) */
+  HATCH_CLOSE_SEC: 20,
+  /** 機関砲・同軸機銃の届く距離 m と、毎秒の命中率(近距離 / 最大距離) */
+  GUN_RANGE: 300,
+  HIT_RATE_NEAR: 0.25,
+  HIT_RATE_FAR: 0.05,
+  GUN_NEAR: 60,
+  /** 遮蔽(窓・射撃壕・建物の中)にいる者への倍率 / 伏せている者への倍率 */
+  COVER_MUL: 0.45,
+  PRONE_MUL: 0.7,
+  /** 弾が当たった者のまわりを制圧する半径 m(機関砲の炸裂) */
+  SUPPRESS_RADIUS: 5,
+  /** 砲塔の向きがこれ以内なら撃てる rad */
+  ALIGN_RAD: (12 * Math.PI) / 180,
+  /** 砲塔の旋回の速さ rad/s */
+  TURRET_RATE: 1.4,
+  /** 護衛のとき、小隊の先頭からこれだけ後ろに付く m(前に出すぎない) */
+  ESCORT_TRAIL: 20,
+  /** 経路を引き直すのは、目的地がこれ以上動いたとき m */
+  REPATH_DIST: 12,
+  /**
+   * 降車(④): 目的地からこの距離 m に入る、または見える敵がこの距離 m の内側にいる、
+   * または車両が損傷したら、乗っている分隊を降ろす
+   */
+  DISMOUNT_GOAL: 60,
+  DISMOUNT_THREAT: 90,
+  /** 撃破されたとき、乗っている兵が倒れる確率 */
+  MOUNTED_CASUALTY: 0.5,
+  /**
+   * 対戦車火器が当たったときの損傷の確率 [足回り, 砲塔, 撃破]。正面は固く、側面・後面・上面は弱い。
+   * 上面 = 撃った者が建物の中にいる(上の階・屋根から撃ち下ろす)か、`CLOSE_TOP` m 以内(路地の脇から)
+   */
+  DAMAGE_FRONT: [0.25, 0.2, 0.1],
+  DAMAGE_SIDE: [0.3, 0.25, 0.35],
+  DAMAGE_TOP: [0.2, 0.2, 0.6],
+  CLOSE_TOP: 25,
+  /** 正面とみなす半角(車体の向きから) rad */
+  FRONT_HALF_RAD: (50 * Math.PI) / 180,
+  /** 撃たれる・撃つ音が聞こえる距離 m */
+  HEARING_RANGE: 260,
+} as const;
+
 export const DEFENSE = {
   /** 機関銃の射界の半角 rad(±35°) */
   MG_SECTOR_HALF_RAD: (35 * Math.PI) / 180,

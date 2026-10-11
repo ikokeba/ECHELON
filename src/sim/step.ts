@@ -21,6 +21,7 @@ import { windowsSystem } from "./systems/windows.ts";
 import { casualtiesSystem } from "./systems/casualties.ts";
 import { litterSystem } from "./systems/litter.ts";
 import { crewServedSystem } from "./systems/crewServed.ts";
+import { vehicleFireSystem, vehicleSystem } from "./systems/vehicle.ts";
 import { objectivesSystem } from "./systems/objectives.ts";
 import { fireteamAI } from "./c2/fireteam.ts";
 import { squadAI } from "./c2/squad.ts";
@@ -80,6 +81,8 @@ export function stepWorld(world: World): void {
   pathingSystem(world);
   // 6. 移動 — 経路と命令の向きを消費する
   movementSystem(world);
+  // 6.5 装甲車(`[v7.8]` B-1)。視界・ハッチ・移動・乗り降り。車体の中の兵を押し出す(分離の前)
+  vehicleSystem(world);
   // 7. 分離 — 兵士同士の重なりをほぐす(移動の直後、戦闘の判定前)
   separationSystem(world);
   // 8. 戦闘 — 交戦・命中判定・制圧の適用
@@ -91,6 +94,8 @@ export function stepWorld(world: World): void {
   indirectSystem(world);
   // 対戦車・対構造物火器(`[v7.3]` A-3)。迫撃砲と同じく戦闘判定の前に着弾させる
   antiArmorSystem(world);
+  // 装甲車の機関砲(`[v7.8]` B-1)。歩兵の射撃と同じく戦闘判定の前に当てる
+  vehicleFireSystem(world);
   combatSystem(world);
   // 8.2 ドローンの撃墜(`[v7.5]` A-10)。捉えているドローンを撃つ。銃声は次の音の判定に乗る
   uasShootSystem(world);
