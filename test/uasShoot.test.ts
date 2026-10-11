@@ -74,9 +74,12 @@ describe("撃つ・落とす(`[v7.5]` A-10)", () => {
       let downed = -1;
       for (let t = 0; t < 60 * SIM_HZ && downed < 0; t++) {
         w.gunshots.length = 0;
+        w.fx.length = 0;
         uasDetectionSystem(w);
         uasShootSystem(w);
         if (w.gunshots.some((g) => g.sourceId === s.id)) shots++;
+        // `[v7.6]` 装備で撃った弾は色分けのため `cuas` として描く
+        for (const f of w.fx) if (f.kind === "shot" && f.shooterId === s.id) expect(f.weapon).toBe("cuas");
         if (d.state === "lost") downed = t;
         w.tick++;
       }

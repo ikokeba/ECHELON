@@ -74,7 +74,8 @@ export function uasShootSystem(world: World): void {
           hit,
           shooterId: s.id,
           targetId: -1,
-          weapon: "rifle",
+          // `[v7.6]` 対ドローン装備で撃った弾は色を分ける(描画専用)。装備の距離の外は小銃
+          weapon: rate === UAS_SHOOT.KIT_RATE && s.quals.counterUas ? "cuas" : "rifle",
         });
       }
       if (hit) {
