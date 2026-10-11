@@ -7,6 +7,8 @@ import { MORTAR, SIM_HZ } from "../src/sim/constants.ts";
 import { DOCTRINES } from "../src/sim/doctrine.ts";
 import { defaultForce } from "../src/sim/force.ts";
 import { distToFlot } from "../src/sim/c2/flot.ts";
+import { resolveImpact } from "../src/sim/systems/indirect.ts";
+import { buildingAt } from "../src/sim/cqb.ts";
 import type { Side, Vec2 } from "../src/sim/types.ts";
 
 /**
@@ -148,6 +150,61 @@ describe("迫撃砲の火力支援(`[v6.9]` 仕様 §10/§11)", () => {
     // 制圧は陣営を見ない(仕様 §8.6)。この戦闘で自軍が自軍の弾に伏せたことがある
     void suppressedOwn;
   }, 300000);
+
+  /**
+   * `[v7.4]` 屋根の下は上から来るものに対する遮蔽(ドローンが屋内を見られないのと同じ)。
+   * 同じ距離に着弾しても、屋内の兵士は屋外の兵士よりはるかに倒れにくい。
+   * 制圧は屋内にも掛かる — 籠もれば耐えられるが、動けない。
+   */
+  it("屋内の兵士は迫撃砲の損害を受けにくいが、制圧は受ける", () => {
+    const w = battle(1);
+    // 着弾点からどちらも 3m の位置に、屋内と屋外の兵士を1名ずつ置く
+    const b = w.buildings.find((bb) => bb.bounds.maxX - bb.bounds.minX >= 8)!;
+    const cx = (b.bounds.minX + b.bounds.maxX) / 2;
+    const cz = (b.bounds.minZ + b.bounds.maxZ) / 2;
+    const inPos = { x: cx, z: cz };
+    const at = { x: cx, z: cz + 3 };
+    // 屋外の点: 着弾点を挟んで反対側ではなく、建物の外で着弾点から 3m の点を探す
+    let outPos: Vec2 | null = null;
+    for (let k = 0; k < 64 && !outPos; k++) {
+      const a = (k / 64) * Math.PI * 2;
+      const p = { x: at.x + Math.cos(a) * 3, z: at.z + Math.sin(a) * 3 };
+      if (!buildingAt(w.buildings, p)) outPos = p;
+    }
+    // 建物の中心から 3m で外へ出られないほど大きい建物なら、着弾点を外壁際へずらす
+    if (!outPos) {
+      at.z = b.bounds.maxZ - 1;
+      inPos.z = at.z - 3;
+      outPos = { x: cx, z: at.z + 3 };
+    }
+    expect(buildingAt(w.buildings, inPos)).not.toBeNull();
+    expect(buildingAt(w.buildings, outPos)).toBeNull();
+
+    const reds = w.soldiers.filter((s) => s.side === "red");
+    const inside = reds[0]!;
+    const outside = reds[1]!;
+    let hitIn = 0;
+    let hitOut = 0;
+    let suppressedIn = 0;
+    const N = 2000;
+    for (let i = 0; i < N; i++) {
+      for (const [s, p] of [
+        [inside, inPos],
+        [outside, outPos],
+      ] as const) {
+        s.status = "ok";
+        s.pos = { ...p };
+        s.suppressedUntilTick = 0;
+      }
+      resolveImpact(w, "blue", at);
+      if (inside.status !== "ok") hitIn++;
+      if (outside.status !== "ok") hitOut++;
+      if (inside.suppressedUntilTick > w.tick) suppressedIn++;
+    }
+    expect(hitOut / N).toBeGreaterThan(MORTAR.CASUALTY_CHANCE - 0.05);
+    expect(hitIn / N).toBeLessThan(MORTAR.CASUALTY_CHANCE * MORTAR.INDOOR_CASUALTY_MUL + 0.05);
+    expect(suppressedIn).toBe(N);
+  });
 
   it("中隊本部を持たない編成は火力支援を持たない(仕様 §2)", () => {
     // 小隊規模のフィクスチャには中隊本部がいない

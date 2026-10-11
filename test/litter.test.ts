@@ -3,6 +3,7 @@ import { createWorld } from "../src/sim/world.ts";
 import { runTicks } from "../src/sim/step.ts";
 import { demoCrossingScenario, platoonClashScenario } from "../src/sim/scenario.ts";
 import { bearersNeeded, evacuatedCount } from "../src/sim/systems/litter.ts";
+import { applyHit } from "../src/sim/systems/combat.ts";
 import { orderCasevac } from "../src/sim/playerOrders.ts";
 import { LITTER, SIM_HZ } from "../src/sim/constants.ts";
 import type { Soldier } from "../src/sim/types.ts";
@@ -142,36 +143,48 @@ describe("担架搬送(仕様 §9 [v5])", () => {
 });
 
 describe("即死ルール(仕様 §9)", () => {
+  /**
+   * `[v7.4]` 規則そのものを確かめる。直接射撃は負傷者を狙わなくなったので、
+   * 規則が効くのは範囲攻撃の巻き添えのとき。ここでは被弾の適用だけを見る。
+   */
   it("行動不能中の兵士への追加被弾は、止血の有無に関わらず即時戦死", () => {
     const w = createWorld(demoCrossingScenario(2));
     const victim = w.soldiers.find((s) => s.side === "blue" && !s.isSquadLeader)!;
     victim.status = "wia";
     victim.stabilized = true;
     victim.bleedOutTick = 0;
-    // 味方は全滅させ、負傷者だけが赤軍の唯一の目標になる状況を作る
+    // 致死でない被弾でも、行動不能中なら中間状態を経ずに直接KIA
+    applyHit(w, victim, true, false);
+    expect(w.soldierById.get(victim.id)!.status).toBe("kia");
+  });
+
+  /**
+   * `[v7.4]` 戦えない負傷者は戦闘外(hors de combat)。他に撃つ相手がいなくても、
+   * 直接射撃の目標にはしない。以前はここで負傷者を死ぬまで撃っていた。
+   */
+  it("負傷して戦えない敵は、他に撃つ相手がいなくても直接射撃の目標にしない", () => {
+    const w = createWorld(demoCrossingScenario(2));
+    const victim = w.soldiers.find((s) => s.side === "blue" && !s.isSquadLeader)!;
+    victim.status = "wia";
+    victim.stabilized = true; // 出血で死なないようにして、被弾だけを見る
+    victim.bleedOutTick = 0;
     for (const s of w.soldiers) {
       if (s.side === "blue" && s.id !== victim.id) s.status = "kia";
     }
-    // 赤軍を負傷者の目の前へ寄せて正対させる
-    const shooter = w.soldiers.find((s) => s.side === "red")!;
+    const shooter = w.soldiers.find((s) => s.side === "red" && s.role !== "grenadier")!;
     for (const s of w.soldiers) {
       if (s.side === "red" && s.id !== shooter.id) s.status = "kia";
     }
-    // 射手のAIが動いて射線を外さないよう、毎ティック負傷者の正面へ固定し直す。
-    // 見たいのは「倒れている兵士が撃たれたときに何が起きるか」だけなので、
-    // 交戦のばらつきをここで排除する。
-    // (victim.status を直接読むとTSが "wia" に絞り込んでしまうので、毎回引き直す)
     const statusOf = () => w.soldierById.get(victim.id)!.status;
-    for (let i = 0; i < 90 * SIM_HZ; i++) {
+    // 負傷者の目の前6mに正対させ続ける。以前の実装ならこの条件で確実に撃ち殺していた
+    for (let i = 0; i < 60 * SIM_HZ; i++) {
       shooter.pos = { x: victim.pos.x, z: victim.pos.z - 6 };
       shooter.facing = { x: 0, z: 1 };
       shooter.path = [];
       shooter.pathIdx = 0;
       runTicks(w, 1);
-      if (statusOf() === "kia") break;
+      if (statusOf() !== "wia") break;
     }
-    // 出血タイマーは止まっている(止血済み)ので、死んだなら被弾によるもの。
-    // 中間状態を経ずに直接KIAになる = 即死ルールが効いている。
-    expect(statusOf()).toBe("kia");
+    expect(statusOf()).toBe("wia");
   }, 30000);
 });

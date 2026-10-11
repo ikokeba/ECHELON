@@ -19,6 +19,7 @@ import { MORTAR, SIM_HZ, SUPPRESSION_GRACE_TICKS } from "../constants.ts";
 import { chance, next, type Rng } from "../rng.ts";
 import { decayedConfidence } from "../belief.ts";
 import { isOffField } from "./litter.ts";
+import { buildingAt } from "../cqb.ts";
 import { sideDoctrine } from "../world.ts";
 import { distToFlot } from "../c2/flot.ts";
 import { aiSuppressed } from "../control.ts";
@@ -251,8 +252,13 @@ function disperse(rng: Rng, at: Vec2, spread: number): Vec2 {
  * 抽象化しているので、砲でも例外を作らない。統制線を報告由来にした `[v6.16]` から
  * は自軍の上に落ちることが実際に起こるため、この分岐が §8.2 を保つ最後の砦になる
  * (それ以前は危険近接の判定が盤面の真値だったので、そもそも起こらなかった)。
+ *
+ * `[v7.4]` **屋根の下にいる者は損害を受けにくい。** 以前は着弾点からの距離だけで
+ * 判定していたので、建物の中の兵士も屋外と同じ確率で倒れていた。観測ドローンが
+ * 「屋根の下は見えない」(drone.ts)のと同じく、上から来るものに対して屋内は
+ * 遮蔽になる。ただし制圧は屋内にも掛かる — 建物に籠もれば耐えられるが、動けない。
  */
-function resolveImpact(world: World, side: Side, at: Vec2): number {
+export function resolveImpact(world: World, side: Side, at: Vec2): number {
   const rng = world.rngBySide[side];
   let victims = 0;
   for (const s of world.soldiers) {
@@ -268,7 +274,11 @@ function resolveImpact(world: World, side: Side, at: Vec2): number {
       );
     }
     if (s.side === side) continue; // 仕様 §8.2 同士討ちは起こさない。制圧までは受ける
-    if (d <= MORTAR.BLAST_RADIUS && chance(rng, MORTAR.CASUALTY_CHANCE)) {
+    if (d > MORTAR.BLAST_RADIUS) continue;
+    const p = buildingAt(world.buildings, s.pos)
+      ? MORTAR.CASUALTY_CHANCE * MORTAR.INDOOR_CASUALTY_MUL
+      : MORTAR.CASUALTY_CHANCE;
+    if (chance(rng, p)) {
       // 擲弾と同じ扱い。負傷か戦死かは casualties 側の既定の分岐へ委ねる
       s.status = "wia";
       s.stabilized = false;
