@@ -486,6 +486,42 @@ export function companyAI(world: World): void {
       }
     });
 
+    // ── 遠い拠点も取りに行く(`[v7.6]`)──
+    // 上の割り当ては担当区域(脅威まわりの正面幅)の近くだけを見るので、遠い拠点・数の多い拠点は
+    // 誰の担当にもならなかった(プレイでの指摘「拠点が多かったり遠かったりすると確保対象から
+    // 外されてる?」)。拠点が残っていれば、手の空いた小隊(任務も守備も無い)は距離の制限なく
+    // 最寄りの未確保拠点へ向ける。過半数にまだ届かない(確保中を含めて)なら、確保しきった
+    // 拠点を守っている小隊も向ける — 小隊長は最寄りの1個分隊を拠点に残し(`assignHolders`)、
+    // 残りで次を取りに行く。攻防戦の防御側は守るのが任務なので行わない
+    const majority = Math.floor(world.objectives.length / 2) + 1;
+    const mineOrTaking = world.objectives.length - unclaimed.length;
+    const defending = isDefender(world, co.side);
+    let need = defending ? 0 : majority - mineOrTaking - claimed.size;
+    const reach = (pl: (typeof living)[number], allowHolder: boolean): void => {
+      if (defending || claimed.has(pl.platoonId)) return;
+      if (allowHolder && need <= 0) return;
+      if (activeTaskOf(world, co, pl.platoonId)) return;
+      const held = holders.get(pl.platoonId);
+      if (held && (!allowHolder || held.owner !== co.side)) return;
+      const c = plCentroidOf(pl);
+      if (!c) return;
+      let best: (typeof unclaimed)[number] | null = null;
+      let bestD = Infinity;
+      for (const o of unclaimed) {
+        if (takenObj.has(o.id)) continue;
+        const d = dist(c, o.pos);
+        if (d >= bestD - 1e-9) continue;
+        bestD = d;
+        best = o;
+      }
+      if (!best) return;
+      takenObj.add(best.id);
+      claimed.set(pl.platoonId, { ...best.pos });
+      need--;
+    };
+    for (const pl of living) reach(pl, false);
+    for (const pl of living) reach(pl, true);
+
     // 観測ドローン(`[v7.3]` A-2)。像の古いところを見に行かせる
     aiDrone(world, co);
 
@@ -506,7 +542,12 @@ export function companyAI(world: World): void {
 
       // 0.7: 守備の小隊を拠点中心に固めず、拠点内の遮蔽へ広めに散らす(`[v6.1]`)。
       // 下限 PLATOON_HOLD_SPREAD: 拠点が1室でも小隊が点に固まらないだけの床を残す。
-      if (held) objective = clampToObjective(objective, held, 0.7, PLATOON_HOLD_SPREAD);
+      // `[v7.6]` 次の拠点を取りに向けた守備の小隊(戦況での割り当て・作戦の続く目標)は
+      // 引き戻さない。守っていた拠点には小隊長が最寄りの分隊を残す
+      const movingOn = claimed.has(pl.platoonId) || (task !== null && task.objectiveId !== held?.id);
+      if (held && !movingOn) {
+        objective = clampToObjective(objective, held, 0.7, PLATOON_HOLD_SPREAD);
+      }
 
       // 任務種別(§3①):
       //   攻勢分遣に指名された小隊 → 未確保拠点へ seize
@@ -531,6 +572,9 @@ export function companyAI(world: World): void {
         living.length >= 3 &&
         !held &&
         !threat &&
+        // `[v7.6]` 拠点を割り当てた小隊は掩護に回さない。掩護(screen)は「踏み込まない」任務
+        // なので、端の小隊に割り当てた拠点がいつまでも取られなかった
+        !claimed.has(pl.platoonId) &&
         (i === 0 || i === living.length - 1)
       ) {
         // 3個小隊以上あるときだけ、両端の1個ずつを掩護に回す(中央は確保前進)

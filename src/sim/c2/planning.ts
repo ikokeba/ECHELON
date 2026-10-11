@@ -210,6 +210,39 @@ export function planOperation(world: World, co: CompanyState): OperationPlan {
     assign.set(best.pl.platoonId, o);
   }
 
+  // ── 2.5 行き渡らなかった拠点を「続く目標」として積む(`[v7.6]`)──
+  // 以前は「残りは戦況を見て拾う」だけで、拾うのは中隊長が正面幅の内側で見つけたときに限られた。
+  // 遠い拠点・数の多い拠点は誰の任務にもならず、最後まで中立のまま残った(プレイでの指摘)。
+  // ドクトリンの on order の任務(ADP 3-90)として、**その拠点に最も近い拠点を受け持つ小隊**へ
+  // 「確保後、続いて」の目標を積む。主攻の小隊には積まない(主攻は勝敗を決める拠点に集中する)。
+  // 防御側は最初から全拠点を持っているので積まない
+  const sequels = new Map<number, number[]>(); // platoonId → 拠点id の列
+  if (!isDefender(world, co.side)) {
+    const assigned = [...assign.entries()];
+    const carriers = assigned.filter(([, o]) => o.id !== main.id);
+    const pool = carriers.length > 0 ? carriers : assigned;
+    // 最後に積んだ拠点から次を数えるので、1つの小隊が拠点を数珠つなぎに取りに行く
+    const tail = new Map<number, Objective>(pool.map(([id, o]) => [id, o]));
+    for (const o of ranked) {
+      if ([...assign.values()].some((a) => a.id === o.id)) continue;
+      let best: number | null = null;
+      let bestD = Infinity;
+      // 自陣営フレームの左から並べた小隊の順に見るので、同距離でも鏡像で同じ小隊を選ぶ
+      for (const { pl } of platoons) {
+        const at = tail.get(pl.platoonId);
+        if (!at) continue;
+        const d = dist(at.pos, o.pos);
+        if (d < bestD - 1e-6) {
+          bestD = d;
+          best = pl.platoonId;
+        }
+      }
+      if (best === null) continue;
+      sequels.set(best, [...(sequels.get(best) ?? []), o.id]);
+      tail.set(best, o);
+    }
+  }
+
   // ── 3. 任務へ翻訳 ──
   const tasks: PlanTask[] = [];
   for (const { pl, centroid } of platoons) {
@@ -224,17 +257,20 @@ export function planOperation(world: World, co: CompanyState): OperationPlan {
       const indoor = indoorObjective(world, o) ? "、屋内掃討を伴う" : "";
       // 攻防戦の防御側は「取りに行く」のではなく「持ちこたえる」(仕様 §12)`[v6.8]`
       const defending = isDefender(world, co.side);
+      const seq = sequels.get(pl.platoonId) ?? [];
       tasks.push({
         platoonId: pl.platoonId,
         role: isMain ? "main" : "supporting",
         mission: { kind: "seize", target },
         objectiveId: o.id,
         route,
+        ...(seq.length > 0 ? { sequel: seq } : {}),
         order: defending
           ? `${name} — ${isMain ? "主陣地" : "支撑点"}。${o.label} を占領・保持し、` +
             `${via}からの接近を阻止せよ(${Math.round(dist(centroid, target))}m${indoor})`
           : `${name} — ${isMain ? "主攻" : "助攻"}。${o.label} を確保せよ` +
-            `(${via}へ ${Math.round(dist(centroid, target))}m${indoor})`,
+            `(${via}へ ${Math.round(dist(centroid, target))}m${indoor})` +
+            sequelText(world, seq),
       });
       continue;
     }
@@ -288,7 +324,9 @@ export function planOperation(world: World, co: CompanyState): OperationPlan {
 
   const mainTask = tasks.find((t) => t.role === "main");
   const need = Math.floor(objectives.length / 2) + 1;
-  const leftovers = objectives.length - assign.size;
+  // `[v7.6]` 続く目標として積めなかった拠点だけが「戦況を見て拾う」に残る
+  const stacked = [...sequels.values()].reduce((n, s) => n + s.length, 0);
+  const leftovers = objectives.length - assign.size - stacked;
   const intent = isDefender(world, co.side)
     ? `${objectives.length}個の拠点のうち${need}個を制限時間まで保持すれば勝利する。` +
       (mainTask ? `主陣地は${platoonName(mainTask.platoonId)}(${main.label})。` : "") +
@@ -296,9 +334,53 @@ export function planOperation(world: World, co: CompanyState): OperationPlan {
     : `${objectives.length}個の拠点のうち${need}個を確保して勝利する。` +
       (mainTask ? `主攻は${platoonName(mainTask.platoonId)}(${main.label})。` : "") +
       `他は各正面の拠点を確保しつつ主攻の側面を掩護する。` +
+      (stacked > 0 ? `残る${stacked}個の拠点は、近い小隊が確保後に続いて取る。` : "") +
       (leftovers > 0 ? `残る${leftovers}個の拠点は戦況を見て拾う。` : "");
 
   return { side: co.side, companyId: co.companyId, mainObjectiveId: main.id, tasks, intent };
+}
+
+/** 命令文に添える「続く目標」の一文(`[v7.6]`)。無ければ空 */
+export function sequelText(world: World, seq: readonly number[]): string {
+  if (seq.length === 0) return "";
+  const labels = seq.map((id) => world.objectives.find((o) => o.id === id)?.label ?? `#${id}`);
+  return `。確保後、続いて ${labels.join(" → ")} を確保せよ`;
+}
+
+/**
+ * 続く目標へ進める(`[v7.6]`)。いまの目標を自軍が確保しきった任務は、`sequel` の先頭のうち
+ * まだ自軍のものでない拠点を次の任務にする(すでに取れている拠点は飛ばす)。作戦を誰が
+ * 実行していても(AI・人間・LLM)同じに進む — 作戦そのものの規則なので(`executePlan` が毎ティック呼ぶ)。
+ * 経由点・開始時刻は最初の目標への段取りなので、次の目標では使わない
+ */
+export function advanceSequels(world: World, co: CompanyState): void {
+  const plan = co.plan;
+  if (!plan || isDefender(world, co.side)) return;
+  for (const t of plan.tasks) {
+    if (!t.sequel || t.sequel.length === 0 || t.objectiveId === null) continue;
+    const cur = world.objectives.find((o) => o.id === t.objectiveId);
+    if (cur && cur.owner !== co.side) continue;
+    let next: Objective | null = null;
+    while (t.sequel.length > 0 && !next) {
+      const id = t.sequel.shift()!;
+      const o = world.objectives.find((x) => x.id === id);
+      if (o && o.owner !== co.side) next = o;
+    }
+    if (t.sequel.length === 0) delete t.sequel;
+    if (!next) continue;
+    const from = centroidOf(world, co.side, t.platoonId) ?? cur?.pos ?? next.pos;
+    t.objectiveId = next.id;
+    t.mission = { kind: "seize", target: { ...next.pos } };
+    t.route = routeTo(world, from, next.pos);
+    delete t.via;
+    delete t.viaIdx;
+    // 段階を下ろし直させる(人間・LLM が中隊長に座っているときは executePlan が拾う)
+    delete t.legKey;
+    t.order =
+      `${platoonName(t.platoonId)} — ${t.role === "main" ? "主攻" : "助攻"}。続いて ${next.label} を確保せよ` +
+      `(${compassOf(from, next.pos)}へ ${Math.round(dist(from, next.pos))}m)` +
+      sequelText(world, t.sequel ?? []);
+  }
 }
 
 /**
