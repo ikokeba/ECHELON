@@ -19,6 +19,7 @@ import {
   orderHold,
   orderAntiArmor,
   orderDrone,
+  orderUasReact,
 } from "@sim/playerOrders.ts";
 import { SMOKE_BLOCK_TEXT, smokeCooldownLeft, smokeThrower } from "@sim/systems/smoke.ts";
 import { DRONE_BLOCK_TEXT } from "@sim/systems/drone.ts";
@@ -42,7 +43,7 @@ import {
 } from "@sim/systems/indirect.ts";
 import { reinforcementsLeft, topCommandOf } from "@sim/systems/reinforcement.ts";
 import { isOffField } from "@sim/systems/litter.ts";
-import { MORTAR, SIM_DT, SIM_HZ, SMOKE } from "@sim/constants.ts";
+import { MORTAR, SIM_DT, SIM_HZ, SMOKE, UAS_REACT } from "@sim/constants.ts";
 import { isDegraded } from "@sim/c2/succession.ts";
 import { applyDeployment, defaultDeploymentOf } from "@sim/deployment.ts";
 import { beginBattle, beginPlanning, platoonName } from "@sim/c2/planning.ts";
@@ -415,6 +416,19 @@ function smokeHud(world: World): HudSnapshot["smoke"] {
   };
 }
 
+const UAS_COVER_JP: Record<string, string> = { shelter: "建物で待機", prone: "伏せ", smoke: "煙の中を前進" };
+
+/** 対ドローンの隠蔽行動の表示(`[v7.5]` S-7)。人間が分隊長を操作しているときだけ */
+function uasCoverHud(world: World): HudSnapshot["uasCover"] {
+  const c = world.control;
+  if (!c || c.echelon !== "squad") return null;
+  const sq = world.squads.find((s) => s.side === c.side && s.squadId === c.unitId);
+  if (!sq) return null;
+  let uasNear = false;
+  for (const u of sq.uas.values()) if (world.tick - u.lastSeenTick <= UAS_REACT.TRIGGER_FRESH_SEC * SIM_HZ) uasNear = true;
+  return { active: sq.uasReact ? (UAS_COVER_JP[sq.uasReact.kind] ?? sq.uasReact.kind) : null, uasNear };
+}
+
 /** 対戦車・対構造物火器の表示(`[v7.3]` A-3)。人間が分隊長を操作していて、分隊に射手がいるときだけ */
 function antiArmorHud(world: World): HudSnapshot["antiArmor"] {
   const c = world.control;
@@ -522,6 +536,7 @@ function hudOf(world: World, view: ViewResult): HudSnapshot {
     reinforcement: { blue: reinforcementHud(world, "blue"), red: reinforcementHud(world, "red") },
     fireSupport: { blue: fireSupportHud(world, "blue"), red: fireSupportHud(world, "red") },
     smoke: smokeHud(world),
+    uasCover: uasCoverHud(world),
     antiArmor: antiArmorHud(world),
     drone: droneHud(world),
   };
@@ -628,6 +643,7 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
   let lastMs = performance.now();
   let lastStepNonce = useSimStore.getState().stepNonce;
   let lastReinforceNonce = useSimStore.getState().reinforceNonce;
+  let lastUasCoverNonce = useSimStore.getState().uasCoverNonce;
   let lastReplayRequest = useSimStore.getState().replayRequestNonce;
   let hudCountdown = 0;
   let lastControl = useSimStore.getState().control;
@@ -867,6 +883,11 @@ export function startRuntime(canvas: HTMLCanvasElement, scenarioKey: ScenarioKey
     if (ui.stepNonce !== lastStepNonce) {
       requestSteps(clock, ui.stepNonce - lastStepNonce);
       lastStepNonce = ui.stepNonce;
+    }
+    // 対ドローンの隠蔽行動(`[v7.5]` S-7)。AIの分隊長と同じ関数を通す(仕様 §4)
+    if (ui.uasCoverNonce !== lastUasCoverNonce) {
+      lastUasCoverNonce = ui.uasCoverNonce;
+      if (!inReplay()) orderUasReact(world, ui.uasCoverOn);
     }
     // 後援部隊の要請(`[v7.0]`)。AIの最上位指揮官と同じ関数を通す(仕様 §4)
     if (ui.reinforceNonce !== lastReinforceNonce) {

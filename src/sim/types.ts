@@ -345,6 +345,11 @@ export interface Soldier {
    */
   assaultingUntilTick: number;
   /**
+   * 伏せているか(`[v7.5]` ロードマップ S-7)。対ドローンの隠蔽行動で、その場で止まって伏せたとき。
+   * 移動の命令を受けると立つ。ドローンからの見つかりにくさ(A-9)に効く
+   */
+  prone?: boolean;
+  /**
    * この兵士が自発的な発砲を控えるティック(0 = 制限なし)。仕様 §6 `[v6.1]` F-6。
    * 機動組が未発見のまま側面へ回り込む間だけ、FTリーダーAIが短時間セットする。
    * 制圧を受ける・被弾する等の受け身の処理はすべて通常どおり進む。
@@ -535,6 +540,21 @@ export interface Contact {
  * `heard` が立ち、方角と刻んだ距離から組み立てた粗い位置になる
  */
 export type UasContacts = Map<string, Contact>;
+
+/**
+ * 対ドローンの隠蔽行動(React to UAS、`[v7.5]` ロードマップ S-7)。
+ *   shelter : 近くの建物へ入り、ドローンが去るまで待つ。`spot` が屋内の集合点、`doorId` が通る扉
+ *             (すでに屋内にいれば null)
+ *   prone   : 建物が無い。その場で止まって伏せる
+ *   smoke   : 開けた場所を移動中。行く手に煙を焚いて、その中を渡り切る(足は止めない)
+ */
+export interface UasReaction {
+  kind: "shelter" | "prone" | "smoke";
+  sinceTick: number;
+  buildingId?: number;
+  doorId?: number | null;
+  spot?: Vec2;
+}
 
 /** 階層コントローラが持つ、報告のみから構築された私的な world picture(仕様 §5)。 */
 export interface Belief {
@@ -803,6 +823,13 @@ export interface SquadState {
   smokes: number;
   /** 最後に発煙弾を投げたティック(連投の下限を測る)。投げていなければ -Infinity 相当の負値 */
   lastSmokeTick: number;
+  /**
+   * 対ドローンの隠蔽行動(`[v7.5]` ロードマップ S-7)。行動していなければ null。
+   * AIの分隊長も、人間・LLM も同じ `reactToUas` で始める
+   */
+  uasReact: UasReaction | null;
+  /** 最後に隠蔽行動を終えたティック(すぐに次を始めない間隔を測る) */
+  uasReactEndTick: number;
   /** 最後に対戦車・対構造物火器を撃ったティック(`[v7.3]` A-3) */
   lastAntiArmorTick?: number;
 }

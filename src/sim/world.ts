@@ -368,6 +368,8 @@ export function buildSquads(scenario: Scenario, soldiers: Soldier[]): SquadState
       flashWatch: newFlashWatch(),
       smokes: SMOKE.PER_SQUAD,
       lastSmokeTick: -1_000_000,
+      uasReact: null,
+      uasReactEndTick: -1_000_000,
     });
   }
   return [...seen.values()];

@@ -15,7 +15,7 @@ import { platoonName } from "../sim/c2/planning.ts";
 import { reinforcementsLeft, topCommandOf } from "../sim/systems/reinforcement.ts";
 import { isOffField } from "../sim/systems/litter.ts";
 import { fireMissionCooldownLeft, mortarMagazine } from "../sim/systems/indirect.ts";
-import { ANTI_ARMOR, DRONE, MORTAR, SIM_HZ, SMOKE } from "../sim/constants.ts";
+import { ANTI_ARMOR, DRONE, MORTAR, SIM_HZ, SMOKE, UAS_REACT } from "../sim/constants.ts";
 import { smokeCooldownLeft, smokeThrower } from "../sim/systems/smoke.ts";
 import { sideDoctrine } from "../sim/world.ts";
 import type { Contact, Side, Vec2 } from "../sim/types.ts";
@@ -161,6 +161,12 @@ function baseSpecs(seat: AgentSeat): CommandSpec[] {
       description:
         "対戦車・対構造物火器を target {x,z} へ撃たせる(observation.antiArmor があるときだけ)。" +
         "射手から見えている点へ。爆風は遮蔽・窓・壕の補正を受けず、射撃壕・機関銃陣地を壊す。弾は少ない",
+    },
+    {
+      type: "uas_cover",
+      description:
+        "敵ドローンから身を隠す(observation.uasCover を見る)。近くの建物へ入る・伏せる・行く手に煙を焚いて渡る、" +
+        "のどれかを分隊が自分で選ぶ。前進は止まる。ドローンが去れば自然に終わる。cancel: true で取り消す",
     },
     {
       type: "casevac",
@@ -411,6 +417,13 @@ export function buildObservation(
           },
         }
       : {}),
+    uasCover: sq.uasReact
+      ? {
+          kind: sq.uasReact.kind,
+          sinceSec: r1((world.tick - sq.uasReact.sinceTick) / SIM_HZ),
+          releaseSec: UAS_REACT.RELEASE_SEC,
+        }
+      : null,
     smoke: {
       left: sq.smokes,
       cooldownSec: r1(smokeCooldownLeft(world, sq) / SIM_HZ),

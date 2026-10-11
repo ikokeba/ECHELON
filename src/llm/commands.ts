@@ -17,9 +17,13 @@ import {
   orderReinforcement,
   orderSmoke,
   orderAntiArmor,
+  orderUasReact,
   orderDrone,
 } from "../sim/playerOrders.ts";
 import { DRONE_BLOCK_TEXT } from "../sim/systems/drone.ts";
+
+/** 隠蔽行動の結果の文言(`[v7.5]` S-7) */
+const UAS_COVER_TEXT = { shelter: "建物へ入る", prone: "その場で伏せる", smoke: "煙を焚いて渡る" } as const;
 import { ANTI_ARMOR_BLOCK_TEXT } from "../sim/systems/antiArmor.ts";
 import { SMOKE_BLOCK_TEXT } from "../sim/systems/smoke.ts";
 import { FIRE_MISSION_BLOCK_TEXT } from "../sim/systems/indirect.ts";
@@ -206,6 +210,10 @@ export function parseResponse(raw: unknown): ParsedResponse {
         else commands.push({ type: "drone", target });
         return;
       }
+      case "uas_cover": {
+        commands.push(c.cancel === true ? { type: "uas_cover", cancel: true } : { type: "uas_cover" });
+        return;
+      }
       case "anti_armor": {
         const target = vecOf(c.target);
         if (!target) errors.push(`commands[${i}] anti_armor: target {x,z} が無い`);
@@ -342,6 +350,23 @@ export function applyResponse(world: World, seat: AgentSeat, resp: AgentResponse
             : r.ok
               ? `#${i} drone ${at}: 受理`
               : `#${i} drone ${at}: 却下 — ${DRONE_BLOCK_TEXT[r.reason]}`,
+        );
+        return;
+      }
+      case "uas_cover": {
+        if (seat.echelon !== "squad") {
+          out.push(`#${i} uas_cover: 分隊長だけが出せる`);
+          return;
+        }
+        const r = orderUasReact(world, c.cancel !== true, seat);
+        out.push(
+          r === undefined
+            ? `#${i} uas_cover: 却下`
+            : r === null
+              ? c.cancel === true
+                ? `#${i} uas_cover: 取り消し`
+                : `#${i} uas_cover: 却下 — 戦える者がいない`
+              : `#${i} uas_cover: ${UAS_COVER_TEXT[r.kind]}`,
         );
         return;
       }

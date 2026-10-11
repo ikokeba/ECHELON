@@ -1682,10 +1682,10 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       const bearer = s.status === "ok" && s.bearing !== null;
       const suppressed = s.status === "ok" && s.suppressedUntilTick > world.tick;
 
-      // 影。戦死者は伏せているので薄く小さく(`[v6.5]`)
+      // 影。戦死者は伏せているので薄く小さく(`[v6.5]`)。`[v7.5]` 伏せている者(S-7)も小さく
       dummy.position.set(x + SHADOW_DX * 0.09, 0.04, z + SHADOW_DZ * 0.09);
       dummy.rotation.set(0, 0, 0);
-      dummy.scale.setScalar(dead ? 0.6 : 1);
+      dummy.scale.setScalar(dead ? 0.6 : s.prone ? 0.7 : 1);
       dummy.updateMatrix();
       dummy.scale.setScalar(1);
       soldierShadowMesh.setMatrixAt(i, dummy.matrix);

@@ -20,6 +20,8 @@ import { requestFireMission, type FireMissionResult } from "./systems/indirect.t
 import { throwSmoke, type SmokeResult } from "./systems/smoke.ts";
 import { fireAntiArmor, type AntiArmorResult } from "./systems/antiArmor.ts";
 import { taskDrone, type DroneResult } from "./systems/drone.ts";
+import { reactToUas, releaseUasReaction } from "./c2/uasReact.ts";
+import type { UasReaction } from "./types.ts";
 import { commandSoldier } from "./c2/fireteam.ts";
 import type { Soldier } from "./types.ts";
 
@@ -417,6 +419,31 @@ function orderDroneImpl(
   return taskDrone(world, co, target);
 }
 
+/**
+ * 対ドローンの隠蔽行動を命じる・取り消す(`[v7.5]` ロードマップ S-7)。
+ *
+ * 命じられるのは**分隊長の座席**だけ。AIの分隊長と同じ `reactToUas` を通るので、建物・伏せ・
+ * 発煙のどれを取るかの選び方、発煙の残数と間隔は同じに掛かる(P4)。違いは、ドローンが
+ * 近くに見えていなくても命じられること(疑わしいと思えば先に隠れてよい)。
+ * `on = false` で取り消す。ドローンが去れば(20秒)、命じた者が誰でも自然に終わる。
+ * 戻り値は始めた行動(取り消しなら null)。座席が分隊長でなければ undefined
+ */
+function orderUasReactImpl(
+  world: World,
+  on: boolean,
+  seat: ControlState | null = world.control,
+): UasReaction | null | undefined {
+  const c = seat;
+  if (!c || c.echelon !== "squad") return undefined;
+  const sq = world.squads.find((s) => s.side === c.side && s.squadId === c.unitId);
+  if (!sq) return undefined;
+  if (!on) {
+    releaseUasReaction(world, sq);
+    return null;
+  }
+  return reactToUas(world, sq);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // `[v7.2]` 命令の記録(ロードマップ S-4 振り返り・リプレイ)
 //
@@ -523,6 +550,14 @@ export function orderDrone(world: World, target: Vec2, seat: ControlState | null
   return recorded(world, "orderDrone", seat, [target], () => orderDroneImpl(world, target, seat));
 }
 
+export function orderUasReact(
+  world: World,
+  on: boolean,
+  seat: ControlState | null = world.control,
+): UasReaction | null | undefined {
+  return recorded(world, "orderUasReact", seat, [on], () => orderUasReactImpl(world, on, seat));
+}
+
 /** 記録された命令を同じ引数でもう一度出す(再生用。`world.log` が null なら記録はしない) */
 export function replayOrder(world: World, fn: OrderFn, seat: ControlState | null, args: unknown[]): void {
   const v = (i: number) => args[i] as Vec2;
@@ -571,6 +606,9 @@ export function replayOrder(world: World, fn: OrderFn, seat: ControlState | null
       return;
     case "orderDrone":
       orderDrone(world, v(0), seat);
+      return;
+    case "orderUasReact":
+      orderUasReact(world, args[0] === true, seat);
       return;
   }
 }

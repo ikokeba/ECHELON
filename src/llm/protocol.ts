@@ -21,7 +21,7 @@
 import type { Echelon, MissionKind, Side, Vec2 } from "../sim/types.ts";
 
 /** プロトコルの版。形を変えたら上げる。エージェント側はこれを見て解釈を切り替えられる */
-export const PROTOCOL_VERSION = "echelon-llm/0.8";
+export const PROTOCOL_VERSION = "echelon-llm/0.9";
 
 /** エージェントが座れる階層。兵士・FTは毎ティックの反射が要るので対象外(設計書 §3) */
 export type AgentEchelon = Extract<Echelon, "company" | "platoon" | "squad">;
@@ -204,6 +204,11 @@ export interface Observation {
     minRange: number;
     maxRange: number;
   };
+  /**
+   * 対ドローンの隠蔽行動(`[v7.5]` S-7)。分隊長の座席で常に載る。行動していなければ null。
+   * kind = shelter(建物で待つ)/ prone(伏せる)/ smoke(煙の中を渡る)。ドローンが去れば(releaseSec)終わる
+   */
+  uasCover?: { kind: string; sinceSec: number; releaseSec: number } | null;
   smoke?: {
     left: number;
     cooldownSec: number;
@@ -254,6 +259,14 @@ export interface FireMissionCommand {
   type: "fire_mission";
   target: Vec2;
 }
+/**
+ * 対ドローンの隠蔽行動(分隊長の座席のみ、`[v7.5]` S-7)。近くの建物へ入る・伏せる・煙を焚いて
+ * 渡る、のどれかを AI の分隊長と同じ判断で取る。cancel: true で取り消す
+ */
+export interface UasCoverCommand {
+  type: "uas_cover";
+  cancel?: boolean;
+}
 /** 発煙弾を地点へ焚く(分隊長の座席のみ、`[v7.2]`)。煙は視線だけを遮る */
 export interface SmokeCommand {
   type: "smoke";
@@ -298,7 +311,8 @@ export type AgentCommand =
   | SmokeCommand
   | PlanCommand
   | AntiArmorCommand
-  | DroneCommand;
+  | DroneCommand
+  | UasCoverCommand;
 
 export interface AgentResponse {
   commands: AgentCommand[];
@@ -336,6 +350,7 @@ export const RESPONSE_SCHEMA = {
               "plan",
               "anti_armor",
               "drone",
+              "uas_cover",
             ],
           },
           unit: { type: "integer", description: "assign / plan の対象(subordinates[].unit)" },
@@ -343,6 +358,7 @@ export const RESPONSE_SCHEMA = {
           op: { type: "string", enum: ["task", "main", "route", "start", "phase_line", "fires"] },
           objective: { type: "integer", description: "plan の対象の拠点 id" },
           atSec: { type: "number" },
+          cancel: { type: "boolean", description: "uas_cover を取り消す" },
           points: {
             type: "array",
             items: { type: "object", properties: { x: { type: "number" }, z: { type: "number" } }, required: ["x", "z"] },
