@@ -2415,6 +2415,22 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
             });
           }
           draw(ring, c, op * 0.6);
+        } else if (p.kind === "trap") {
+          // 仕掛け爆弾(`[v7.7]` B-4): 小さな三角に×。炸裂した・外されたものは薄く
+          const op = p.stage === "sprung" || p.stage === "released" ? 0.25 : 0.95;
+          const s = 1.3;
+          draw(
+            [
+              { x: p.pos.x, z: p.pos.z - s },
+              { x: p.pos.x + s, z: p.pos.z + s * 0.8 },
+              { x: p.pos.x - s, z: p.pos.z + s * 0.8 },
+              { x: p.pos.x, z: p.pos.z - s },
+            ],
+            c,
+            op,
+          );
+          draw([{ x: p.pos.x - 0.5, z: p.pos.z - 0.1 }, { x: p.pos.x + 0.5, z: p.pos.z + 0.7 }], c, op);
+          draw([{ x: p.pos.x + 0.5, z: p.pos.z - 0.1 }, { x: p.pos.x - 0.5, z: p.pos.z + 0.7 }], c, op);
         } else {
           const ring: Vec2[] = [];
           for (let k = 0; k <= 16; k++) {
@@ -2451,6 +2467,41 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
         draw([{ ...v.pos }, { x: v.pos.x + v.turret.x * len, z: v.pos.z + v.turret.z * len }], c, 0.95);
         // 足回りをやられた: 車体の後ろに横線
         if (v.damage.mobility) draw([at(-W - 0.8, -L - 0.8), at(W + 0.8, -L - 0.8)], c, 0.95);
+      }
+      // トンネル(`[v7.7]` B-4)。両端の出入口を細かい点線で結ぶ。自陣営と神視点だけ
+      for (const t of world.tunnels) {
+        if (!opts.truth && t.side !== opts.viewSide) continue;
+        const c = SIDE_COLOR[t.side];
+        const dx = t.b.pos.x - t.a.pos.x;
+        const dz = t.b.pos.z - t.a.pos.z;
+        const len = Math.hypot(dx, dz) || 1;
+        const n = Math.min(40, Math.floor(len / 4));
+        for (let k = 0; k < n; k += 2) {
+          const f0 = k / n;
+          const f1 = (k + 1) / n;
+          draw(
+            [
+              { x: t.a.pos.x + dx * f0, z: t.a.pos.z + dz * f0 },
+              { x: t.a.pos.x + dx * f1, z: t.a.pos.z + dz * f1 },
+            ],
+            c,
+            0.45,
+          );
+        }
+        for (const end of [t.a.pos, t.b.pos]) {
+          const h = 1.2;
+          draw(
+            [
+              { x: end.x - h, z: end.z - h },
+              { x: end.x + h, z: end.z - h },
+              { x: end.x + h, z: end.z + h },
+              { x: end.x - h, z: end.z + h },
+              { x: end.x - h, z: end.z - h },
+            ],
+            c,
+            0.8,
+          );
+        }
       }
       // 観測ドローン(`[v7.3]` A-2)。飛んでいる機体と、見えている範囲の輪。自陣営と神視点だけ
       let dn = 0;

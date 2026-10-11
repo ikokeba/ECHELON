@@ -20,8 +20,36 @@ import type { ReinforcementSpec, Side } from "./types.ts";
 /** 出せる部隊の規模。上へ行くほど指揮階層が1つずつ増える(仕様 §2)。 */
 export type ForceScale = "squad" | "platoon" | "company";
 
+/**
+ * 編成の型(`[v7.7]` ロードマップ B-4)。規模・特技のトグルの上に重ねる「組織の作り」。
+ * 変えるのは**駒と資源**だけで、兵士1名の強さには触れない(P2)。
+ *   standard : 従来の編成(米軍型)
+ *   drone    : ドローン中心。中隊に観測ドローンと自爆ドローン、各小隊の無線手も自爆ドローンを持つ。
+ *              代わりに火器分隊(機関銃)を持たない
+ *   hybrid   : 混成型。防御に就いたとき、拠点の入口と接近路に**仕掛け爆弾**を置き、拠点の建物と
+ *              後方の建物を**トンネル**で結ぶ(攻防戦の防御側のとき)
+ */
+export type ForceTemplate = "standard" | "drone" | "hybrid";
+
+export const FORCE_TEMPLATES = {
+  standard: { label: "標準", detail: "従来の編成。機関銃の火器分隊と迫撃砲で支える" },
+  drone: {
+    label: "ドローン中心",
+    detail:
+      "中隊に観測ドローンと自爆ドローン、各小隊の無線手も自爆ドローンを持つ。火器分隊(機関銃)は持たない",
+  },
+  hybrid: {
+    label: "混成型",
+    detail: "防御に就くと、拠点の入口と接近路に仕掛け爆弾を置き、拠点の建物と後方の建物をトンネルで結ぶ",
+  },
+} as const satisfies Record<ForceTemplate, { label: string; detail: string }>;
+
+export const FORCE_TEMPLATE_KEYS = ["standard", "drone", "hybrid"] as const;
+
 export interface ForceSpec {
   scale: ForceScale;
+  /** 編成の型(`[v7.7]` B-4)。未指定は標準 */
+  template?: ForceTemplate;
   /**
    * 選抜射手(仕様 §14)。分隊に1名、ブラボー組のライフルマンが兼任する。
    * 外すと索敵300m・専用の射撃諸元(§10 `dm`)・支援射撃の優先配置が丸ごと無くなる。
@@ -195,8 +223,18 @@ export function playForce(): Record<Side, ForceSpec> {
   };
 }
 
+/**
+ * 編成の型を、特技のトグルへ展開した編成(`[v7.7]` B-4)。盤面を組み立てる側はこれを読む。
+ * ドローン中心は観測ドローン・自爆ドローンを持ち、火器分隊を持たない
+ */
+export function effectiveForce(spec: ForceSpec): ForceSpec {
+  if (spec.template === "drone") return { ...spec, drone: true, fpv: true, weaponsSquad: false };
+  return spec;
+}
+
 /** その編成が盤上に置く人数。UIの表示と、規模から展開線を決めるのに使う。 */
-export function forceSize(spec: ForceSpec): number {
+export function forceSize(spec0: ForceSpec): number {
+  const spec = effectiveForce(spec0);
   const sh = FORCE_SCALES[spec.scale];
   const perPlatoon =
     sh.rifleSquads * HEADCOUNT.rifleSquad +

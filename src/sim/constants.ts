@@ -931,6 +931,53 @@ export const VEHICLE = {
   HEARING_RANGE: 260,
 } as const;
 
+/**
+ * 仕掛け爆弾(`[v7.7]` ロードマップ B-4 混成型の編成、systems/traps.ts)。数値は暫定(調整対象)
+ */
+export const TRAP = {
+  /** 1つの拠点に置く数 */
+  PER_OBJECTIVE: 3,
+  /** 扉の外へずらす距離 m(戸口そのものに置くと味方の出入りの邪魔になる) */
+  DOOR_OFFSET: 1.5,
+  /** 屋外の拠点のときに置く、拠点からの距離 m と角度 */
+  OPEN_R: 14,
+  OPEN_ANGLES_DEG: [-35, 0, 35],
+  /** 敵がこの距離 m まで来たら炸裂する */
+  TRIGGER: 1.2,
+  /** 踏んだ者が負傷・戦死する確率 / 半径 m の中のほかの敵の確率 */
+  KILL_CHANCE: 0.7,
+  BLAST_RADIUS: 3.5,
+  SPLASH_CHANCE: 0.35,
+  /** 爆発の制圧の半径 m(敵味方とも。損害は敵にだけ) */
+  SUPPRESS_RADIUS: 10,
+  /**
+   * 気づく距離 m と毎秒の確率。気づいた者は外す(避けて通る)。躍進前進(bounding overwatch)で
+   * 慎重に進む班は気づきやすい — 罠への対抗は「急がない」こと
+   */
+  SPOT_RANGE: 5,
+  SPOT_RATE: 0.12,
+  SPOT_RATE_CAREFUL: 0.4,
+} as const;
+
+/**
+ * トンネル(`[v7.7]` ロードマップ B-4 混成型の編成、systems/tunnel.ts)。数値は暫定(調整対象)
+ */
+export const TUNNEL = {
+  /** 1陣営に掘る本数の上限 */
+  MAX_PER_SIDE: 4,
+  /** 拠点の建物と結ぶ後方の建物の距離 m(下限・上限) */
+  REAR_MIN: 35,
+  REAR_MAX: 140,
+  /** 拠点の建物どうしを結ぶ距離 m の上限 */
+  LINK_MAX: 170,
+  /** 地下を進む速さ m/s(かがんで進む) */
+  SPEED: 1.6,
+  /** 目指す先がこれより近ければ地下を使わず歩く m */
+  MIN_GAIN: 25,
+  /** 拠点が建物の外にあるとき、拠点のそばの建物とみなす距離 m */
+  NEAR_BUILDING: 25,
+} as const;
+
 export const DEFENSE = {
   /** 機関銃の射界の半角 rad(±35°) */
   MG_SECTOR_HALF_RAD: (35 * Math.PI) / 180,

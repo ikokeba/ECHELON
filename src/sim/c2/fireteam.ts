@@ -53,6 +53,7 @@ import type { Contact, FireteamMode, FireteamState, Soldier, Vec2 } from "../typ
 
 type SoldierOrderAnchor = NonNullable<Soldier["order"]["anchor"]>;
 import type { World } from "../world.ts";
+import { sideDoctrine } from "../world.ts";
 
 // ── チューニング値(モック由来。squad-12v12 の TEAM_DEFS を参照)。
 //    仕様 §14 の個体差パラメータは、チーム単位の「性格」ではなくFT単位でこれらを変調する。
@@ -424,6 +425,7 @@ function moveInFormation(
     contacts: ft.memory.values(),
     coverPoints: world.coverIndex,
     coverPref: world.posture[ft.side].coverPref,
+    spread: sideDoctrine(world, ft.side).dispersion,
   });
   // 隊形Tierによる速度差(仕様 §6: 縦隊が最速、横隊が最遅)は隊全体に掛ける。
   // リーダーだけ速いと隊列が伸びきってしまう。

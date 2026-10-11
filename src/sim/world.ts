@@ -62,6 +62,7 @@ import type {
   Soldier,
   SquadState,
   Tuning,
+  Tunnel,
   Vec2,
   Vehicle,
   VictoryState,
@@ -237,6 +238,10 @@ export interface World {
   vehicles: Vehicle[];
   /** 車両用の航行グリッド(装甲車がいるときだけ、初めて要るときに張る) */
   vehicleNav: NavSet | null;
+  /** 編成の型(`[v7.7]` B-4)。混成型の防御側が仕掛け爆弾・トンネルを置く */
+  template: Record<Side, "standard" | "drone" | "hybrid">;
+  /** トンネル(`[v7.7]` B-4)。混成型の防御側が立案で掘る。攻撃側には見えない */
+  tunnels: Tunnel[];
   /**
    * そのティックの描画用エフェクトイベント(`[v6.1]`)。`stepWorld` 先頭で空にし、
    * `combatSystem` が発砲・擲弾着弾を push する。**シムの結果には影響しない**。
@@ -759,6 +764,11 @@ function buildWorld(scenario: Scenario): World {
     mortar: { blue: scenario.mortar?.blue ?? true, red: scenario.mortar?.red ?? true },
     vehicles: [],
     vehicleNav: null,
+    template: {
+      blue: scenario.forceTemplate?.blue ?? "standard",
+      red: scenario.forceTemplate?.red ?? "standard",
+    },
+    tunnels: [],
     fx: [],
     tuning: defaultTuning(),
     posture: defaultPosture(),

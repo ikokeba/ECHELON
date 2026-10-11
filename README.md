@@ -124,7 +124,9 @@ step (in Japanese, for Windows).
 The five boards are the Old Quarter (cramped alleys), the Boulevard (a 40 m avenue you have to
 cross), the New Quarter (long staggered blocks), the Trenches (a no-man's-land between two lines)
 and a regular Grid. Each side picks its own size — a squad (9), a platoon (36) or a company (112),
-plus any reinforcements — and its own command doctrine. Besides the meeting engagement there is an
+plus any reinforcements — its organisation (standard, drone-centric, or a hybrid force that
+booby-traps entrances and digs tunnels when defending) and its own command doctrine (five, including
+a dispersed and a hybrid one). Besides the meeting engagement there is an
 attack/defence mode, where the defender holds every objective until the clock runs out. The defender
 starts that mode dug in, with machine-gun positions, fighting positions, alternate positions and
 barbed wire, a forward position and an ambush.

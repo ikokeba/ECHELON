@@ -8,6 +8,7 @@
 import { ANTI_ARMOR, GRENADE, OBJECTIVE } from "./constants.ts";
 import {
   DEFAULT_FORCE,
+  effectiveForce,
   FORCE_SCALES,
   defaultForce,
   spawnDepthMul,
@@ -191,6 +192,8 @@ function makePlatoonHq(
   platoonId: number,
   anchor: Vec2,
   dir: Vec2,
+  /** `[v7.7]` 無線手が自爆ドローンの操縦手を兼ねる(B-4 ドローン中心の編成) */
+  fpv = false,
 ): Soldier[] {
   const right = { x: -dir.z, z: dir.x };
   return (["pl", "plRto"] as const).map((hqRole, i) =>
@@ -206,6 +209,7 @@ function makePlatoonHq(
       },
       facing: dir,
       hqRole,
+      ...(fpv && hqRole === "plRto" ? { quals: { fpvOperator: true } } : {}),
     }),
   );
 }
@@ -745,6 +749,8 @@ function buildPlatoon(
         platoonId,
         { x: center.x - dir.x * 13, z: center.z - dir.z * 13 },
         dir,
+        // `[v7.7]` ドローン中心の編成(B-4)は、小隊の無線手も自爆ドローンを持つ
+        spec.template === "drone",
       ),
     );
   }
@@ -899,9 +905,11 @@ function companyOnField(
   name: string,
   field: Field,
   seed: number,
-  force: Record<Side, ForceSpec>,
+  force0: Record<Side, ForceSpec>,
 ): Scenario {
   resetIds();
+  // `[v7.7]` 編成の型(B-4)を特技のトグルへ展開してから組み立てる
+  const force = { blue: effectiveForce(force0.blue), red: effectiveForce(force0.red) };
   // CPとCCPを盤内に収める必要がある。ナビグリッドは bounds から作られるので、
   // CCPが外に出ると担架班が永久にたどり着けない(実際に描画で発見した)。
   // `[v6.3]` 射程を仕様 §10 の本来の値へ戻したので盤面を2倍にした(従来 220×170)。
@@ -1033,6 +1041,11 @@ function companyOnField(
     mortar: { blue: force.blue.mortar !== false, red: force.red.mortar !== false },
     // 装甲車(`[v7.8]` B-1)。既定はなし
     vehicles: { blue: force.blue.vehicles === true, red: force.red.vehicles === true },
+    // 編成の型(`[v7.7]` B-4)。仕掛け爆弾・トンネルは混成型の防御側が立案で置く
+    forceTemplate: {
+      blue: force.blue.template ?? "standard",
+      red: force.red.template ?? "standard",
+    },
     // 拠点は盤面が決める(`[v6.11]`)。中央 → 側面の順に呼称を割り当てる。
     // 過半数(3つなら2つ)の維持で勝利(仕様 §12)
     objectives: field.objectives.map((o, i) => ({
@@ -1242,7 +1255,8 @@ export function urbanAssaultScenario(
   // ── 部隊: 青は南端、赤は北端から。非対称なので座標は鏡像にしない ──
   // `[v6.9]` 中隊まで入る。展開線は中隊マップと同じく規模で前後させる。
   // 展開位置は左右で微妙にずらしてある(この盤面は点対称ではない — 仕様 §7)。
-  const f = force;
+  // `[v7.7]` 編成の型(B-4)を特技のトグルへ展開してから組み立てる
+  const f = { blue: effectiveForce(force.blue), red: effectiveForce(force.red) };
   const nBlue = FORCE_SCALES[f.blue.scale].platoons;
   const nRed = FORCE_SCALES[f.red.scale].platoons;
   // 展開線は外縁の街区の**すぐ後ろ**に置く。街区より外へ出すと、街区の切れ目が

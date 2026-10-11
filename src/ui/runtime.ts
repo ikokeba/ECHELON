@@ -211,7 +211,7 @@ function planViewsOf(world: World, side: Side, truth: boolean): {
       edited: co.plan.edited === true,
       // 防衛陣地(`[v7.2]` S-1)。種類ごとの通し番号で呼ぶ
       defense: (() => {
-        const n = { mg: 0, fighting: 0, alternate: 0, wire: 0, forward: 0, ambush: 0 };
+        const n = { mg: 0, fighting: 0, alternate: 0, wire: 0, forward: 0, ambush: 0, trap: 0 };
         const name = {
           mg: "機関銃",
           fighting: "射撃壕",
@@ -219,6 +219,7 @@ function planViewsOf(world: World, side: Side, truth: boolean): {
           wire: "鉄条網",
           forward: "前進陣地",
           ambush: "待ち伏せ",
+          trap: "仕掛け爆弾",
         };
         return world.defense
           .filter((p) => p.side === co.side)
@@ -535,7 +536,8 @@ function hudOf(world: World, view: ViewResult): HudSnapshot {
   for (const s of world.soldiers) {
     const alive = s.status !== "kia";
     const effective = s.status === "ok";
-    const evacuated = isOffField(s);
+    // 後送済み(`[v7.7]` トンネルの中の兵は後送ではない)
+    const evacuated = s.evac === "evacuated" || s.evac === "collected";
     // 後送を待っている = 倒れていて、まだCCPへ届いていない(仕様 §9)
     const awaiting = s.status === "wia" && !evacuated;
     const carrying = s.evac === "carrying";
