@@ -623,6 +623,12 @@ export const OBJECTIVE = {
    * そこから確保して `HOLD_TO_WIN_SEC` 保持するのに要る時間を見て15分とした。
    */
   ASSAULT_TIME_LIMIT_SEC: 900,
+  /**
+   * 膠着の裁定までの秒数(`[v7.6]` systems/objectives.ts)。拠点の所有・確保の進み具合・両軍の
+   * 戦える兵の数のどれも、これだけのあいだ変わらなければ裁定する。時間無制限の攻防戦と遭遇戦だけ
+   * (制限時間のある攻防戦は時間切れが決める)。ADP 3-0 の攻勢の限界(culminating point)に当たる
+   */
+  STALEMATE_SEC: 600,
 } as const;
 
 type ObjectiveSizeKey = "small" | "large";

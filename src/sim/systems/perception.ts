@@ -172,6 +172,11 @@ export function perceptionSystem(world: World): void {
     const seen: number[] = [];
     forEachNear(hash, s.pos, nearRange, (other) => {
       if (other.side === s.side) return;
+      // `[v7.6]` 倒れて動けない敵(負傷・行動不能)は脅威として見ない。`[v7.4]` で直接射撃の
+      // 目標から外したが、索敵には残っていたので、FTは撃てない相手を「接敵中」と見続けた。
+      // 後送されないまま倒れている敵がいると、拠点の目の前で制圧射撃の構えのまま永遠に
+      // 動かなくなる(時間無制限の攻防戦で80分膠着した)。倒れたのが見えれば脅威ではない
+      if (other.status !== "ok") return;
       if (canSeeIndexed(world, world.wallIndex, s, other, nearRange, fovHalfRad)) {
         seen.push(other.id);
       }
@@ -180,7 +185,7 @@ export function perceptionSystem(world: World): void {
     if (scanFar) {
       const far: number[] = [];
       forEachNear(hash, s.pos, range, (other) => {
-        if (other.side === s.side) return;
+        if (other.side === s.side || other.status !== "ok") return;
         // 近距離ぶんは上で見ているので、ここは外側の帯だけ
         const dx = other.eye.x - s.eye.x;
         const dz = other.eye.z - s.eye.z;
@@ -192,7 +197,7 @@ export function perceptionSystem(world: World): void {
       // 更新ティックでない間はキャッシュを使う。ただし戦死・後送は即座に落とす
       s.seesFar = s.seesFar.filter((id) => {
         const t = world.soldierById.get(id);
-        return t !== undefined && t.status !== "kia" && !isOffField(t);
+        return t !== undefined && t.status === "ok" && !isOffField(t);
       });
     }
     for (const id of s.seesFar) if (!seen.includes(id)) seen.push(id);
