@@ -360,6 +360,11 @@ export interface Soldier {
    * 制圧を受ける・被弾する等の受け身の処理はすべて通常どおり進む。
    */
   holdFireUntilTick: number;
+  /**
+   * 武器を構え終えるティック(`[v7.6]` systems/crewServed.ts)。倒れた射手の機関銃を受け継いだ
+   * 兵士が、銃に就いて構え直すまで撃たない。`holdFireUntilTick` はFTリーダーAIが毎回書き直すので別に持つ
+   */
+  weaponReadyTick?: number;
   /** 擲弾の残数(仕様 §14 — 3発/戦闘)。擲弾手以外は0 */
   grenades: number;
   /** 対戦車・対構造物火器の残弾(`[v7.3]` A-3)。射手以外は 0(未指定も 0) */

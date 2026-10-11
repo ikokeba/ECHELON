@@ -364,6 +364,8 @@ export function combatSystem(world: World): void {
     // 協調一斉射の火力溜め(F-6, 仕様 §6 `[v6.1]`)。FTリーダーAIが機動組へ短時間セットする。
     // 制圧・被弾・回避など受け身の処理は上で済んでいる。
     if (s.holdFireUntilTick > world.tick) continue;
+    // `[v7.6]` 倒れた射手の機関銃を受け継いで構え直している間は撃たない(systems/crewServed.ts)
+    if ((s.weaponReadyTick ?? 0) > world.tick) continue;
 
     // 擲弾(仕様 §14)。遮蔽越しに効くので通常射撃とは別枠で判定する
     const g = tryGrenade(world, s, aimPointsByFt.get(`${s.side}:${s.squadId}:${s.fireteamId}`) ?? []);

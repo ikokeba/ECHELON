@@ -18,7 +18,7 @@
  * 両軍で同じ(P2)、乱数を引かない(P3)。
  */
 
-import { HEARING, SIM_HZ } from "../constants.ts";
+import { HEARING, INDIVIDUAL, SIM_HZ } from "../constants.ts";
 import { decayedConfidence } from "../belief.ts";
 import { hasLineOfSightIndexed } from "../wallIndex.ts";
 import { isOffField } from "./litter.ts";
@@ -132,5 +132,41 @@ export function hearingSystem(world: World): void {
         ft.memory.set(key, c);
       }
     }
+  }
+  turnToCloseShots(world);
+}
+
+const ALERT_TICKS = Math.round(INDIVIDUAL.ALERT_SEC * SIM_HZ);
+
+/**
+ * 至近の銃声には振り向く(`[v7.6]` 個人の戦闘動作)。
+ *
+ * 撃たれた者は撃ってきた方を向く(`[v7.1]` `alertFrom`)が、**撃たれていない者**は、すぐ脇で
+ * 敵が撃っていても見ている方を向いたままだった。互いに別の方を向いたまま 25m 以内ですれ違う
+ * 組が残っていた(プレイでの指摘「敵と何もせずすれ違う」の取り残し)。
+ *
+ * 目で何も捉えていない兵士は、`INDIVIDUAL.HEAR_TURN_RANGE` m 以内で鳴った敵の銃声の方を向く。
+ * 向くきっかけにだけ使い、そこから先は自分の目で見る(`alertFrom` と同じ扱い、仕様 §5)。
+ * 足音には振り向かない(壁越しの気配で持ち場を崩さない)。乱数は引かない(P3)
+ */
+function turnToCloseShots(world: World): void {
+  if (world.gunshots.length === 0) return;
+  const r2 = INDIVIDUAL.HEAR_TURN_RANGE * INDIVIDUAL.HEAR_TURN_RANGE;
+  for (const s of world.soldiers) {
+    if (s.status !== "ok" || isOffField(s) || s.sees.length > 0) continue;
+    if (s.alertUntilTick > world.tick) continue;
+    let best: Gunshot | null = null;
+    let bestD = r2;
+    for (const g of world.gunshots) {
+      if (g.side === s.side) continue;
+      const d = (g.pos.x - s.pos.x) ** 2 + (g.pos.z - s.pos.z) ** 2;
+      if (d <= bestD && d > 1e-6) {
+        best = g;
+        bestD = d;
+      }
+    }
+    if (!best) continue;
+    s.alertFrom = { x: best.pos.x, z: best.pos.z };
+    s.alertUntilTick = world.tick + ALERT_TICKS;
   }
 }

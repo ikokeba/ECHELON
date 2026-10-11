@@ -18,15 +18,20 @@ describe("弾の色分け(`[v7.6]`)", () => {
     const w = createWorld(companyClashScenario(1));
     beginPlanning(w);
     beginBattle(w);
-    const shots: Array<Extract<FxEvent, { kind: "shot" }>> = [];
+    // 撃った瞬間の役職で照らし合わせる(`[v7.6]` 射手が倒れると銃は副射手へ移る)
+    const shots: Array<{ f: Extract<FxEvent, { kind: "shot" }>; s: { role: string; quals: { designatedMarksman: boolean } } }> = [];
     for (let t = 0; t < 200 * SIM_HZ; t++) {
+      // 銃の受け渡しは同じティックの射撃のあとに起きるので、ティックの頭の役職を取っておく
+      const roleAt = new Map(w.soldiers.map((s) => [s.id, s.role]));
       stepWorld(w);
-      for (const f of w.fx) if (f.kind === "shot" && f.shooterId >= 0) shots.push(f);
+      for (const f of w.fx) {
+        if (f.kind !== "shot" || f.shooterId < 0 || f.targetId < 0) continue; // ドローンへの射撃は別に見る
+        const s = w.soldierById.get(f.shooterId)!;
+        shots.push({ f, s: { role: roleAt.get(s.id) ?? s.role, quals: { ...s.quals } } });
+      }
     }
     const seen = new Set<string>();
-    for (const f of shots) {
-      const s = w.soldierById.get(f.shooterId)!;
-      if (f.targetId < 0) continue; // ドローンへの射撃は別に見る
+    for (const { f, s } of shots) {
       const want =
         s.role === "mg"
           ? "mg"
