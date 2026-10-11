@@ -165,13 +165,21 @@ describe("装甲車(`[v7.8]` B-1)— 弱点(③)", () => {
     v.facing = { x: 0, z: 1 };
     return v;
   }
+  /** 車両から dir の方向へ、建物の外にある 60m 以上先の点(撃ち下ろしにならない地上の射点) */
+  function openAt(w: World, dir: { x: number; z: number }): { x: number; z: number } {
+    for (let r = 60; r <= 160; r += 2) {
+      const p = { x: dir.x * r, z: dir.z * r };
+      if (!buildingAt(w.buildings, p)) return p;
+    }
+    throw new Error("open point not found");
+  }
 
   it("当たった向き: 正面・側面、建物の中や近くからは上面", () => {
     const w = world();
     const v = placed(w);
-    expect(hitAspect(w, v, { x: 0, z: 100 })).toBe("front");
-    expect(hitAspect(w, v, { x: 100, z: 0 })).toBe("side");
-    expect(hitAspect(w, v, { x: 0, z: -100 })).toBe("side");
+    expect(hitAspect(w, v, openAt(w, { x: 0, z: 1 }))).toBe("front");
+    expect(hitAspect(w, v, openAt(w, { x: 1, z: 0 }))).toBe("side");
+    expect(hitAspect(w, v, openAt(w, { x: 0, z: -1 }))).toBe("side");
     expect(hitAspect(w, v, { x: 0, z: 15 })).toBe("top");
     const room = w.buildings[0]!.rooms[0]!.bounds;
     expect(hitAspect(w, v, { x: (room.minX + room.maxX) / 2, z: (room.minZ + room.maxZ) / 2 })).toBe("top");
@@ -192,8 +200,8 @@ describe("装甲車(`[v7.8]` B-1)— 弱点(③)", () => {
       }
       return kills;
     };
-    const front = rate({ x: 0, z: 100 });
-    const side = rate({ x: 100, z: 0 });
+    const front = rate(openAt(w, { x: 0, z: 1 }));
+    const side = rate(openAt(w, { x: 1, z: 0 }));
     const top = rate({ x: 0, z: 15 });
     expect(front).toBeLessThan(side);
     expect(side).toBeLessThan(top);
