@@ -45,6 +45,8 @@ export function ForcePanel() {
   const at = s.antiArmor;
   // 観測ドローン(`[v7.3]` A-2)。中隊長を操作しているときだけ
   const drone = s.drone;
+  // 自爆ドローン(`[v7.7]` B-2)。中隊長を操作しているときだけ
+  const fpv = s.fpv;
 
   return (
     <div className="panel">
@@ -176,6 +178,27 @@ export function ForcePanel() {
             title="押してから盤面をクリックした地点の上へ飛ばす(操縦手から450m以内。もう一度押すと取り消し)"
           >
             {s.armed === "drone" ? "飛ばし先を選択…" : "ドローン"}
+          </button>
+        </div>
+      )}
+      {fpv && (
+        <div
+          className="force-detail force-reinf"
+          title="自爆ドローン(`[v7.7]`)。中隊長の像の地点へ飛び、上から見えた敵を自分のカメラで捉えて突っ込む。建物の中・煙の中の敵は見えないので狙えない"
+        >
+          <span>
+            FPV {fpv.left}/{fpv.total}機
+          </span>
+          {fpv.flying > 0 && <span>飛行中 {fpv.flying}</span>}
+          {fpv.ready === 0 && fpv.prepSec !== null && <span>次の機体まで {Math.ceil(fpv.prepSec)}秒</span>}
+          <button
+            type="button"
+            className={`seg-btn${s.armed === "fpv" ? " seg-on" : ""}`}
+            disabled={fpv.ready === 0}
+            onClick={() => s.arm(s.armed === "fpv" ? null : "fpv")}
+            title="押してから盤面をクリックした地点へ1機飛ばす(操縦手から400m以内。もう一度押すと取り消し)"
+          >
+            {s.armed === "fpv" ? "目標を選択…" : "FPV攻撃"}
           </button>
         </div>
       )}

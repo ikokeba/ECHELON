@@ -17,7 +17,7 @@
  * (ロードマップ P4)。乱数は引かない(P3)、陣営で分岐しない(P2)。
  */
 
-import { DRONE, SIM_DT, SIM_HZ } from "../constants.ts";
+import { DRONE, FPV, SIM_DT, SIM_HZ } from "../constants.ts";
 import { chance, ratePerTick } from "../rng.ts";
 import { insideBounds } from "../cqb.ts";
 import { isOffField } from "./litter.ts";
@@ -29,18 +29,23 @@ import type { World } from "../world.ts";
 const STEP = DRONE.SPEED / SIM_HZ;
 const ENDURANCE_TICKS = Math.round(DRONE.ENDURANCE_SEC * SIM_HZ);
 const SWAP_TICKS = Math.round(DRONE.SWAP_SEC * SIM_HZ);
+const FPV_ENDURANCE_TICKS = Math.round(FPV.ENDURANCE_SEC * SIM_HZ);
 
 function dist(a: Vec2, b: Vec2): number {
   return Math.hypot(a.x - b.x, a.z - b.z);
 }
 
-/** 編成から作る(操縦手の資格を持つ兵士1名につき1機)。世界を作るときに呼ぶ */
+/**
+ * 編成から作る(操縦手の資格を持つ兵士1名につき1機)。世界を作るときに呼ぶ。
+ * `[v7.7]` 自爆ドローン(FPV)の班も同じ一覧に入れる(systems/fpv.ts)。観測ドローンが先
+ */
 export function buildDrones(soldiers: readonly Soldier[]): Drone[] {
   let id = 1;
-  return soldiers
+  const recon = soldiers
     .filter((s) => s.quals.droneOperator === true)
     .map((s) => ({
       id: id++,
+      kind: "recon" as const,
       side: s.side,
       companyId: s.companyId,
       operatorId: s.id,
@@ -54,10 +59,38 @@ export function buildDrones(soldiers: readonly Soldier[]): Drone[] {
       lastReportTick: 0,
       flashWatch: newFlashWatch(),
     }));
+  const fpv = soldiers
+    .filter((s) => s.quals.fpvOperator === true)
+    .map((s) => ({
+      id: id++,
+      kind: "fpv" as const,
+      lockId: null,
+      side: s.side,
+      companyId: s.companyId,
+      operatorId: s.id,
+      state: "ready" as const,
+      pos: { ...s.pos },
+      target: null,
+      batteriesLeft: FPV.AIRFRAMES,
+      flightTicksLeft: FPV_ENDURANCE_TICKS,
+      stateTick: 0,
+      belief: new Map<string, Contact>(),
+      lastReportTick: 0,
+      flashWatch: newFlashWatch(),
+    }));
+  return [...recon, ...fpv];
+}
+
+/** 観測ドローンか(`[v7.7]` 種類の無い古いデータも観測ドローン) */
+export function isRecon(d: Drone): boolean {
+  return d.kind !== "fpv";
 }
 
 export function droneOf(world: World, co: CompanyState): Drone | null {
-  return world.drones.find((d) => d.side === co.side && d.companyId === co.companyId) ?? null;
+  return (
+    world.drones.find((d) => isRecon(d) && d.side === co.side && d.companyId === co.companyId) ??
+    null
+  );
 }
 
 function operatorOf(world: World, d: Drone): Soldier | null {
@@ -84,7 +117,7 @@ function moveToward(d: Drone, to: Vec2): boolean {
 }
 
 /** その兵士は上から見えるか: 屋根の下(建物の中)と煙の中は見えない */
-function visibleFromAbove(world: World, s: Soldier): boolean {
+export function visibleFromAbove(world: World, s: Soldier): boolean {
   if (world.buildings.some((b) => insideBounds(b.bounds, s.pos))) return false;
   for (const sm of world.smokes) {
     const r = smokeRadius(sm, world.tick);
@@ -101,7 +134,7 @@ function visibleFromAbove(world: World, s: Soldier): boolean {
  *     `SPOT_RATE_CONCEALED` の確率で見つける。熱線があるので、隠れても数秒で見つかる程度
  * 乱数はドローン側の陣営の乱数列から引く(P3)。引くのは「止まっていて、まだ捉えていない」ときだけ
  */
-function spots(world: World, d: Drone, s: Soldier, tracked: Contact | undefined): boolean {
+export function spots(world: World, d: Drone, s: Soldier, tracked: Contact | undefined): boolean {
   if (s.pathIdx < s.path.length) return true;
   if (tracked && tracked.lastSeenTick >= world.tick - 1) return true;
   // 屋外で `atWindow` が立つのは射撃壕に就いている者(窓は屋内なので、そもそも上から見えない)
@@ -146,6 +179,7 @@ function observe(world: World, d: Drone): void {
 /** 毎ティック: 飛行・電池・視認。索敵のあと、無線の前に呼ぶ(見たものがこのティックの報告に乗る) */
 export function droneSystem(world: World): void {
   for (const d of world.drones) {
+    if (!isRecon(d)) continue; // 自爆ドローンは fpvSystem が動かす
     if (d.state === "lost" || d.state === "spent") continue;
     const op = operatorOf(world, d);
     if (!op) {

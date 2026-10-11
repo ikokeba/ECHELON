@@ -211,10 +211,25 @@ export interface HudSnapshot {
   antiArmor: HudAntiArmor | null;
   /** 観測ドローン(`[v7.3]` A-2)。中隊長を操作していて、中隊がドローンを持つときだけ */
   drone: HudDrone | null;
+  /** `[v7.7]` 自爆ドローン。人間が中隊長を操作していて、中隊が FPV を持つときだけ */
+  fpv: HudFpv | null;
 }
 
 /** 地点を選んで出す命令(`[v7.2]`) */
-export type ArmedOrder = "fire" | "smoke" | "hold" | "at" | "drone";
+export type ArmedOrder = "fire" | "smoke" | "hold" | "at" | "drone" | "fpv";
+
+/** 自爆ドローン(FPV)の表示(`[v7.7]` ロードマップ B-2) */
+export interface HudFpv {
+  /** 残りの機体(飛んでいるものを含む)/ 最初の数 */
+  left: number;
+  total: number;
+  /** すぐ飛ばせる機体の数 */
+  ready: number;
+  /** 飛んでいる機体の数 */
+  flying: number;
+  /** 次の機体の準備が終わるまでの秒(準備中のものが無ければ null) */
+  prepSec: number | null;
+}
 
 /** 観測ドローンの表示(`[v7.3]` ロードマップ A-2) */
 export interface HudDrone {
@@ -655,6 +670,7 @@ export const useSimStore = create<UiState>((set, get) => ({
   uasCover: null,
   antiArmor: null,
   drone: null,
+  fpv: null,
   reinforceNonce: 0,
   uasCoverNonce: 0,
   uasCoverOn: false,

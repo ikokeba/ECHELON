@@ -15,7 +15,8 @@ import { platoonName } from "../sim/c2/planning.ts";
 import { reinforcementsLeft, topCommandOf } from "../sim/systems/reinforcement.ts";
 import { isOffField } from "../sim/systems/litter.ts";
 import { fireMissionCooldownLeft, hasMortar, mortarMagazine } from "../sim/systems/indirect.ts";
-import { ANTI_ARMOR, DRONE, MORTAR, SIM_HZ, SMOKE, UAS_REACT } from "../sim/constants.ts";
+import { ANTI_ARMOR, DRONE, FPV, MORTAR, SIM_HZ, SMOKE, UAS_REACT } from "../sim/constants.ts";
+import { fpvsOf } from "../sim/systems/fpv.ts";
 import { smokeCooldownLeft, smokeThrower } from "../sim/systems/smoke.ts";
 import { sideDoctrine } from "../sim/world.ts";
 import type { Contact, Side, Vec2 } from "../sim/types.ts";
@@ -81,6 +82,7 @@ export function commandSpecs(
   canFire = false,
   canPlan = false,
   canDrone = false,
+  canFpv = false,
 ): CommandSpec[] {
   // 立案中の中隊長は作戦の書き換えだけ(`[v7.3]` A-1)。時間が止まっているので他の命令は意味が無い
   if (canPlan) return [PLAN_SPEC, { type: "hold", description: "書き換えずに AI の作戦のまま戦闘を始める" }];
@@ -88,6 +90,7 @@ export function commandSpecs(
   const extra = [
     ...(canFire ? [FIRE_MISSION_SPEC] : []),
     ...(canDrone ? [DRONE_SPEC] : []),
+    ...(canFpv ? [FPV_SPEC] : []),
     ...(canReinforce ? [REINFORCE_SPEC] : []),
   ];
   if (extra.length === 0) return list;
@@ -116,6 +119,14 @@ const DRONE_SPEC: CommandSpec = {
   description:
     "観測ドローンを target {x,z} の上へ飛ばす(observation.drone を見る)。真下の狭い範囲だけを上から見て、" +
     "見たものは操縦手から無線で遅れて contacts に入る。電池が尽きる前に自分で戻る。操縦手から maxRange m 以内",
+};
+
+const FPV_SPEC: CommandSpec = {
+  type: "fpv",
+  description:
+    "自爆ドローン(FPV)を1機 target {x,z} へ飛ばす(observation.fpv を見る)。目標点のまわり " +
+    "seekRadius m で、上から見えた敵を自分のカメラで捉えて突っ込む。建物の中・煙の中の敵は見えないので狙えない。" +
+    "操縦手から maxRange m 以内。1機飛ばすごとに機体が1つ減り、次の機体の準備に時間がかかる",
 };
 
 const REINFORCE_SPEC: CommandSpec = {
@@ -213,7 +224,11 @@ export function buildObservation(
     : undefined;
   const planCo = seat.echelon === "company" ? fireCo : undefined;
   // 観測ドローン(`[v7.3]` A-2)。中隊長の座席で、中隊がドローンを持つときだけ
-  const drone = planCo ? (world.drones.find((d) => d.side === own && d.companyId === planCo.companyId) ?? null) : null;
+  const drone = planCo
+    ? (world.drones.find((d) => d.kind !== "fpv" && d.side === own && d.companyId === planCo.companyId) ?? null)
+    : null;
+  // 自爆ドローン(`[v7.7]` B-2)。中隊長の座席で、中隊が FPV を持つときだけ
+  const fpvTeams = planCo ? fpvsOf(world, planCo) : [];
   const plan = planCo?.plan;
   const base = {
     protocol: PROTOCOL_VERSION,
@@ -249,7 +264,25 @@ export function buildObservation(
       canFire,
       world.phase === "planning" && plan !== undefined,
       drone !== null,
+      fpvTeams.length > 0,
     ),
+    ...(fpvTeams.length > 0
+      ? {
+          fpv: {
+            airframesLeft: fpvTeams.filter((d) => d.state !== "lost").reduce((n, d) => n + d.batteriesLeft, 0),
+            ready: fpvTeams.filter((d) => d.state === "ready").length,
+            flying: fpvTeams
+              .filter((d) => d.state === "flying")
+              .map((d) => ({ pos: rv(d.pos), target: d.target ? rv(d.target) : null, locked: d.lockId != null })),
+            operators: fpvTeams.map((d) => {
+              const op = world.soldierById.get(d.operatorId);
+              return op && op.status === "ok" ? rv(op.pos) : null;
+            }),
+            maxRange: FPV.MAX_RANGE,
+            seekRadius: FPV.SEEK_RADIUS,
+          },
+        }
+      : {}),
     ...(drone
       ? {
           drone: {

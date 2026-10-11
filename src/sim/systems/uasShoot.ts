@@ -20,7 +20,7 @@
  * 陣営で分岐しない(P2)。
  */
 
-import { HEARING, SIM_DT, TRACER_EVERY_TICKS, UAS_SHOOT } from "../constants.ts";
+import { FPV, HEARING, SIM_DT, TRACER_EVERY_TICKS, UAS_SHOOT } from "../constants.ts";
 import { chance, ratePerTick } from "../rng.ts";
 import { onPost } from "../c2/uasReact.ts";
 import { airborne } from "./uasDetect.ts";
@@ -38,13 +38,16 @@ export function shootRate(world: World, s: Soldier, d: Drone): number {
   // 斜めの距離(ドローンは高さ `ALTITUDE` を飛んでいる)
   const r = Math.hypot(d.pos.x - s.pos.x, d.pos.z - s.pos.z, UAS_SHOOT.ALTITUDE);
   const kit = s.quals.counterUas === true;
-  if (kit && r <= UAS_SHOOT.KIT_RANGE) return UAS_SHOOT.KIT_RATE;
+  // `[v7.7]` 自爆ドローン(B-2)は速くて小さいので当たりにくい
+  const mul = d.kind === "fpv" ? FPV.SHOOT_MUL : 1;
+  if (kit && r <= UAS_SHOOT.KIT_RANGE) return UAS_SHOOT.KIT_RATE * mul;
   if (r > UAS_SHOOT.RIFLE_RANGE) return 0;
-  if (kit) return UAS_SHOOT.RIFLE_RATE;
-  // 装備の無い者は、陣地に就いている防御側だけ。敵兵が見えていればそちらが先
-  if (s.sees.length > 0) return 0;
+  if (kit) return UAS_SHOOT.RIFLE_RATE * mul;
+  // 装備の無い者は、陣地に就いている防御側だけ。敵兵が見えていればそちらが先。
+  // `[v7.7]` ただし自分の分隊へ向かってくる自爆ドローンは誰でも撃つ(撃たなければ当たる)
+  if (s.sees.length > 0 && d.kind !== "fpv") return 0;
   const posted = s.atWindow || (sq !== undefined && onPost(world, sq));
-  return posted ? UAS_SHOOT.RIFLE_RATE : 0;
+  return posted || d.kind === "fpv" ? UAS_SHOOT.RIFLE_RATE * mul : 0;
 }
 
 /** 毎ティック: ドローンを捉えている兵士が撃つ。戦闘の判定のあと、音の前に呼ぶ(銃声が聞こえる) */
@@ -75,7 +78,7 @@ export function uasShootSystem(world: World): void {
           shooterId: s.id,
           targetId: -1,
           // `[v7.6]` 対ドローン装備で撃った弾は色を分ける(描画専用)。装備の距離の外は小銃
-          weapon: rate === UAS_SHOOT.KIT_RATE && s.quals.counterUas ? "cuas" : "rifle",
+          weapon: s.quals.counterUas && Math.hypot(d.pos.x - s.pos.x, d.pos.z - s.pos.z, UAS_SHOOT.ALTITUDE) <= UAS_SHOOT.KIT_RANGE ? "cuas" : "rifle",
         });
       }
       if (hit) {
