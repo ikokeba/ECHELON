@@ -1354,7 +1354,11 @@ export type FxEvent =
       hit: boolean;
       shooterId: number;
       targetId: number;
-      weapon: "rifle" | "dm" | "pistol" | "saw" | "mg";
+      /**
+       * `[v7.6]` 描画の色分けに使う。`at` は対戦車・対構造物火器の弾道、`cuas` は
+       * 対ドローン装備の射撃(どちらも描画専用で、シムの判断には使わない)
+       */
+      weapon: "rifle" | "dm" | "pistol" | "saw" | "mg" | "at" | "cuas";
     }
   | { kind: "grenade"; at: Vec2; side: Side; radius: number; victims: number }
   /** 対戦車・対構造物火器の発射と着弾(`[v7.3]` A-3) */

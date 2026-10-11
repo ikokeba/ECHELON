@@ -110,6 +110,19 @@ const PLAN_COLOR = 0xf2ecdd;
 /** 弾道(`[v7.1]`): 着弾の閃光の色 */
 const TRACER_HIT_COLOR = 0xfff0a0;
 /**
+ * 特別な射手の弾の色(`[v7.6]` プレイでの指摘)。ここに無い武器(小銃・SAW)は従来どおり
+ * 陣営色を白へ寄せた色。色の値そのものは `theme.ts` の1か所
+ */
+const TRACER_WEAPON_COLOR: Partial<Record<Extract<FxEvent, { kind: "shot" }>["weapon"], number>> = {
+  dm: MAP.tracerDm,
+  mg: MAP.tracerMg,
+  pistol: MAP.tracerPistol,
+  at: MAP.tracerAt,
+  cuas: MAP.tracerCuas,
+};
+/** 特別な射手の弾に混ぜる陣営色の割合。誰の弾かが分かる程度に留める */
+const TRACER_SIDE_MIX = 0.22;
+/**
  * 弾の見た目の速さ m/s(`[v7.1]`)。実弾(約900m/s)だと一瞬で消えて目で追えないので、
  * 「撃った方向へ飛んでいく」のが見える速さまで落としてある。60m を約0.3秒
  */
@@ -169,6 +182,8 @@ interface Tracer {
   ez: number;
   hit: boolean;
   side: Side;
+  /** 武器(`[v7.6]` 色分け) */
+  weapon: Extract<FxEvent, { kind: "shot" }>["weapon"];
   /** 撃ってからの経過秒 */
   age: number;
   /** 終点に着くまでの秒 */
@@ -198,6 +213,7 @@ function makeTracer(f: Extract<FxEvent, { kind: "shot" }>): Tracer {
     ez,
     hit: f.hit,
     side: f.side,
+    weapon: f.weapon,
     age: 0,
     dur: Math.max(0.05, len / TRACER_SPEED),
   };
@@ -2127,7 +2143,7 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
                 hit: true,
                 shooterId: -1,
                 targetId: -1,
-                weapon: "mg",
+                weapon: "at",
               }),
             );
           }
@@ -2191,7 +2207,12 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
         const tail = Math.max(0, head - TRACER_STREAK);
         // 外れ弾は飛び去りながら薄れる
         const fade = t.hit ? 1 : 1 - 0.6 * (head / len);
-        col.setHex(SIDE_COLOR[t.side]).lerp(col2.setHex(0xffffff), 0.55).multiplyScalar(fade);
+        const special = TRACER_WEAPON_COLOR[t.weapon];
+        if (special !== undefined) {
+          col.setHex(special).lerp(col2.setHex(SIDE_COLOR[t.side]), TRACER_SIDE_MIX).multiplyScalar(fade);
+        } else {
+          col.setHex(SIDE_COLOR[t.side]).lerp(col2.setHex(0xffffff), 0.55).multiplyScalar(fade);
+        }
         putSeg(t.sx + ux * tail, t.sz + uz * tail, t.sx + ux * head, t.sz + uz * head, col);
       } else if (t.hit) {
         // 着弾の閃光: 標的の位置に小さな×

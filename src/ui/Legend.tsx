@@ -113,6 +113,19 @@ const MARKER_ITEMS: Item[] = [
   },
 ];
 
+/**
+ * 弾の色(`[v7.6]`)。小銃・SAW は陣営色、特別な射手だけ色を変える。地図では陣営色を
+ * 少し混ぜて描くので、凡例の色見本より青寄り/赤寄りに見える
+ */
+const TRACER_ITEMS: Item[] = [
+  { cls: "lg-line", label: "小銃・SAW", style: { background: "var(--blue)" }, title: "陣営色を白へ寄せた色" },
+  { cls: "lg-line", label: "選抜射手", style: { background: "var(--tracer-dm)" }, title: "分隊に1名の選抜射手(仕様 §14)" },
+  { cls: "lg-line", label: "機関銃", style: { background: "var(--tracer-mg)" }, title: "火器分隊の機関銃(仕様 §2)" },
+  { cls: "lg-line", label: "対戦車", style: { background: "var(--tracer-at)" }, title: "対戦車・対構造物火器の弾道(仕様 §8)" },
+  { cls: "lg-line", label: "対ドローン", style: { background: "var(--tracer-cuas)" }, title: "対ドローン装備の射撃(仕様 §10)" },
+  { cls: "lg-line", label: "拳銃(盾)", style: { background: "var(--tracer-pistol)" }, title: "盾持ちの拳銃(仕様 §14)" },
+];
+
 /** 階級は「円の上の横棒」。本数と長さで4階級(`[v6.6]` UIレビュー 診断D)。 */
 const RANK_ITEMS: Array<{ bars: number; long: boolean; label: string }> = [
   { bars: 1, long: false, label: "FT長" },
@@ -161,6 +174,12 @@ export function Legend() {
       <div className="lg-row">
         <span className="lg-cap">標識</span>
         {MARKER_ITEMS.map((it) => (
+          <Glyph key={it.label} item={it} />
+        ))}
+      </div>
+      <div className="lg-row">
+        <span className="lg-cap">弾</span>
+        {TRACER_ITEMS.map((it) => (
           <Glyph key={it.label} item={it} />
         ))}
       </div>

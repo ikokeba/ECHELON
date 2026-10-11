@@ -70,6 +70,24 @@ export const PALETTE = {
    */
   window: "#3a4f5c",
 
+  /**
+   * 弾の色(`[v7.6]` プレイでの指摘「選抜射手や特別な役職の弾の色を変えたい」)。
+   * 迫撃砲の光と同じく**0.1〜0.5秒で消える一過性の発光**なので、意味を担う5色には数えない。
+   * 小銃・SAW の弾は従来どおり陣営色を白へ寄せた色で、特別な射手の弾だけをこの色にする。
+   * どれも陣営色を少し混ぜて描くので(renderer `TRACER_SIDE_MIX`)、誰の弾かは失われない。
+   * 地形の暖色・陣営の青と赤・warn の黄・live の水色と重ならない色相を選んである
+   */
+  /** 選抜射手。紫 */
+  tracerDm: "#c77dff",
+  /** 機関銃(火器分隊の射手)。橙 */
+  tracerMg: "#ff8a3d",
+  /** 盾持ちの拳銃。盾と同じ鋼色 */
+  tracerPistol: "#b9c4cc",
+  /** 対戦車・対構造物火器。白熱 */
+  tracerAt: "#fffbe8",
+  /** 対ドローン装備。薄緑 */
+  tracerCuas: "#5cf2b0",
+
   blastCore: "#fff4d6",
   blastShock: "#ff9a2e",
   blastDust: "#8d7351",
@@ -135,6 +153,11 @@ export const MAP = {
   ghost: hexToInt(PALETTE.ghost),
   suppress: hexToInt(PALETTE.suppress),
   window: hexToInt(PALETTE.window),
+  tracerDm: hexToInt(PALETTE.tracerDm),
+  tracerMg: hexToInt(PALETTE.tracerMg),
+  tracerPistol: hexToInt(PALETTE.tracerPistol),
+  tracerAt: hexToInt(PALETTE.tracerAt),
+  tracerCuas: hexToInt(PALETTE.tracerCuas),
   blastCore: hexToInt(PALETTE.blastCore),
   blastShock: hexToInt(PALETTE.blastShock),
   blastDust: hexToInt(PALETTE.blastDust),
