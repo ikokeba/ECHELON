@@ -1192,6 +1192,11 @@ export interface Scenario {
    */
   /** 後援部隊の設定(`[v7.0]`)。未指定の陣営は後援なし */
   reinforcement?: Partial<Record<Side, ReinforcementSpec>>;
+  /**
+   * 中隊の迫撃砲を持つか(`[v7.6]` 編成オプション `ForceSpec.mortar`)。未指定の陣営は持つ
+   * (従来どおり)。持たない陣営は射撃要請が `no_mortar` で通らない
+   */
+  mortar?: Partial<Record<Side, boolean>>;
   ccp?: Record<Side, Vec2>;
   /** 建物(仕様 §7)。屋外と屋内はシームレスな1つのマップとして扱う */
   buildings?: Building[];

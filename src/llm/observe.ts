@@ -14,7 +14,7 @@ import { antiArmorCooldownLeft, antiArmorRoundsOf, gunnerOf } from "../sim/syste
 import { platoonName } from "../sim/c2/planning.ts";
 import { reinforcementsLeft, topCommandOf } from "../sim/systems/reinforcement.ts";
 import { isOffField } from "../sim/systems/litter.ts";
-import { fireMissionCooldownLeft, mortarMagazine } from "../sim/systems/indirect.ts";
+import { fireMissionCooldownLeft, hasMortar, mortarMagazine } from "../sim/systems/indirect.ts";
 import { ANTI_ARMOR, DRONE, MORTAR, SIM_HZ, SMOKE, UAS_REACT } from "../sim/constants.ts";
 import { smokeCooldownLeft, smokeThrower } from "../sim/systems/smoke.ts";
 import { sideDoctrine } from "../sim/world.ts";
@@ -206,7 +206,8 @@ export function buildObservation(
     seat.echelon === "company"
       ? world.companies.find((c) => c.side === own && c.companyId === seat.unitId)
       : undefined;
-  const canFire = fireCo !== undefined && sideDoctrine(world, own).fireSupport > 0;
+  // `[v7.6]` 編成で迫撃砲を外した陣営には出さない(ドクトリンで持たない自律群と同じ扱い)
+  const canFire = fireCo !== undefined && hasMortar(world, own);
   const flying = fireCo
     ? world.fireMissions.find((m) => m.side === own && m.companyId === fireCo.companyId)
     : undefined;

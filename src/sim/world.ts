@@ -222,6 +222,11 @@ export interface World {
   /** 後援部隊(`[v7.0]` systems/reinforcement.ts)。陣営ごと */
   reinforcement: Record<Side, ReinforcementState>;
   /**
+   * 中隊の迫撃砲を持つか(`[v7.6]`)。陣営ごと。編成オプション `ForceSpec.mortar` から来る。
+   * 持たない陣営は射撃要請が通らない(systems/indirect.ts `hasMortar`)
+   */
+  mortar: Record<Side, boolean>;
+  /**
    * そのティックの描画用エフェクトイベント(`[v6.1]`)。`stepWorld` 先頭で空にし、
    * `combatSystem` が発砲・擲弾着弾を push する。**シムの結果には影響しない**。
    */
@@ -735,6 +740,7 @@ function buildWorld(scenario: Scenario): World {
       blue: { spec: activeReinforcement(scenario, "blue"), callsUsed: 0, pending: [], arrived: 0 },
       red: { spec: activeReinforcement(scenario, "red"), callsUsed: 0, pending: [], arrived: 0 },
     },
+    mortar: { blue: scenario.mortar?.blue ?? true, red: scenario.mortar?.red ?? true },
     fx: [],
     tuning: defaultTuning(),
     posture: defaultPosture(),

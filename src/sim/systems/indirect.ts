@@ -96,6 +96,7 @@ function pickTarget(world: World, co: CompanyState): Vec2 | null {
 /**
  * 射撃要請が通らない理由(`[v7.2]`)。人間・LLM へそのまま返す。
  *   no_fire_support : ドクトリン上、火力支援を持たない(自律群)
+ *   no_mortar       : `[v7.6]` 編成で迫撃砲を外した(プレイでの指摘「迫撃砲をオンオフにしたい」)
  *   no_rounds       : 撃ち尽くした
  *   no_command_post : 中隊本部(中隊長・副中隊長・無線手)が戦えない
  *   cooldown        : 前の要請から間隔が明けていない
@@ -106,6 +107,7 @@ function pickTarget(world: World, co: CompanyState): Vec2 | null {
  */
 export type FireMissionBlock =
   | "no_fire_support"
+  | "no_mortar"
   | "no_rounds"
   | "no_command_post"
   | "cooldown"
@@ -117,6 +119,7 @@ export type FireMissionBlock =
 /** 理由の日本語(UI・LLM の `lastResult` 用) */
 export const FIRE_MISSION_BLOCK_TEXT: Record<FireMissionBlock, string> = {
   no_fire_support: "このドクトリンは火力支援を持たない",
+  no_mortar: "編成に迫撃砲が無い",
   no_rounds: "迫撃砲弾を撃ち尽くした",
   no_command_post: "中隊本部が機能していない",
   cooldown: "前の要請から間隔が明けていない",
@@ -126,8 +129,19 @@ export const FIRE_MISSION_BLOCK_TEXT: Record<FireMissionBlock, string> = {
   danger_close: `危険近接(前線から ${MORTAR.DANGER_CLOSE}m 以内)`,
 };
 
-/** 中隊の保有弾数。ドクトリンの `fireSupport` に掛かる */
+/**
+ * その陣営が迫撃砲を持っているか(`[v7.6]`)。編成で外していれば無い。ドクトリンの
+ * `fireSupport` が 0(自律群)でも無い。UI・LLM の観測はここを見て迫撃砲の欄を出し分ける
+ */
+export function hasMortar(world: World, side: Side): boolean {
+  return world.mortar[side] && sideDoctrine(world, side).fireSupport > 0;
+}
+
+/**
+ * 中隊の保有弾数。ドクトリンの `fireSupport` に掛かる。`[v7.6]` 編成で迫撃砲を外した陣営は 0
+ */
 export function mortarMagazine(world: World, co: CompanyState): number {
+  if (!world.mortar[co.side]) return 0;
   return Math.round(MORTAR.ROUNDS_PER_COMPANY * sideDoctrine(world, co.side).fireSupport);
 }
 
@@ -153,6 +167,8 @@ export function fireMissionBlocker(
   const doc = sideDoctrine(world, co.side);
   // ドクトリンで持ち弾が変わる(仕様 §13)。自律群は火力支援を持たない
   if (doc.fireSupport <= 0) return "no_fire_support";
+  // `[v7.6]` 編成で迫撃砲を外した。弾切れとは区別して返す(人間・LLM が理由を読めるように)
+  if (!world.mortar[co.side]) return "no_mortar";
   if (co.mortarRoundsUsed >= mortarMagazine(world, co)) return "no_rounds";
   if (!hasCommandPost(world, co)) return "no_command_post";
   // 判断周期・要請間隔ともドクトリンで鈍る。非正規軍は「呼べるが遅い」

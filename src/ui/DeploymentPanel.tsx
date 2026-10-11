@@ -198,6 +198,17 @@ export function DeploymentPanel() {
                 </label>
                 <label
                   className="dbg-chk"
+                  title="中隊の60mm迫撃砲(`[v7.6]`)。中隊長が前線の報告をもとに射撃を要請する。外すとAI・人間・LLMのどの中隊長も迫撃砲を使えない"
+                >
+                  <input
+                    type="checkbox"
+                    checked={spec.mortar !== false}
+                    onChange={(e) => setForce(side, { mortar: e.target.checked })}
+                  />
+                  <span>迫撃砲</span>
+                </label>
+                <label
+                  className="dbg-chk"
                   title="対ドローン装備(`[v7.5]`)。小銃分隊に1名(ブラボー組のFTリーダー)。近く(高さ込みで40m 以内)のドローンを撃ち落としやすい。撃てば銃声で位置が知られる。既定はなし"
                 >
                   <input
