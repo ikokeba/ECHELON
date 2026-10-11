@@ -143,5 +143,6 @@ describe("バディエイド(仕様 §9)", () => {
       stabilizedTotal += w.soldiers.filter((s) => s.stabilized).length;
     }
     expect(stabilizedTotal).toBeGreaterThan(0);
-  });
+    // 6シード×200秒の実戦。並列の負荷で既定の120秒を超えたことがある(判定は変えない)
+  }, 300000);
 });
