@@ -209,6 +209,11 @@ export interface World {
   /** 決着(仕様 §12)。null なら戦闘継続中 */
   victory: VictoryState | null;
   /**
+   * 膠着の見張り(`[v7.6]` systems/objectives.ts)。拠点と戦力の要約(`key`)と、それが最後に
+   * 変わったティック。変わらないまま `OBJECTIVE.STALEMATE_SEC` たてば裁定する
+   */
+  stalemate: { key: string; sinceTick: number };
+  /**
    * いま人間が操作しているノード(仕様 §4)。null なら全ユニットがAI制御。
    * 人間はAIの意思決定者を置き換えるだけで、配管も能力も変わらない。
    */
@@ -739,6 +744,7 @@ function buildWorld(scenario: Scenario): World {
     })),
     majoritySince: { blue: null, red: null },
     victory: null,
+    stalemate: { key: "", sinceTick: 0 },
     control: null,
     agentSeats: [],
     reinforcement: {

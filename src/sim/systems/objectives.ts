@@ -22,6 +22,62 @@ import type { Side, Soldier } from "../types.ts";
 import type { World } from "../world.ts";
 
 const HOLD_TO_WIN_TICKS = Math.round(OBJECTIVE.HOLD_TO_WIN_SEC * SIM_HZ);
+const STALEMATE_TICKS = Math.round(OBJECTIVE.STALEMATE_SEC * SIM_HZ);
+
+/**
+ * 膠着の裁定(`[v7.6]` プレイでの指摘「無限でも決着するまでシミュレートするように」)。
+ *
+ * 時間無制限の攻防戦を80分回すと、4戦とも決着しなかった。攻撃側が拠点を取りきれないまま
+ * 戦力を失い、防御側も守るだけで出てこない — 実際の戦闘ならここで**攻勢の限界**
+ * (culminating point、ADP 3-0)を迎え、攻撃は終わる。シムには「終わる」規則が無かった。
+ *
+ * 拠点の所有・確保の進み具合(2%刻み)・両軍の戦える兵の数のどれも `STALEMATE_SEC` 変わらなければ:
+ *   - 攻防戦(時間無制限のとき): 攻撃側が過半数に届いていなければ**防御側の勝ち**(攻勢の限界)
+ *   - 遭遇戦: 拠点を多く持つ側、同じなら戦える兵の多い側の勝ち(裁定)。それも同じなら見張り直す
+ * どちらも、撃ち合い・死傷・確保の動きが続いている間は起きない(1つでも変われば数え直す)。
+ * 制限時間のある攻防戦は時間切れが決めるので行わない。材料は盤面の事実だけで、陣営で分岐しない
+ */
+function adjudicateStalemate(world: World, eff: Record<Side, number>): void {
+  if (world.mode === "assault" && world.timeLimitTicks > 0) return;
+  const key =
+    world.objectives
+      .map((o) => `${o.owner ?? "-"}${o.progressBy ?? "-"}${Math.round(o.progress * 50)}`)
+      .join(",") + `|${eff.blue}|${eff.red}`;
+  if (key !== world.stalemate.key) {
+    world.stalemate = { key, sinceTick: world.tick };
+    return;
+  }
+  if (world.tick - world.stalemate.sinceTick < STALEMATE_TICKS) return;
+
+  const held = (side: Side): number => world.objectives.filter((o) => o.owner === side).length;
+  if (world.mode === "assault") {
+    const majority = Math.floor(world.objectives.length / 2) + 1;
+    if (held(world.attacker) < majority) {
+      const defender: Side = world.attacker === "blue" ? "red" : "blue";
+      world.victory = { winner: defender, reason: "culmination", tick: world.tick };
+      return;
+    }
+  } else {
+    const b = held("blue");
+    const r = held("red");
+    const winner: Side | null =
+      b !== r
+        ? b > r
+          ? "blue"
+          : "red"
+        : eff.blue !== eff.red
+          ? eff.blue > eff.red
+            ? "blue"
+            : "red"
+          : null;
+    if (winner) {
+      world.victory = { winner, reason: "adjudication", tick: world.tick };
+      return;
+    }
+  }
+  // 決められない(全くの互角)。もう一度最初から見張る
+  world.stalemate = { key, sinceTick: world.tick };
+}
 
 /** 拠点の確保に数えられる兵士か。倒れている者・後送済みは数えない。 */
 function counts(s: Soldier): boolean {
@@ -92,6 +148,10 @@ export function objectivesSystem(world: World): void {
     }
     return;
   }
+
+  // 膠着の裁定(`[v7.6]`)。拠点の無い戦闘でも、戦える兵の数が長く動かなければ裁定する
+  adjudicateStalemate(world, { blue: blueLeft, red: redLeft });
+  if (world.victory) return;
 
   // 拠点確保: 過半数を一定時間維持し続けた側の勝ち
   if (world.objectives.length === 0) return;
