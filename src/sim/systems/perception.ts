@@ -179,6 +179,12 @@ export function perceptionSystem(world: World): void {
       if (other.status !== "ok") return;
       if (canSeeIndexed(world, world.wallIndex, s, other, nearRange, fovHalfRad)) {
         seen.push(other.id);
+      } else if (
+        // `[v7.6]` 周辺視野: 近くで動いている敵は、視界扇形の外でも見える
+        other.pathIdx < other.path.length &&
+        canSeeIndexed(world, world.wallIndex, s, other, SCAN.PERIPHERAL_RANGE, SCAN.PERIPHERAL_HALF_RAD)
+      ) {
+        seen.push(other.id);
       }
     });
 
