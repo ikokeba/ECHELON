@@ -242,7 +242,11 @@ describe("任務種別(WHAT。`[v6.1]` §3①)", () => {
   });
 
   it("展開すると seize / support_by_fire / screen の3種が使われる", () => {
-    const w = createWorld(companyClashScenario(1));
+    // `[v7.6]` 拠点を割り当てた小隊は掩護に回さない(端の小隊の拠点がいつまでも取られなかった)。
+    // 掩護は「取るべき拠点の無い端の小隊」の任務なので、拠点の無い盤面で確かめる
+    const sc = companyClashScenario(1);
+    sc.objectives = [];
+    const w = createWorld(sc);
     const kinds = new Set<string>();
     for (let i = 0; i < 30 && !w.victory; i++) {
       runTicks(w, 5 * 30);

@@ -54,7 +54,11 @@ export function ObjectivePanel() {
               ? "拠点確保"
               : victory.reason === "timeout"
                 ? "時間切れ(防御成功)"
-                : "戦力の枯渇"}
+                : victory.reason === "culmination"
+                  ? "攻勢の限界(防御成功)"
+                  : victory.reason === "adjudication"
+                    ? "膠着の裁定"
+                    : "戦力の枯渇"}
           </span>
         </div>
       )}

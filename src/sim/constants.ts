@@ -103,6 +103,13 @@ export const SCAN = {
    * むしろ現実に近い(索敵は瞬時ではない)。
    */
   FAR_EVERY: 6,
+  /**
+   * 周辺視野(`[v7.6]`)。視界扇形(±50°)の外でも、この距離 m 以内で**動いている**敵は、
+   * この半角の内側なら見える。人は視野の端で動くものに気づく。制圧射撃の構えで一方を向いた
+   * 分隊の横20m を、敵が歩いて通り過ぎていた(互いに見えていない組の大半がこれだった)
+   */
+  PERIPHERAL_RANGE: 25,
+  PERIPHERAL_HALF_RAD: (100 * Math.PI) / 180,
 } as const;
 
 export const RANGE_FALLOFF = {
@@ -629,6 +636,11 @@ export const OBJECTIVE = {
    * 攻撃側が過半数を奪って保持するか、どちらかの戦力が尽きるまで続く
    */
   TIME_LIMIT_STEPS_SEC: [120, 180, 300, 600, 900, 1200, 1800, 2700, 3600, 5400, 7200, 0],
+   * 膠着の裁定までの秒数(`[v7.6]` systems/objectives.ts)。拠点の所有・確保の進み具合・両軍の
+   * 戦える兵の数のどれも、これだけのあいだ変わらなければ裁定する。時間無制限の攻防戦と遭遇戦だけ
+   * (制限時間のある攻防戦は時間切れが決める)。ADP 3-0 の攻勢の限界(culminating point)に当たる
+   */
+  STALEMATE_SEC: 600,
 } as const;
 
 type ObjectiveSizeKey = "small" | "large";
