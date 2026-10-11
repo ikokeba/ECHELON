@@ -5,6 +5,7 @@ import { companyClashScenario } from "../src/sim/scenario.ts";
 import { beginPlanning, beginBattle } from "../src/sim/c2/planning.ts";
 import { MORTAR, SIM_HZ } from "../src/sim/constants.ts";
 import { DOCTRINES } from "../src/sim/doctrine.ts";
+import { playForce } from "../src/sim/force.ts";
 import { orderFireMission } from "../src/sim/playerOrders.ts";
 import { fireMissionBlocker } from "../src/sim/systems/indirect.ts";
 import { buildObservation } from "../src/llm/observe.ts";
@@ -115,6 +116,27 @@ describe("迫撃砲の要請 — 人間・LLM(`[v7.2]` S-5)", () => {
     w.doctrine = { blue: DOCTRINES.swarm, red: DOCTRINES.swarm };
     expect(fireMissionBlocker(w, co, { x: 0, z: 0 })).toBe("no_fire_support");
   });
+
+  it("`[v7.6]` 編成で迫撃砲を外すと no_mortar で通らず、AIも撃たず、観測にも載らない", () => {
+    const force = playForce();
+    force.blue.mortar = false;
+    const w = createWorld(companyClashScenario(1, force));
+    beginPlanning(w);
+    beginBattle(w);
+    expect(w.mortar).toEqual({ blue: false, red: true });
+    const co = w.companies.find((c) => c.side === "blue")!;
+    expect(fireMissionBlocker(w, co, { x: 0, z: 0 })).toBe("no_mortar");
+    expect(orderFireMission(w, { x: 0, z: 0 }, seatOf(w))).toEqual({
+      ok: false,
+      reason: "no_mortar",
+    });
+    const obs = buildObservation(w, { ...seatOf(w), echelon: "company" })!;
+    expect(obs.fireSupport).toBeUndefined();
+    for (let t = 0; t < 300 * SIM_HZ; t++) stepWorld(w);
+    // 外した側は1発も撃たない。持っている側はいつもどおり撃つ
+    expect(co.mortarRoundsUsed).toBe(0);
+    expect(w.companies.find((c) => c.side === "red")!.mortarRoundsUsed).toBeGreaterThan(0);
+  }, 300000);
 
   it("中隊長以外の座席は要請できない", () => {
     const w = battle(1);

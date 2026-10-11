@@ -168,8 +168,8 @@ barbed wire, a forward position and an ambush.
   behind windows, fighting positions and machine-gun posts, cover and all (the position is destroyed).
   AI, humans and LLMs fire them under the same rules.
 - **Company assets.** A 60 mm mortar that fires at what the company commander *believes*, not at
-  where the enemy really is (the AI, a human and an LLM all request it under the same rules), and
-  evacuation vehicles the commander has to share out.
+  where the enemy really is (the AI, a human and an LLM all request it under the same rules; it can
+  also be left out of the force), and evacuation vehicles the commander has to share out.
 - **After-action review and replay.** Only orders are recorded; the setup code plus that log replays
   the same battle from the start. The review screen sets each commander's belief about the enemy
   against where the enemy really was, moment by moment.

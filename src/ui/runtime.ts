@@ -39,6 +39,7 @@ import {
 import {
   FIRE_MISSION_BLOCK_TEXT,
   fireMissionCooldownLeft,
+  hasMortar,
   mortarMagazine,
 } from "@sim/systems/indirect.ts";
 import { reinforcementsLeft, topCommandOf } from "@sim/systems/reinforcement.ts";
@@ -388,7 +389,7 @@ function reinforcementHud(world: World, side: Side): HudSnapshot["reinforcement"
 /** 迫撃砲の表示(`[v7.2]`)。中隊が無い・火力支援を持たない陣営は null */
 function fireSupportHud(world: World, side: Side): HudSnapshot["fireSupport"][Side] {
   const co = world.companies.find((c) => c.side === side);
-  if (!co || sideDoctrine(world, side).fireSupport <= 0) return null;
+  if (!co || !hasMortar(world, side)) return null;
   const total = mortarMagazine(world, co);
   const flying = world.fireMissions.find((m) => m.side === side && m.companyId === co.companyId);
   const c = world.control;

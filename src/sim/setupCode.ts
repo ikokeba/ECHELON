@@ -105,12 +105,22 @@ export function normalizeSetup(s: BattleSetup): BattleSetup {
   return {
     scenario: s.scenario,
     seed: Math.round(s.seed),
-    force: { blue: { ...s.force.blue }, red: { ...s.force.red } },
+    force: { blue: normalizeForce(s.force.blue), red: normalizeForce(s.force.red) },
     doctrine: { ...s.doctrine },
     risk,
     tuning: quantizeTuning(s.tuning),
     deployment: s.deployment ? quantizeDeployment(s.deployment) : null,
   };
+}
+
+/**
+ * 編成の既定値を落とす(`[v7.6]`)。迫撃砲は「未指定 = あり」なので、`mortar: true` は
+ * 書かないのと同じ。落としておかないと、チェックを外して戻しただけでコードが伸びる
+ */
+function normalizeForce(f: ForceSpec): ForceSpec {
+  const out = { ...f };
+  if (out.mortar === true) delete out.mortar;
+  return out;
 }
 
 /** 係数(スライダー由来の値)を、コードが運べる精度へ丸める。 */
