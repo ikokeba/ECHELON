@@ -151,11 +151,37 @@ describe("ドローンを見る・聞く(`[v7.5]` S-6)", () => {
 });
 
 describe("気づいたことの流れ(`[v7.5]` S-6、§5 / P1)", () => {
+  it("FTに属さない分隊長・本部要員も気づく。分隊長なら分隊長の像、中隊本部なら中隊長の像へ直接", () => {
+    const w = createWorld(scenario());
+    const sl = w.soldiers.find((s) => s.side === "blue" && s.isSquadLeader && s.fireteamId < 0)!;
+    const sq = w.squads.find((q) => q.side === "blue" && q.squadId === sl.squadId)!;
+    const d = hover(w, "blue", sl.pos, 30);
+    // 分隊の他の者は聞こえない遠くへ
+    for (const m of w.soldiers) {
+      if (m.side === "blue" && m.id !== sl.id) m.pos = { x: m.pos.x + 1000, z: m.pos.z };
+    }
+    sl.atWindow = false;
+    uasDetectionSystem(w);
+    expect(sl.seesUas).toContain(d.id);
+    expect(sq.uas.get(uasKey(d.id))!.heard).toBeUndefined();
+
+    const w2 = createWorld(scenario());
+    const hq = w2.soldiers.find((s) => s.side === "blue" && s.hqRole === "co")!;
+    const co = w2.companies.find((c) => c.side === "blue")!;
+    const d2 = hover(w2, "blue", hq.pos, 30);
+    uasDetectionSystem(w2);
+    expect(co.uas.has(uasKey(d2.id))).toBe(true);
+  });
+
   it("分隊長はすぐ、小隊長・中隊長は無線の遅延を経て知る。兵士の像には入らない", () => {
     const w = createWorld(scenario());
     const { ft, men } = outdoorTeam(w, "blue");
     const d = hover(w, "blue", centroid(men), 40);
     const key = uasKey(d.id);
+    // 無線の経路だけを見るため、このFT以外(小隊長・中隊本部など、自分の耳で聞ける者)は遠ざける
+    for (const m of w.soldiers) {
+      if (m.side === "blue" && !men.includes(m)) m.pos = { x: m.pos.x + 1000, z: m.pos.z };
+    }
     const sq = w.squads.find((s) => s.side === "blue" && s.squadId === ft.squadId)!;
     const pl = w.platoons.find((p) => p.side === "blue" && p.platoonId === sq.platoonId)!;
     const co = w.companies.find((c) => c.side === "blue" && c.companyId === pl.companyId)!;

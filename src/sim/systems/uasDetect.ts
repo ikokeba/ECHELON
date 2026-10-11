@@ -10,8 +10,9 @@
  * くぐもって縮む)。ドローンの視界(真下 40m)より広いので、先に気づくのは地上側になる。
  *
  * 守っている一線(ロードマップ P1 / §6.3):
- *   - 気づいたことは**そのFTの記憶**(`ft.uas`)に入るだけ。分隊長はFTの合算として直接、
- *     小隊長・中隊長は無線報告(radio.ts)で遅れて知る
+ *   - 気づいたことは**見た者の記憶**に入るだけ。FTの隊員ならFTの記憶(`ft.uas`)、FTに属さない
+ *     分隊長・本部要員なら本人の指揮官の像。分隊長はFTの合算として直接、小隊長・中隊長は
+ *     無線報告(radio.ts)で遅れて知る(本部要員が自分の目で見た分だけは直接)
  *   - **兵士の接触と混ぜない**。`ft.memory` ではなく `ft.uas` に入れるので、迫撃砲の目標・
  *     擲弾の照準・FTの接敵判定・分隊の機動の向きには一切効かない(ドローンを砲撃しない)
  *   - 聞いただけの接触は、聞いた者の位置から見た方角の区分と刻んだ距離から組み立てる。
@@ -111,26 +112,60 @@ function decay(mem: UasContacts, tick: number): void {
 }
 
 /**
- * 毎ティック: 各FTの隊員が、空にいる敵ドローンを見る・聞く。ドローンが動いたあと
- * (droneSystem の直後)、無線の前に呼ぶ — 気づいたことがこのティックの報告に乗る
+ * その兵士が気づいたことを入れる記憶。FTの隊員はFTの記憶、FTに属さない分隊長は分隊長の像、
+ * 小隊本部・中隊本部の要員はそれぞれの指揮官の像(本人の目で見たものなので、無線は要らない)
+ */
+function memoryOf(world: World, s: Soldier): UasContacts | null {
+  if (s.fireteamId >= 0) {
+    const ft = world.fireteams.find(
+      (f) => f.side === s.side && f.squadId === s.squadId && f.ftIndex === s.fireteamId,
+    );
+    if (ft) return ft.uas;
+  }
+  if (s.squadId >= 0) {
+    return world.squads.find((q) => q.side === s.side && q.squadId === s.squadId)?.uas ?? null;
+  }
+  if (s.platoonId >= 0) {
+    return (
+      world.platoons.find((p) => p.side === s.side && p.platoonId === s.platoonId)?.uas ?? null
+    );
+  }
+  return world.companies.find((c) => c.side === s.side && c.companyId === s.companyId)?.uas ?? null;
+}
+
+/**
+ * 毎ティック: 兵士が、空にいる敵ドローンを見る・聞く。ドローンが動いたあと
+ * (droneSystem の直後)、無線の前に呼ぶ — 気づいたことがこのティックの報告に乗る。
+ * 同じ記憶を持つ者(同じFTなど)をまとめ、誰か1人でも見ていれば正確な位置、
+ * 聞いただけなら最も近く聞いた者からの粗い位置を入れる
  */
 export function uasDetectionSystem(world: World): void {
   for (const s of world.soldiers) if (s.seesUas && s.seesUas.length > 0) s.seesUas = [];
 
   const flying = world.drones.filter(airborne);
   if (flying.length > 0) {
-    for (const ft of world.fireteams) {
-      let members: Soldier[] | null = null;
+    // 記憶ごとに、ドローンの聞こえる範囲にいる戦える兵をまとめる(並びは world.soldiers の順、P3)
+    const groups = new Map<UasContacts, Soldier[]>();
+    for (const s of world.soldiers) {
+      if (s.status !== "ok" || isOffField(s)) continue;
+      if (
+        !flying.some(
+          (d) =>
+            d.side !== s.side &&
+            Math.hypot(d.pos.x - s.pos.x, d.pos.z - s.pos.z) <= UAS_DETECT.HEAR,
+        )
+      ) {
+        continue;
+      }
+      const mem = memoryOf(world, s);
+      if (!mem) continue;
+      const g = groups.get(mem);
+      if (g) g.push(s);
+      else groups.set(mem, [s]);
+    }
+    for (const [mem, members] of groups) {
       for (const d of flying) {
-        if (d.side === ft.side) continue;
-        members ??= world.soldiers.filter(
-          (s) =>
-            s.side === ft.side &&
-            s.squadId === ft.squadId &&
-            s.fireteamId === ft.ftIndex &&
-            s.status === "ok" &&
-            !isOffField(s),
-        );
+        if (d.side === members[0]!.side) continue;
         let seen = false;
         let ear: Soldier | null = null;
         let earD = Infinity;
@@ -152,11 +187,12 @@ export function uasDetectionSystem(world: World): void {
             earD = r;
           }
         }
-        if (seen) rememberSeen(ft.uas, d, world.tick);
-        else if (ear) rememberHeard(ft.uas, d, ear, earD, world.tick);
+        if (seen) rememberSeen(mem, d, world.tick);
+        else if (ear) rememberHeard(mem, d, ear, earD, world.tick);
       }
     }
   }
 
+  // FTの記憶はここで減衰させる(分隊長・小隊長・中隊長の像は無線システムが減衰させる)
   for (const ft of world.fireteams) if (ft.uas.size > 0) decay(ft.uas, world.tick);
 }
