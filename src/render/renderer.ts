@@ -1682,10 +1682,10 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
       const bearer = s.status === "ok" && s.bearing !== null;
       const suppressed = s.status === "ok" && s.suppressedUntilTick > world.tick;
 
-      // 影。戦死者は伏せているので薄く小さく(`[v6.5]`)
+      // 影。戦死者は伏せているので薄く小さく(`[v6.5]`)。`[v7.5]` 伏せている者(S-7)も小さく
       dummy.position.set(x + SHADOW_DX * 0.09, 0.04, z + SHADOW_DZ * 0.09);
       dummy.rotation.set(0, 0, 0);
-      dummy.scale.setScalar(dead ? 0.6 : 1);
+      dummy.scale.setScalar(dead ? 0.6 : s.prone ? 0.7 : 1);
       dummy.updateMatrix();
       dummy.scale.setScalar(1);
       soldierShadowMesh.setMatrixAt(i, dummy.matrix);
@@ -2424,6 +2424,30 @@ export function createRenderer(canvas: HTMLCanvasElement, world: World): Rendere
         draw([{ x: d.pos.x - r, z: d.pos.z + r }, { x: d.pos.x + r, z: d.pos.z - r }], c, 0.95);
       }
       for (let k = dn; k < MAX_DRONES; k++) droneDiscs[k]!.visible = false;
+      // 敵ドローンの像(`[v7.5]` S-6)。いまの座席の像に載っているものだけ(仕様 §5)。
+      // 機体そのものではなく最終目撃位置なので、確度が下がるほど薄くなる。音だけで
+      // 気づいたものは位置が粗いので、不確度の輪を一緒に出す
+      for (const u of view.uas) {
+        const c = SIDE_COLOR[view.enemySide];
+        const op = 0.3 + 0.65 * u.confidence;
+        const r = 2.2;
+        const box: Vec2[] = [];
+        for (let k = 0; k <= 12; k++) {
+          const a = (k / 12) * Math.PI * 2;
+          box.push({ x: u.pos.x + Math.cos(a) * r * 1.5, z: u.pos.z + Math.sin(a) * r * 1.5 });
+        }
+        draw(box, c, op);
+        draw([{ x: u.pos.x - r, z: u.pos.z - r }, { x: u.pos.x + r, z: u.pos.z + r }], c, op);
+        draw([{ x: u.pos.x - r, z: u.pos.z + r }, { x: u.pos.x + r, z: u.pos.z - r }], c, op);
+        if (u.posError > 3) {
+          const err: Vec2[] = [];
+          for (let k = 0; k <= 24; k++) {
+            const a = (k / 24) * Math.PI * 2;
+            err.push({ x: u.pos.x + Math.cos(a) * u.posError, z: u.pos.z + Math.sin(a) * u.posError });
+          }
+          draw(err, c, op * 0.4);
+        }
+      }
       for (let k = n; k < MAX_DEF_LINES; k++) defLines[k]!.visible = false;
     }
 

@@ -48,6 +48,7 @@ import { assignFires } from "./fireControl.ts";
 import { decayedConfidence } from "../belief.ts";
 import { posErrorOf } from "../radio.ts";
 import { shieldStackOffsets, shieldUp, stackPoint } from "../shield.ts";
+import { runUasHide } from "./uasReact.ts";
 import type { Contact, FireteamMode, FireteamState, Soldier, Vec2 } from "../types.ts";
 
 type SoldierOrderAnchor = NonNullable<Soldier["order"]["anchor"]>;
@@ -174,6 +175,8 @@ export function commandSoldier(
   // issue のあとに設定する(担架搬送のように命令系統の外で拘束している場合は、
   // 上のガードでここへ来ないので変調が保たれる)。
   u.speedMul = 1;
+  // `[v7.5]` 伏せていた者は、動けと言われたら立つ(S-7)
+  if (u.prone && kind !== "hold") u.prone = false;
 
   const prev = u.order;
   const movingKind = kind === "move" || kind === "maneuver" || kind === "retreat" || kind === "evade";
@@ -788,6 +791,8 @@ export function fireteamAI(world: World): void {
     // 潰走・後退はここで済ませたので、それ以外の命令はFTからは出さない — 両方から出すと
     // 毎周期目的地が入れ替わり、経路が捨てられ続けて陣地へ辿り着けない
     if (mannesDefensivePost(world, ft)) continue;
+    // `[v7.5]` 対ドローンの隠蔽行動(S-7)。分隊が隠れていれば、前進・掃討の代わりに隠れる
+    if (runUasHide(world, ft, living)) continue;
 
     // FT内のバディペア(モック: i<2 が alpha、それ以外が bravo)
     const alpha = living.filter((_, i) => i < Math.ceil(living.length / 2));

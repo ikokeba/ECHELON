@@ -281,7 +281,7 @@ function activeReinforcement(scenario: Scenario, side: Side): ReinforcementSpec 
  * ときに「変化」として拾わないよう、null のまま始めて無線側が初回に写し取る。
  */
 export function newFlashWatch(): FlashWatch {
-  return { contact: false, commanderId: null, routed: 0, lastFlashTick: -1_000_000 };
+  return { contact: false, uas: false, commanderId: null, routed: 0, lastFlashTick: -1_000_000 };
 }
 
 /** 編成に存在する (陣営, 分隊, FT) の組ごとにコントローラを1つ生成する。 */
@@ -311,6 +311,7 @@ export function buildFireteams(scenario: Scenario, soldiers: Soldier[]): Firetea
       unitDest: new Map(),
       unitDestSince: new Map(),
       memory: new Map(),
+      uas: new Map(),
       searchPoint: null,
       objective: { ...objective },
       advanceDir: { ...advanceDir },
@@ -347,6 +348,7 @@ export function buildSquads(scenario: Scenario, soldiers: Soldier[]): SquadState
       squadId: s.squadId,
       platoonId: spec?.platoonId ?? s.platoonId,
       belief: new Map(),
+      uas: new Map(),
       technique: "traveling",
       objective: { ...(spec?.objective ?? { x: 0, z: 0 }) },
       mission: { kind: "seize", target: { ...(spec?.objective ?? { x: 0, z: 0 }) } },
@@ -366,6 +368,8 @@ export function buildSquads(scenario: Scenario, soldiers: Soldier[]): SquadState
       flashWatch: newFlashWatch(),
       smokes: SMOKE.PER_SQUAD,
       lastSmokeTick: -1_000_000,
+      uasReact: null,
+      uasReactEndTick: -1_000_000,
     });
   }
   return [...seen.values()];
@@ -388,6 +392,7 @@ export function buildPlatoons(scenario: Scenario, soldiers: Soldier[]): PlatoonS
       platoonId: s.platoonId,
       companyId: spec?.companyId ?? s.companyId,
       belief: new Map(),
+      uas: new Map(),
       squadObjectives: new Map(),
       squadMissions: new Map(),
       squadTechniques: new Map(),
@@ -458,6 +463,7 @@ function buildCompanies(scenario: Scenario, soldiers: Soldier[]): CompanyState[]
       side: s.side,
       companyId: s.companyId,
       belief: new Map(),
+      uas: new Map(),
       cp: { ...cp },
       platoonObjectives: new Map(),
       platoonMissions: new Map(),

@@ -16,6 +16,8 @@ export const DEFAULT_SYSTEM_PROMPT = `あなたは見下ろし型の戦術シミ
 - objectives が拠点。owner は "own"(自軍)/ "enemy"(敵)/ null(中立)。拠点の過半数を保持し続けると勝つ。
 - contacts は**あなたが把握している敵**で、真の位置ではない。中隊長・小隊長の情報は無線報告なので数十秒遅れ、
   posError(m)だけずれている。confidence が低いほど古い。heard: true は銃声で聞いただけの接触で、方角しか確かでない。
+- uas は**敵ドローン**の像で、contacts とは別(兵士ではない。迫撃砲や射撃の目標にはならない)。
+  見つけた分隊から無線で上がる。heard: true は羽音だけで気づいたもの。いれば上から見られていると考える。
 - subordinates が麾下の部隊。unit を命令に使う。effective/total は健在/編成の人数。ageSec は報告の古さ。
 - you.advanceDir は自軍の前進方向(敵の方角の目安)。
 - lastResult は前回あなたが出した命令の処理結果。却下された命令があれば直すこと。
@@ -34,6 +36,8 @@ export const DEFAULT_SYSTEM_PROMPT = `あなたは見下ろし型の戦術シミ
     煙は円の中を通る視線を遮る。敵に見られながら開けた場所を渡るときは、敵と自分のあいだへ焚く。分隊長から throwRange m 以内だけ
 - {"type":"drone","target":{"x":数値,"z":数値}} … 観測ドローンを地点の上へ飛ばす(中隊長のみ。observation.drone があるときだけ)。
     見たものは操縦手から無線で遅れて contacts に入る。古くなった像を新しくしたいところ・迫撃砲で撃ちたいところへ
+- {"type":"uas_cover"} … 敵ドローンから身を隠す(分隊長のみ)。近くの建物へ入る・伏せる・煙を焚いて渡るのどれかを分隊が選ぶ。
+    前進は止まるが、迫撃砲の目標になりにくい。ドローンが去れば終わる。{"type":"uas_cover","cancel":true} で取り消す
 - {"type":"anti_armor","target":{"x":数値,"z":数値}} … 対戦車・対構造物火器を撃たせる(分隊長のみ。observation.antiArmor があるときだけ)。
     射手から見えている点へ。窓・射撃壕・機関銃陣地にこもった敵に使う。弾は少ない
 - {"type":"plan","op":"...", ...} … 立案中(observation.phase が "planning")の中隊長だけ。observation.plan の作戦を書き換える。

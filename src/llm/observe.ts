@@ -15,7 +15,7 @@ import { platoonName } from "../sim/c2/planning.ts";
 import { reinforcementsLeft, topCommandOf } from "../sim/systems/reinforcement.ts";
 import { isOffField } from "../sim/systems/litter.ts";
 import { fireMissionCooldownLeft, mortarMagazine } from "../sim/systems/indirect.ts";
-import { ANTI_ARMOR, DRONE, MORTAR, SIM_HZ, SMOKE } from "../sim/constants.ts";
+import { ANTI_ARMOR, DRONE, MORTAR, SIM_HZ, SMOKE, UAS_REACT } from "../sim/constants.ts";
 import { smokeCooldownLeft, smokeThrower } from "../sim/systems/smoke.ts";
 import { sideDoctrine } from "../sim/world.ts";
 import type { Contact, Side, Vec2 } from "../sim/types.ts";
@@ -60,6 +60,15 @@ function contactsOf(world: World, belief: Iterable<Contact>): ObsContact[] {
     ...(c.count !== undefined ? { count: c.count } : {}),
     ...(c.heard ? { heard: true } : {}),
   }));
+}
+
+/**
+ * 敵ドローンの像(`[v7.5]` S-6)。兵士の接触とは別の欄に載せる。無ければ欄ごと付けない
+ * (見た接触と同じ形。heard は羽音だけで気づいたもので、位置が粗い)
+ */
+function uasOf(world: World, uas: Iterable<Contact>): { uas?: ObsContact[] } {
+  const list = contactsOf(world, uas);
+  return list.length > 0 ? { uas: list } : {};
 }
 
 /**
@@ -154,6 +163,12 @@ function baseSpecs(seat: AgentSeat): CommandSpec[] {
         "射手から見えている点へ。爆風は遮蔽・窓・壕の補正を受けず、射撃壕・機関銃陣地を壊す。弾は少ない",
     },
     {
+      type: "uas_cover",
+      description:
+        "敵ドローンから身を隠す(observation.uasCover を見る)。近くの建物へ入る・伏せる・行く手に煙を焚いて渡る、" +
+        "のどれかを分隊が自分で選ぶ。前進は止まる。ドローンが去れば自然に終わる。cancel: true で取り消す",
+    },
+    {
       type: "casevac",
       description: "止血済みの負傷者を担架で後送する(担架要員2〜4名が一時的に抜ける)",
     },
@@ -240,6 +255,7 @@ export function buildObservation(
             state: drone.state,
             pos: rv(drone.pos),
             batteriesLeft: drone.batteriesLeft,
+            ...(drone.shotDown ? { shotDown: true } : {}),
             flightSec:
               drone.state === "flying" || drone.state === "returning" ? r1(drone.flightTicksLeft / SIM_HZ) : null,
             viewRadius: DRONE.VIEW_RADIUS,
@@ -310,6 +326,7 @@ export function buildObservation(
       },
       subordinates: subs,
       contacts: contactsOf(world, co.belief.values()),
+      ...uasOf(world, co.uas.values()),
     };
   }
 
@@ -348,6 +365,7 @@ export function buildObservation(
       },
       subordinates: subs,
       contacts: contactsOf(world, pl.belief.values()),
+      ...uasOf(world, pl.uas.values()),
     };
   }
 
@@ -400,6 +418,13 @@ export function buildObservation(
           },
         }
       : {}),
+    uasCover: sq.uasReact
+      ? {
+          kind: sq.uasReact.kind,
+          sinceSec: r1((world.tick - sq.uasReact.sinceTick) / SIM_HZ),
+          releaseSec: UAS_REACT.RELEASE_SEC,
+        }
+      : null,
     smoke: {
       left: sq.smokes,
       cooldownSec: r1(smokeCooldownLeft(world, sq) / SIM_HZ),
@@ -422,5 +447,6 @@ export function buildObservation(
     },
     subordinates: subs,
     contacts: contactsOf(world, sq.belief.values()),
+    ...uasOf(world, sq.uas.values()),
   };
 }

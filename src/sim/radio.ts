@@ -168,12 +168,14 @@ export function radioSystem(world: World): void {
         const pl = world.platoons.find((p) => p.side === r.side && p.platoonId === r.toUnitId);
         if (pl) {
           for (const c of r.contacts) mergeContact(pl.belief, c);
+          for (const c of r.uas ?? []) mergeContact(pl.uas, c);
           storeSubordinate(pl.squadReports, r.fromUnitId, r);
         }
       } else if (r.fromEchelon === "platoon") {
         const co = world.companies.find((c) => c.side === r.side && c.companyId === r.toUnitId);
         if (co) {
           for (const c of r.contacts) mergeContact(co.belief, c);
+          for (const c of r.uas ?? []) mergeContact(co.uas, c);
           storeSubordinate(co.platoonReports, r.fromUnitId, r);
         }
       }
@@ -189,16 +191,21 @@ export function radioSystem(world: World): void {
     );
     for (const ft of fireteams) {
       for (const c of ft.memory.values()) mergeContact(sq.belief, c);
+      // 敵ドローン(`[v7.5]` S-6)も同じく麾下FTの合算。兵士の接触とは別の地図に置く
+      for (const c of ft.uas.values()) mergeContact(sq.uas, c);
     }
     decayBelief(sq.belief, world.tick);
+    decayBelief(sq.uas, world.tick);
   }
 
   // ── 3. 小隊長・中隊長のbeliefを減衰させる(中身は無線経由でしか増えない) ──
   for (const pl of world.platoons) {
     decayBelief(pl.belief, world.tick);
+    decayBelief(pl.uas, world.tick);
   }
   for (const co of world.companies) {
     decayBelief(co.belief, world.tick);
+    decayBelief(co.uas, world.tick);
   }
   for (const d of world.drones) {
     decayBelief(d.belief, world.tick);
@@ -211,6 +218,7 @@ export function radioSystem(world: World): void {
     // 臨時報告(`[v7.3]` A-8)。重要な変化があれば定時を待たずに今送る
     const flash = flashReasons(world, sq.flashWatch, {
       contact: hasFirmContact(sq.belief),
+      uas: hasFirmContact(sq.uas),
       commanderId: sq.commanderId,
       routed: routedFireteams(world, sq.side, (squadId) => squadId === sq.squadId),
     });
@@ -231,6 +239,7 @@ export function radioSystem(world: World): void {
       sentTick: world.tick,
       deliverTick: world.tick + Math.round(RADIO_LATENCY_TICKS * doc.radioLatencyMul),
       contacts: selectContactsForReport(sq.belief),
+      ...uasOf(sq.uas),
       ...(flash ? { flash } : {}),
       ownStatus: {
         effective: effective.length,
@@ -256,6 +265,7 @@ export function radioSystem(world: World): void {
     );
     const flash = flashReasons(world, pl.flashWatch, {
       contact: hasFirmContact(pl.belief),
+      uas: hasFirmContact(pl.uas),
       commanderId: pl.commanderId,
       routed: routedFireteams(world, pl.side, (squadId) => squadIds.has(squadId)),
     });
@@ -283,6 +293,7 @@ export function radioSystem(world: World): void {
       deliverTick:
         world.tick + Math.round(RADIO_LATENCY_TICKS * latencyMul * plDoc.radioLatencyMul),
       contacts: selectContactsForReport(pl.belief),
+      ...uasOf(pl.uas),
       ...(flash ? { flash } : {}),
       ownStatus: {
         effective: effective.length,
@@ -308,6 +319,7 @@ function droneReports(world: World): void {
     const doc = sideDoctrine(world, d.side);
     const flash = flashReasons(world, d.flashWatch, {
       contact: hasFirmContact(d.belief),
+      uas: false,
       commanderId: d.flashWatch.commanderId,
       routed: 0,
     });
@@ -325,6 +337,16 @@ function droneReports(world: World): void {
       ownStatus: { effective: 1, total: 1, posCentroid: { ...op.pos }, posLead: { ...op.pos } },
     });
   }
+}
+
+/**
+ * 報告に載せる敵ドローンの接触(`[v7.5]` S-6)。兵士の接触と同じ選び方・粒度の低下で、
+ * 別の欄(`uas`)に入れる。無ければ欄ごと付けない
+ */
+function uasOf(uas: Map<string, Contact>): { uas?: Contact[] } {
+  if (uas.size === 0) return {};
+  const list = selectContactsForReport(uas);
+  return list.length > 0 ? { uas: list } : {};
 }
 
 /** 確かな接触(確度が FTの CONTACT 判定と同じ線を超える)を1件でも持っているか */
@@ -347,6 +369,7 @@ function routedFireteams(world: World, side: Side, inUnit: (squadId: number) => 
  *
  * 前回覚えた状態(`watch`)といまの状態を比べ、**変わったときだけ**立てる。
  *   - 接敵: 確かな接触が「無い → ある」。消えたほうは報告しない(定時で足りる)
+ *   - 敵ドローン(`[v7.5]` S-6): 確かなドローンの接触が「無い → ある」
  *   - 指揮官: 継いだ者が変わった。最初に席に着いたとき(前が null)は変化ではない
  *   - 潰走: 潰走しているFTが増えた
  * 間隔の下限(`MIN_GAP_SEC`)の内側で起きた変化は、`watch` を更新しないまま次に持ち越す。
@@ -355,10 +378,12 @@ function routedFireteams(world: World, side: Side, inUnit: (squadId: number) => 
 function flashReasons(
   world: World,
   watch: FlashWatch,
-  now: { contact: boolean; commanderId: number | null; routed: number },
+  now: { contact: boolean; uas: boolean; commanderId: number | null; routed: number },
 ): FlashReason[] | null {
   const reasons: FlashReason[] = [];
   if (now.contact && !watch.contact) reasons.push("contact");
+  // `[v7.5]` S-6 敵ドローンの探知。接敵と同じく「無い → ある」のときだけ
+  if (now.uas && !watch.uas) reasons.push("uas");
   if (watch.commanderId !== null && now.commanderId !== watch.commanderId) {
     reasons.push("commander");
   }
@@ -368,6 +393,7 @@ function flashReasons(
 
   // 送るか、知らせるほどでもない変化(接触が消えた・潰走が減った)なら、いまの状態を覚える
   watch.contact = now.contact;
+  watch.uas = now.uas;
   watch.commanderId = now.commanderId;
   watch.routed = now.routed;
   if (reasons.length === 0) return null;

@@ -26,6 +26,7 @@ import { commandFactor } from "./succession.ts";
 import { activateBuildingNav, sideDoctrine } from "../world.ts";
 import { exitCqb } from "./cqbDrill.ts";
 import { decideSmoke } from "../systems/smoke.ts";
+import { aiReactToUas, hideSquadLeader, hiding, updateUasReaction } from "./uasReact.ts";
 import { objectiveCoveringPoint, occupySlots } from "./objectiveHold.ts";
 import type { Contact, Door, Soldier, SquadState, Vec2 } from "../types.ts";
 
@@ -517,6 +518,8 @@ export function squadAI(world: World): void {
   const idx = indexLiving(world);
 
   for (const sq of world.squads) {
+    // `[v7.5]` 対ドローンの隠蔽行動(S-7)は、ドローンが去れば座席に誰が座っていても終わる
+    updateUasReaction(world, sq);
     // 人間が操作している分隊長のAIは止める(仕様 §4)
     if (aiSuppressed(world, "squad", sq.side, sq.squadId)) continue;
     // 指揮継承直後は判断周期が伸びる(仕様 §12: 命令解釈の冗長化・新規戦術判断不可)
@@ -533,13 +536,16 @@ export function squadAI(world: World): void {
     decidedThisTick.add(sq.squadId);
 
     directFireteams(world, sq, idx);
+    // `[v7.5]` ドローンに気づいたら隠れる(S-7)。隠れている間は突入も発煙もしない
+    aiReactToUas(world, sq);
+    const hidden = hiding(sq);
     // 建物のバトルドリル(仕様 §7.2)は通常の火力/機動の割り当てより優先する。
     // 建物へ突入する局面では、屋外の側面攻撃ではなく突入と支援の分担が正しい。
     // ただし踏み込まない任務(support_by_fire / screen)では突入しない。
-    if (sq.mission.kind === "seize") directBuildingAssault(world, sq, idx);
+    if (sq.mission.kind === "seize" && !hidden) directBuildingAssault(world, sq, idx);
     decideCasevac(world, sq);
     // `[v7.2]` 煙で隠して渡る(ロードマップ S-2)。判断は分隊長の belief だけで行う
-    decideSmoke(world, sq);
+    if (!hidden) decideSmoke(world, sq);
   }
 
   // ── 分隊長自身の位置取り ──
@@ -559,6 +565,8 @@ export function squadAI(world: World): void {
     // 隊列から引き剥がして後方へ下げると、FT側の隊形と射線が崩れるうえ、
     // fireteamAI が同じティックで命令を上書きし合って挙動が振動する。
     if (sl.fireteamId >= 0) continue;
+    // `[v7.5]` 分隊が隠れていれば、分隊長も隊員と同じく隠れる(S-7)
+    if (hideSquadLeader(world, sq, sl)) continue;
 
     const squad = world.soldiers.filter(
       (s) =>

@@ -13,6 +13,8 @@ import { combatSystem } from "./systems/combat.ts";
 import { hearingSystem } from "./systems/hearing.ts";
 import { antiArmorSystem } from "./systems/antiArmor.ts";
 import { droneSystem } from "./systems/drone.ts";
+import { uasDetectionSystem } from "./systems/uasDetect.ts";
+import { uasShootSystem } from "./systems/uasShoot.ts";
 import { indirectSystem } from "./systems/indirect.ts";
 import { windowsSystem } from "./systems/windows.ts";
 import { casualtiesSystem } from "./systems/casualties.ts";
@@ -52,6 +54,9 @@ export function stepWorld(world: World): void {
   perceptionSystem(world);
   // 1.5 観測ドローン(`[v7.3]` A-2)。見たものは操縦手の記憶へ入り、次の無線で中隊長へ上がる
   droneSystem(world);
+  // 1.6 地上からドローンに気づく(`[v7.5]` S-6)。動いたあとのドローンを見る・聞く。
+  //     気づいたことはFTの記憶(兵士の接触とは別の `uas`)へ入り、このティックの無線に乗る
+  uasDetectionSystem(world);
   // 2. 無線 — 報告の到達、各階層 belief の更新と確度減衰、定時報告の送信(仕様 §5)。
   //    C2より先に走らせることで、各階層は「このティック時点で自分が知り得る情報」で判断する。
   radioSystem(world);
@@ -83,6 +88,8 @@ export function stepWorld(world: World): void {
   // 対戦車・対構造物火器(`[v7.3]` A-3)。迫撃砲と同じく戦闘判定の前に着弾させる
   antiArmorSystem(world);
   combatSystem(world);
+  // 8.2 ドローンの撃墜(`[v7.5]` A-10)。捉えているドローンを撃つ。銃声は次の音の判定に乗る
+  uasShootSystem(world);
   // 8.5 音(`[v7.3]` A-5)。このティックの銃声を、見えていない敵の粗い接触としてFTの記憶へ
   hearingSystem(world);
   // 9. 死傷 — 出血タイマーの進行、応急手当(仕様 §9 前半)

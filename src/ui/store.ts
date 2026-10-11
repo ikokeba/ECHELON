@@ -205,6 +205,8 @@ export interface HudSnapshot {
   fireSupport: Record<Side, HudFireSupport | null>;
   /** 発煙弾(`[v7.2]`)。分隊長を操作していなければ null */
   smoke: HudSmoke | null;
+  /** 対ドローンの隠蔽行動(`[v7.5]` S-7)。分隊長を操作していなければ null */
+  uasCover: HudUasCover | null;
   /** 対戦車・対構造物火器(`[v7.3]` A-3)。分隊長を操作していて、分隊に射手がいるときだけ */
   antiArmor: HudAntiArmor | null;
   /** 観測ドローン(`[v7.3]` A-2)。中隊長を操作していて、中隊がドローンを持つときだけ */
@@ -234,6 +236,14 @@ export interface HudAntiArmor {
 }
 
 /** 発煙弾の表示(`[v7.2]` ロードマップ S-2)。人間が分隊長を操作しているときだけ */
+/** 対ドローンの隠蔽行動の表示(`[v7.5]` ロードマップ S-7) */
+export interface HudUasCover {
+  /** 取っている行動の日本語名。行動していなければ null */
+  active: string | null;
+  /** 分隊の像に、新しい(10秒以内)敵ドローンの接触がある */
+  uasNear: boolean;
+}
+
 export interface HudSmoke {
   left: number;
   total: number;
@@ -534,6 +544,10 @@ interface UiState extends HudSnapshot {
   /** 後援部隊の要請(`[v7.0]`)。runtime が nonce の変化を見て1回だけ適用する */
   reinforceNonce: number;
   requestReinforcement: () => void;
+  /** 対ドローンの隠蔽行動の命令・取り消し(`[v7.5]` S-7)。runtime が nonce の変化を見て1回だけ適用する */
+  uasCoverNonce: number;
+  uasCoverOn: boolean;
+  requestUasCover: (on: boolean) => void;
   select: (id: number | null) => void;
   setViewSide: (side: Side) => void;
   setViewEchelon: (e: ViewEchelon) => void;
@@ -638,9 +652,12 @@ export const useSimStore = create<UiState>((set, get) => ({
   reinforcement: { blue: null, red: null },
   fireSupport: { blue: null, red: null },
   smoke: null,
+  uasCover: null,
   antiArmor: null,
   drone: null,
   reinforceNonce: 0,
+  uasCoverNonce: 0,
+  uasCoverOn: false,
 
   paused: false,
   speedIdx: RUN_SPEEDS.indexOf(1) >= 0 ? RUN_SPEEDS.indexOf(1) : 0,
@@ -744,6 +761,7 @@ export const useSimStore = create<UiState>((set, get) => ({
   setSpeedIdx: (i) => set({ speedIdx: Math.max(0, Math.min(RUN_SPEEDS.length - 1, i)), paused: false }),
   requestStep: () => set((s) => ({ stepNonce: s.stepNonce + 1 })),
   requestReinforcement: () => set((s) => ({ reinforceNonce: s.reinforceNonce + 1 })),
+  requestUasCover: (on) => set((s) => ({ uasCoverNonce: s.uasCoverNonce + 1, uasCoverOn: on })),
   select: (id) => set({ selectedSoldierId: id }),
   setViewSide: (side) => set({ viewSide: side }),
   setViewEchelon: (e) => set({ viewEchelon: e }),

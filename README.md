@@ -157,6 +157,13 @@ barbed wire, a forward position and an ambush.
 - **Observation drone.** The company radio operator flies a small drone that sees a narrow circle from
   above, but what it sees reaches only the company commander, late, over the radio. The commander's
   picture gets fresher while the forward squads' stays old.
+- **Counter-drone.** Soldiers spot a drone by eye (80 m) and by its buzz (120 m). What they notice is
+  kept apart from enemy-soldier contacts and goes up the radio late, like everything else. The ground
+  sees farther than the drone does, so the ground usually notices first. A squad that notices one
+  ducks into a nearby building, smokes its way across open ground, or goes prone, and stops advancing.
+  The drone spots movers at once, but takes a few seconds to pick out men lying still. Drones can be
+  shot down (rarely with a rifle, readily with a counter-drone kit), but the shots give the shooter away.
+  Watching a drone fly home to change batteries gives a rough bearing to its operator.
 - **Anti-armour weapons.** One gunner per rifle squad carries two rounds that break enemies dug in
   behind windows, fighting positions and machine-gun posts, cover and all (the position is destroyed).
   AI, humans and LLMs fire them under the same rules.

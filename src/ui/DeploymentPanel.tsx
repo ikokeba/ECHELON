@@ -198,6 +198,17 @@ export function DeploymentPanel() {
                 </label>
                 <label
                   className="dbg-chk"
+                  title="対ドローン装備(`[v7.5]`)。小銃分隊に1名(ブラボー組のFTリーダー)。近く(高さ込みで40m 以内)のドローンを撃ち落としやすい。撃てば銃声で位置が知られる。既定はなし"
+                >
+                  <input
+                    type="checkbox"
+                    checked={spec.counterUas === true}
+                    onChange={(e) => setForce(side, { counterUas: e.target.checked })}
+                  />
+                  <span>対ドローン</span>
+                </label>
+                <label
+                  className="dbg-chk"
                   title="後援部隊(暫定仕様)。最上位の指揮官が要請すると、時間をおいて後方に分隊/小隊が現れる"
                 >
                   <input

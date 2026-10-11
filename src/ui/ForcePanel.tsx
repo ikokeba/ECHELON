@@ -39,6 +39,8 @@ export function ForcePanel() {
   const fire = s.fireSupport[viewSide];
   // 発煙弾(`[v7.2]`)。分隊長を操作しているときだけ
   const smoke = s.smoke;
+  // 対ドローンの隠蔽行動(`[v7.5]` S-7)。分隊長を操作しているときだけ
+  const cover = s.uasCover;
   // 対戦車・対構造物火器(`[v7.3]` A-3)。分隊長を操作していて射手がいるときだけ
   const at = s.antiArmor;
   // 観測ドローン(`[v7.3]` A-2)。中隊長を操作しているときだけ
@@ -136,6 +138,24 @@ export function ForcePanel() {
             title="押してから盤面をクリックした地点へ焚く(分隊長から30m以内。もう一度押すと取り消し)"
           >
             {s.armed === "smoke" ? "地点を選択…" : "発煙"}
+          </button>
+        </div>
+      )}
+      {cover && (
+        <div
+          className="force-detail force-reinf"
+          title="対ドローンの隠蔽行動(`[v7.5]`)。近くの建物へ入る・伏せる・行く手に煙を焚いて渡る、のどれかを分隊長が選ぶ。前進は止まる。ドローンが20秒見えなければ終わる"
+        >
+          <span>
+            {cover.active ? `隠蔽中: ${cover.active}` : cover.uasNear ? "敵ドローン探知" : "敵ドローン なし"}
+          </span>
+          <button
+            type="button"
+            className={`seg-btn${cover.active ? " seg-on" : ""}`}
+            onClick={() => s.requestUasCover(!cover.active)}
+            title={cover.active ? "隠蔽をやめて前進に戻る" : "いま隠れる(ドローンが見えていなくても命じられる)"}
+          >
+            {cover.active ? "隠蔽をやめる" : "ドローンから隠れる"}
           </button>
         </div>
       )}

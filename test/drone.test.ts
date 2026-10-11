@@ -85,6 +85,9 @@ describe("ドローンが見たものの流れ(`[v7.3]` A-2、§5 / P1)", () => 
     inside.pos = { x: (b.minX + b.maxX) / 2, z: (b.minZ + b.maxZ) / 2 };
     const op = w.soldierById.get(d.operatorId)!;
     outside.pos = { x: op.pos.x, z: op.pos.z + 60 };
+    // `[v7.5]` A-9: 動いている者は確実に見る(止まっている者は確率)
+    outside.path = [{ x: outside.pos.x + 5, z: outside.pos.z }];
+    outside.pathIdx = 0;
     taskDrone(w, co, outside.pos);
     d.pos = { ...outside.pos };
     w.tick++;

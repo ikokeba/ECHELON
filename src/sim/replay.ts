@@ -36,7 +36,8 @@ export type OrderFn =
   | "orderFireMission"
   | "orderSmoke"
   | "orderAntiArmor"
-  | "orderDrone";
+  | "orderDrone"
+  | "orderUasReact";
 
 export interface ReplayState {
   control: ControlState | null;
